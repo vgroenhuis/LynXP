@@ -1,0 +1,15 @@
+## IDF Component Manager Manifest File
+##
+## espressif/led_strip is intentionally still not listed -- see
+## board_pins.hpp's RGB LED note (out of scope, S3 firmware never drove it
+## either).
+dependencies:
+  idf:
+    version: '>=5.5'
+  joltwallet/littlefs: '~1.22'
+  espressif/mdns: '~1.8'
+  espressif/cjson: '^1.7.19'
+  espressif/qrcode: '^0.2.0'
+  nopnop2002/ssd1306:
+    git: https://github.com/nopnop2002/esp-idf-ssd1306.git
+    path: components/ssd1306

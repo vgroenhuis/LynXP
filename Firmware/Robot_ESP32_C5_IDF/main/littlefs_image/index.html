@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LynXP controller</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav class="top-nav">
+    <a href="/" class="nav-link active">Main</a>
+    <a href="/cam" class="nav-link">First-person view</a>
+  </nav>
+  <div id="reboot-notice" class="reboot-notice" style="display:none" title="Click to dismiss">
+    &#9888; The robot's last reboot was triggered by the watchdog (a hang was detected and it recovered automatically). <span class="reboot-notice-dismiss">(click to dismiss)</span>
+  </div>
+  <div class="container">
+      <details class="panel" id="panel-map" open>
+        <summary>Map</summary>
+        <div class="panel-body">
+          <div class="map-group">
+            <canvas id="map" width="360" height="360"></canvas>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-status" open>
+        <summary>Status</summary>
+        <div class="panel-body">
+          <div id="ws-status">connecting...</div>
+          <div id="ws-clients"></div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-speedometer" open>
+        <summary>Speedometer</summary>
+        <div class="panel-body">
+          <div class="speedometer-group">
+            <canvas id="speedometerGauge" width="280" height="170"></canvas>
+          </div>
+          <div class="form-group inline-group">
+            <label for="speedometerMaxCmPerSec">Max speed (cm/s):</label>
+            <input type="number" id="speedometerMaxCmPerSec" min="1" step="10" value="50">
+          </div>
+          <div class="form-group inline-group">
+            <label for="speedometerMajorTickCmPerSec">Major tick interval (cm/s):</label>
+            <input type="number" id="speedometerMajorTickCmPerSec" min="0.1" step="1" value="5">
+          </div>
+          <div class="form-group inline-group">
+            <label for="speedometerMinorTickCmPerSec">Minor tick interval (cm/s):</label>
+            <input type="number" id="speedometerMinorTickCmPerSec" min="0.1" step="1" value="1">
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-actions" open>
+        <summary>Actions</summary>
+        <div class="panel-body">
+          <div class="action-buttons">
+            <button id="resetPoseBtn">Reset position to home</button>
+            <button id="resetOrientationBtn">Reset robot+control orientation to zero</button>
+            <button id="clearPathBtn">Clear path</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-s3cam">
+        <summary>S3 CAM</summary>
+        <div class="panel-body">
+          <a id="s3camAdminLink" href="#" target="_blank" rel="noopener">Open cam page</a>
+          <div id="s3camDiagBlock" class="diag-grid" title="Relayed from the cam over its UART link to this board, plus this board's own live ping to it -- helps tell apart WiFi, a cam reboot/brownout, or the camera's own capture bus glitching as the cause of a stuttering stream.">
+            <span>Reset reason:</span><span id="s3camResetReason">-</span>
+            <span>Reboots:</span><span id="s3camReboots">-</span>
+            <span>RSSI:</span><span id="s3camRssi">-</span>
+            <span>Capture fails:</span><span id="s3camFailCount">-</span>
+            <span>Uptime:</span><span id="s3camUptime">-</span>
+            <span>Free heap:</span><span id="s3camHeap">-</span>
+            <span>Stream clients:</span><span id="s3camClients">-</span>
+            <span>Ping avg/last:</span><span id="s3camPing">-</span>
+            <span>Ping loss:</span><span id="s3camPingLoss">-</span>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-motor-joystick">
+        <summary>Motor joystick</summary>
+        <div class="panel-body">
+          <div id="joystickContainer" class="joystick-container">
+            <div id="joystickKnob" class="joystick-knob"></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-control-frame-joystick" open>
+        <summary>Control-frame joystick</summary>
+        <div class="panel-body">
+          <div id="joystickContainer2" class="joystick-container">
+            <div id="joystickKnob2" class="joystick-knob"></div>
+          </div>
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="controlFrameAllowReverse">Allow driving backwards</label>
+            <label><input type="checkbox" id="servoFollowControlFrame">Keep camera facing forward (pan-servo platform)</label>
+          </div>
+          <div class="form-group">
+            <label for="controlFrameRotationStrategy">Rotation strategy:</label>
+            <select id="controlFrameRotationStrategy" title="Closest face: minimizes rotation, chassis front can end up facing anywhere. Fixed front/back halves: chassis front always stays within 90 deg of the control frame's forward - needed for the camera to keep tracking forward.">
+              <option value="closest_face">Closest face</option>
+              <option value="fixed_hemisphere">Fixed front/back halves</option>
+            </select>
+          </div>
+          <div class="form-group inline-group">
+            <label for="servoMaxRotationRateDegPerSec" title="Caps the chassis's own rotation rate to what the pan-servo can visually track while compensating (only while 'Keep camera facing forward' is on). The camera-control joystick's rotate axis is unaffected -- it's already bounded by the robot's own max physical spin speed.">Max servo tracking rate (deg/s):</label>
+            <input type="number" id="servoMaxRotationRateDegPerSec" min="1" max="1000" step="5">
+          </div>
+          <div class="form-group inline-group">
+            <label for="servoAssistMarginDeg" title="Once the servo's needed angle comes within this many degrees of its +/-90 deg endstop, the chassis starts rotating to help it re-center.">Base-assist margin (deg):</label>
+            <input type="number" id="servoAssistMarginDeg" min="0" max="90" step="1">
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-camera-control-joystick" open>
+        <summary>Camera control (rotate + tilt)</summary>
+        <div class="panel-body">
+          <div id="cameraControlJoystick" class="joystick-container camera-control-joystick">
+            <div id="cameraControlKnob" class="joystick-knob"></div>
+          </div>
+          <div class="camera-control-caption">Both axes are rate controls, like a game controller's look stick -- left/right rotates the reference frame, up/down tilts the camera, both at a speed proportional to deflection. Releasing stops the movement; the camera stays where it ended up.</div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-camera-behaviour">
+        <summary>Camera pan/tilt behaviour</summary>
+        <div class="panel-body">
+          <div class="form-group inline-group">
+            <label for="panMaxSpeedDegPerSec" title="How fast the camera control joystick's left/right axis rotates the reference frame at full deflection. Independent of the chassis's physical spin capability, which is still used as a ceiling for the endstop-assist behaviour.">Max pan speed (deg/s):</label>
+            <input type="number" id="panMaxSpeedDegPerSec" min="1" max="1000" step="5">
+          </div>
+          <div class="form-group inline-group">
+            <label for="tiltMaxSpeedDegPerSec" title="How fast the camera control joystick's up/down axis tilts the camera at full deflection.">Max tilt speed (deg/s):</label>
+            <input type="number" id="tiltMaxSpeedDegPerSec" min="1" max="1000" step="5">
+          </div>
+          <div class="form-group">
+            <label for="cameraJoystickCurve" title="Linear: turn rate is directly proportional to how far the stick is pushed. Quadratic: gentler near center for fine aiming, reaching the same max speed at full deflection -- the common 'look sensitivity curve' in FPS games.">Joystick response curve:</label>
+            <select id="cameraJoystickCurve">
+              <option value="linear">Linear</option>
+              <option value="quadratic">Quadratic</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-lab-actions">
+        <summary>Lab actions</summary>
+        <div class="panel-body">
+          <h4>Lab 1</h4>
+          <div class="lab1-buttons">
+            <button id="forwardBtn">Lab1 fwd</button>
+            <button id="backwardBtn">Lab1 back</button>
+          </div>
+
+          <h4>Lab 2</h4>
+          <div class="lab2-buttons">
+            <button id="lab2SetpointB">Lab2 rev<br>Setpoint-0.5m</button>
+            <button id="lab2SetpointA">Lab2 fwd<br>Setpoint+0.5m</button>
+            <button id="lab2Left">Lab2 left<br>-90 deg</button>
+            <button id="lab2Right">Lab2 right<br>+90 deg</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-pid-parameters">
+        <summary>Lab 2 PID parameters</summary>
+        <div class="panel-body">
+          <div class="slider-group">
+            <div class="inline-group">
+              <label for="kp">Kp:</label>
+              <input type="number" id="kpVal">
+            </div>
+            <input type="range" id="kp" min="0" max="1000" step="0.1">
+            <div class="inline-group">
+              <label for="ki">Ki:</label>
+              <input type="number" id="kiVal">
+            </div>
+            <input type="range" id="ki" min="0" max="100" step="0.1">
+            <div class="inline-group">
+              <label for="kd">Kd:</label>
+              <input type="number" id="kdVal">
+            </div>
+            <input type="range" id="kd" min="-100" max="100" step="0.1">
+          </div>
+          <div class="form-group">
+            <label for="diffCutoff">Differentiator cutoff frequency (Hz):</label>
+            <input type="number" id="diffCutoff" min="0" step="1">
+          </div>
+          <div class="form-group">
+            <input type="checkbox" id="syncMotors"><label for="syncMotors">Sync motors (Lab 2)</label>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-position-controller">
+        <summary>Position controller</summary>
+        <div class="panel-body">
+          <div class="form-group inline-group">
+            <label for="maxWheelSpeedRevPerSec">Max wheel speed (rev/s):</label>
+            <input type="number" id="maxWheelSpeedRevPerSec" min="0.01" step="0.1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="maxAccelRevPerSec2">Max acceleration (rev/s&sup2;):</label>
+            <input type="number" id="maxAccelRevPerSec2" min="0.01" step="0.1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="maxDecelRevPerSec2">Max deceleration (rev/s&sup2;):</label>
+            <input type="number" id="maxDecelRevPerSec2" min="0.01" step="0.1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="gotoVelKp">Velocity Kp:</label>
+            <input type="number" id="gotoVelKp" step="1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="gotoVelKi">Velocity Ki:</label>
+            <input type="number" id="gotoVelKi" step="1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="feedForwardPwmPerRevPerSec">Feed-forward (PWM per rev/s):</label>
+            <input type="number" id="feedForwardPwmPerRevPerSec" min="0" step="0.01">
+          </div>
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="gotoAllowReverse">Allow driving backward to a clicked target</label>
+          </div>
+
+          <div class="form-group">
+            <h4>Manual velocity setpoint (test)</h4>
+            <div class="inline-group">
+              <label for="manualVelLeft">Left (rev/s):</label>
+              <input type="number" id="manualVelLeft" step="0.1" value="0">
+            </div>
+            <div class="inline-group">
+              <label for="manualVelRight">Right (rev/s):</label>
+              <input type="number" id="manualVelRight" step="0.1" value="0">
+            </div>
+            <button id="manualVelStopBtn">Stop (0, 0)</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-servo-test">
+        <summary>Servo test - Pan</summary>
+        <div class="panel-body">
+          <div class="slider-group">
+            <div class="inline-group">
+              <label for="servoAngleDegVal">Angle (deg):</label>
+              <input type="number" id="servoAngleDegVal" min="-90" max="90" step="1" value="0">
+            </div>
+            <input type="range" id="servoAngleDeg" min="-90" max="90" step="1" value="0">
+          </div>
+          <div id="servoPulseUsDisplay"></div>
+          <div class="action-buttons">
+            <button id="servoCenterBtn">Center (0&deg;)</button>
+          </div>
+
+          <div class="form-group inline-group">
+            <label for="servoMinAngleDeg" title="Most hobby servos have a 180 deg range (-90..+90), but some are 270 or even 360 -- set this to the pan servo's actual minimum angle.">Min angle (deg):</label>
+            <input type="number" id="servoMinAngleDeg" max="0" step="1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="servoMinPulseUs">Min pulse (us):</label>
+            <input type="number" id="servoMinPulseUs" min="0" max="19999" step="10">
+          </div>
+          <div class="form-group inline-group">
+            <label for="servoCenterPulseUs">Center pulse @ 0&deg; (us):</label>
+            <input type="number" id="servoCenterPulseUs" min="0" max="19999" step="10">
+          </div>
+          <div class="form-group inline-group">
+            <label for="servoMaxAngleDeg">Max angle (deg):</label>
+            <input type="number" id="servoMaxAngleDeg" min="0" step="1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="servoMaxPulseUs">Max pulse (us):</label>
+            <input type="number" id="servoMaxPulseUs" min="0" max="19999" step="10">
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-servo-test-tilt">
+        <summary>Servo test - Tilt</summary>
+        <div class="panel-body">
+          <div class="slider-group">
+            <div class="inline-group">
+              <label for="tiltAngleDegVal">Angle (deg):</label>
+              <input type="number" id="tiltAngleDegVal" step="1" value="0">
+            </div>
+            <input type="range" id="tiltAngleDeg" step="1" value="0">
+          </div>
+          <div id="tiltPulseUsDisplay"></div>
+          <div class="action-buttons">
+            <button id="tiltCenterBtn">Center (0&deg;)</button>
+          </div>
+
+          <div class="form-group inline-group">
+            <label for="tiltMinAngleDeg" title="Most hobby servos have a 180 deg range (-90..+90), but some are 270 or even 360 -- set this to the tilt servo's actual minimum angle.">Min angle (deg):</label>
+            <input type="number" id="tiltMinAngleDeg" max="0" step="1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="tiltMinPulseUs">Min pulse (us):</label>
+            <input type="number" id="tiltMinPulseUs" min="0" max="19999" step="10">
+          </div>
+          <div class="form-group inline-group">
+            <label for="tiltCenterPulseUs">Center pulse @ 0&deg; (us):</label>
+            <input type="number" id="tiltCenterPulseUs" min="0" max="19999" step="10">
+          </div>
+          <div class="form-group inline-group">
+            <label for="tiltMaxAngleDeg">Max angle (deg):</label>
+            <input type="number" id="tiltMaxAngleDeg" min="0" step="1">
+          </div>
+          <div class="form-group inline-group">
+            <label for="tiltMaxPulseUs">Max pulse (us):</label>
+            <input type="number" id="tiltMaxPulseUs" min="0" max="19999" step="10">
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-waypoints">
+        <summary>Waypoints</summary>
+        <div class="panel-body">
+          <table class="waypoints-table">
+            <thead>
+              <tr><th>Name</th><th>X (m)</th><th>Y (m)</th><th>Heading</th></tr>
+            </thead>
+            <tbody id="waypoints-tbody"></tbody>
+          </table>
+
+          <div class="action-buttons waypoints-actions">
+            <button id="waypointEditBtn" disabled>Edit</button>
+            <button id="waypointRemoveBtn" disabled>Remove</button>
+            <button id="waypointGotoBtn" disabled>Go To</button>
+            <button id="waypointSetPoseBtn" disabled>Set current pose here</button>
+          </div>
+          <div class="action-buttons waypoints-edit-actions" id="waypointEditActions" style="display:none">
+            <button id="waypointSaveBtn">Save</button>
+            <button id="waypointCancelBtn">Cancel</button>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="gotoPreserveHeading">Rotate to match waypoint heading after arriving</label>
+            <label><input type="checkbox" id="waypointAutoAdvance">Automatically go to next waypoint</label>
+          </div>
+          <div id="waypointAutoAdvanceStatus" class="waypoint-auto-advance-status"></div>
+
+          <div class="form-group inline-group">
+            <label for="waypointNewName">Name:</label>
+            <input type="text" id="waypointNewName" placeholder="e.g. Charging dock">
+          </div>
+          <div class="action-buttons">
+            <button id="waypointAddFromPoseBtn">Add from current pose</button>
+            <button id="waypointClearAllBtn">Clear all waypoints</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-camera-settings">
+        <summary>Camera page settings</summary>
+        <div class="panel-body">
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="camShowMapOverlay">Show map overlay in bottom-left corner</label>
+            <label><input type="checkbox" id="camShowFloorGrid">Show floor grid overlay</label>
+            <label><input type="checkbox" id="camShowMinorGrid" checked>Show 10cm minor grid lines</label>
+            <label><input type="checkbox" id="camShowWaypointsOverlay">Show waypoints overlay</label>
+          </div>
+          <div class="form-group inline-group">
+            <label for="camGridColor">Grid color:</label>
+            <input type="color" id="camGridColor" value="#28ff78">
+          </div>
+          <div class="form-group inline-group">
+            <label for="camGridOpacity">Grid opacity (%):</label>
+            <input type="number" id="camGridOpacity" min="0" max="100" step="5" value="90">
+          </div>
+          <div class="form-group">
+            <h4>Floor grid calibration</h4>
+            <div class="inline-group">
+              <label for="cameraHeightMm">Camera height (mm):</label>
+              <input type="number" id="cameraHeightMm" min="0" step="1">
+            </div>
+            <div class="inline-group">
+              <label for="cameraTiltDeg">Tilt below horizontal (deg):</label>
+              <input type="number" id="cameraTiltDeg" step="1">
+            </div>
+            <div class="inline-group">
+              <label for="cameraVerticalFovDeg">Vertical FOV (deg):</label>
+              <input type="number" id="cameraVerticalFovDeg" min="1" max="179" step="1">
+            </div>
+            <div id="cameraCalibrationHint" class="waypoint-auto-advance-status">
+              Height is measured; tilt and FOV are starting guesses - nudge them on the Camera page until the grid lines up with the real floor.
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-game-settings">
+        <summary>Game settings</summary>
+        <div class="panel-body">
+          <div class="inline-group">
+            <label for="fireballSpeedMps">Fireball speed (m/s):</label>
+            <input type="number" id="fireballSpeedMps" min="0.01" step="0.1">
+          </div>
+          <div class="inline-group">
+            <label for="monsterSpeedMps">Monster speed (m/s):</label>
+            <input type="number" id="monsterSpeedMps" min="0.01" step="0.05">
+          </div>
+          <div class="inline-group">
+            <label for="monsterCount">Monster count:</label>
+            <input type="number" id="monsterCount" min="0" max="10" step="1">
+          </div>
+          <div class="inline-group">
+            <label for="monsterStandoffDistanceM">Monster standoff distance (m):</label>
+            <input type="number" id="monsterStandoffDistanceM" min="0" step="0.05">
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-alternate-wifi">
+        <summary>Alternate Wi-Fi</summary>
+        <div class="panel-body">
+          <label>SSID: <input type="text" id="ssid"></label><br>
+          <label>Password: <input type="password" id="password"></label><br>
+          <button id="wifiConnectBtn">Connect</button>
+          <p id="wifi-status"></p>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-ota">
+        <summary>Firmware / Filesystem Update</summary>
+        <div class="panel-body">
+          <div class="form-group inline-group">
+            <label for="otaUsername">OTA username:</label>
+            <input type="text" id="otaUsername" autocomplete="off">
+          </div>
+          <div class="form-group inline-group">
+            <label for="otaPassword" title="Leave blank to disable authentication for /update and /update-fs.">OTA password:</label>
+            <input type="password" id="otaPassword" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <h4>App firmware (.bin)</h4>
+            <input type="file" id="fwFile" accept=".bin">
+            <button id="uploadFwBtn">Upload &amp; reboot</button>
+            <p id="otaStatus"></p>
+          </div>
+          <div class="form-group">
+            <h4>Website / data (littlefs image)</h4>
+            <input type="file" id="fsFile" accept=".bin">
+            <button id="uploadFsBtn">Upload &amp; reboot</button>
+            <p id="fsStatus"></p>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-settings">
+        <summary>Settings</summary>
+        <div class="panel-body">
+          <div class="form-group">
+            <h4>Panel layout</h4>
+            <div class="checkbox-group">
+              <label><input type="checkbox" id="lockPanelLayout">Lock layout (prevent panels from being dragged)</label>
+            </div>
+            <button id="resetPanelLayoutBtn">Reset panel layout</button>
+          </div>
+
+          <div class="form-group">
+            <label for="motorPower">Motor PWM limit:</label>
+            <input type="range" id="motorPower" min="0" max="1000" step="1">
+            <span id="motorPowerVal"></span>
+          </div>
+
+          <div class="form-group inline-group">
+            <label for="motorDeadzonePwm">Motor deadzone (PWM):</label>
+            <input type="number" id="motorDeadzonePwm" min="0" step="1">
+            <button id="calibrateDeadzoneBtn">Calibrate</button>
+          </div>
+          <div id="deadzoneCalibrationStatus" class="form-group"></div>
+
+          <div class="form-group">
+            <h4>Encoder count verification</h4>
+            <div class="inline-group">
+              <label for="encoderCalibrationWheel">Wheel:</label>
+              <select id="encoderCalibrationWheel">
+                <option value="0">Left</option>
+                <option value="1">Right</option>
+              </select>
+              <button id="calibrateEncoderCountBtn">Spin 10 revolutions</button>
+            </div>
+            <div id="encoderCalibrationStatus"></div>
+          </div>
+
+          <div class="form-group inline-group">
+            <label for="gotoSpeedGain">Goto speed gain (1/m):</label>
+            <input type="number" id="gotoSpeedGain" min="0.01" step="0.1">
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="ledToggle">Onboard LED</label>
+            <label><input type="checkbox" id="loggingEnabled">Data logging to serial</label>
+            <label><input type="checkbox" id="debugWeb">Debug web server</label>
+          </div>
+
+          <div class="form-group">
+            <label for="logType">Data to log:</label>
+            <select id="logType">
+              <option value="left_wheel">Left wheel only</option>
+              <option value="both_wheels">Left and right wheels</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="logUnit">Position units:</label>
+            <select id="logUnit">
+              <option value="steps">Encoder steps</option>
+              <option value="rad">Wheel rad</option>
+              <option value="deg">Wheel deg</option>
+              <option value="rev">Wheel rev</option>
+              <option value="dist">Distance</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="logRate">Serial data logging rate (Hz):</label>
+            <input type="number" id="logRate" min="0" step="10">
+          </div>
+
+          <div class="form-group">
+            <label for="telemetryHz">Live map update rate (Hz):</label>
+            <input type="number" id="telemetryHz" min="1" max="30" step="1">
+          </div>
+
+          <div class="form-group">
+            <h4>Geometry</h4>
+            <div class="inline-group">
+              <label for="wheelbaseMm">Wheelbase (mm):</label>
+              <input type="number" id="wheelbaseMm" min="0" step="1">
+            </div>
+            <div class="inline-group">
+              <label for="wheelDiameterMm">Wheel diameter (mm):</label>
+              <input type="number" id="wheelDiameterMm" min="0" step="1">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-diagnostics">
+        <summary>Diagnostics</summary>
+        <div class="panel-body">
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="rttDiagnosticsEnabled">Measure round-trip time</label>
+          </div>
+          <canvas id="rttGraph" width="280" height="100"></canvas>
+          <div id="rtt-stats"></div>
+
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="gotoDiagnosticsEnabled">Show position-controller graphs</label>
+          </div>
+
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">Wheel position (rev) - solid=actual, dashed=setpoint, blue=left, orange=right</div>
+            <canvas id="gotoWheelPosGraph" width="280" height="100"></canvas>
+            <div id="gotoWheelPosStats"></div>
+          </div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">Wheel velocity (rev/s)</div>
+            <canvas id="gotoWheelVelGraph" width="280" height="100"></canvas>
+            <div id="gotoWheelVelStats"></div>
+          </div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">World X (m) - solid=actual, dashed=goal</div>
+            <canvas id="gotoWorldXGraph" width="280" height="100"></canvas>
+          </div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">World Y (m)</div>
+            <canvas id="gotoWorldYGraph" width="280" height="100"></canvas>
+          </div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">Heading (deg) - solid=actual, dashed=target</div>
+            <canvas id="gotoHeadingGraph" width="280" height="100"></canvas>
+          </div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">PWM - blue=left, orange=right</div>
+            <canvas id="gotoPwmGraph" width="280" height="100"></canvas>
+          </div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">PWM components - solid=feed-forward, dashed=proportional, dotted=integral</div>
+            <canvas id="gotoPwmComponentsGraph" width="280" height="100"></canvas>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-power">
+        <summary>Power</summary>
+        <div class="panel-body">
+          <div id="ina260-unavailable" class="waypoint-auto-advance-status" style="display:none">No INA260 current sensor detected.</div>
+          <div id="ina260-stats"></div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">Bus voltage (V)</div>
+            <canvas id="inaVoltageGraph" width="280" height="100"></canvas>
+          </div>
+          <div class="goto-graph-block">
+            <div class="goto-graph-label">Current (mA)</div>
+            <canvas id="inaCurrentGraph" width="280" height="100"></canvas>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel" id="panel-sys-diagnostics">
+        <summary>CPU / memory stats</summary>
+        <div class="panel-body">
+          <div id="reboot-reason-display" class="reboot-reason-display"></div>
+          <div class="form-group checkbox-group">
+            <label><input type="checkbox" id="sysDiagnosticsEnabled">Show CPU/memory stats</label>
+          </div>
+          <table id="sys-stats" class="sys-stats"></table>
+        </div>
+      </details>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

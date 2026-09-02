@@ -1,0 +1,28 @@
+# LynXP ESP32-C5 partition table -- OTA-capable (dual app slot).
+#
+# Board has 16 MB flash (N16R8 module). ota_0/ota_1 are 2 MB each --
+# generous headroom over the current ~1.2 MB image, similar ratio to
+# Robot_ESP32_S3_IDF's own 3 MB slots against its image size, just smaller
+# in absolute terms since this firmware (no camera driver) is lighter.
+# otadata (required once any ota_N partition exists) tracks which slot the
+# bootloader boots from and the pending-verify/rollback state -- see
+# ota.cpp's ota_start_validation().
+#
+# storage (littlefs, holds the web UI assets from main/littlefs_image/) is
+# sized at 1 MB against a current raw payload of ~232 KB -- generous
+# headroom given this board's flash budget.
+#
+# WARNING: switching to this table from the previous single "factory"
+# partition layout requires a full reflash (idf.py flash rewrites the
+# partition table itself) and starts otadata blank, which the bootloader
+# correctly treats as "boot ota_0" by default -- but NVS content at the old
+# layout's offset is not guaranteed to still be valid Settings/waypoints
+# data afterward, so expect a one-time fall-back to defaults on first boot.
+#
+# Name,     Type, SubType, Offset,  Size,     Flags
+nvs,        data, nvs,     ,        0x8000,
+otadata,    data, ota,     ,        0x2000,
+phy_init,   data, phy,     ,        0x1000,
+ota_0,      app,  ota_0,   ,        0x200000,
+ota_1,      app,  ota_1,   ,        0x200000,
+storage,    data, spiffs,  ,        0x100000,

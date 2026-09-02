@@ -1,0 +1,11 @@
+#pragma once
+
+// Fallback networks, tried in order (used only when no altSsid is set via
+// settings). Leave a slot's ssid "" to skip it. Copy this file to
+// wifi_creds.h (gitignored) and fill in your own.
+
+constexpr char WIFI_SSID_1[] = "your-ssid";
+constexpr char WIFI_PASS_1[] = "your-password";
+
+constexpr char WIFI_SSID_2[] = "";
+constexpr char WIFI_PASS_2[] = "";

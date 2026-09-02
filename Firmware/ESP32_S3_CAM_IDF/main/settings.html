@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ESP32-S3-CAM Settings</title>
+  <style>
+    html, body { margin: 0; background: #111; color: #eee; font-family: sans-serif; }
+    body { padding: 16px; max-width: 360px; }
+    a { color: #6cf; }
+    .row { margin: 16px 0; }
+    label { display: block; margin-bottom: 4px; }
+    input[type=range] { width: 100%; }
+    select { width: 100%; background: #222; color: #eee; border: 1px solid #555; padding: 6px; font-size: 14px; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; }
+    .info { color: #888; font: 12px monospace; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <p><a href="/">&larr; back to stream</a> &nbsp;|&nbsp; <a href="/diag.html">Diagnostics</a></p>
+  <h2>Camera settings</h2>
+
+  <div class="row">
+    <label>Resolution</label>
+    <select id="framesize" onchange="setVar('framesize', this.value)">
+      <option value="qvga">QVGA (320x240)</option>
+      <option value="cif">CIF (400x296)</option>
+      <option value="vga">VGA (640x480)</option>
+      <option value="svga">SVGA (800x600)</option>
+      <option value="xga">XGA (1024x768)</option>
+      <option value="hd">HD (1280x720)</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>Quality (lower = better, 10-63): <span id="quality-val"></span></label>
+    <input type="range" min="10" max="63" id="quality" oninput="setVar('quality', this.value, 'quality-val')">
+  </div>
+  <div class="row">
+    <label>Brightness (-2 to 2): <span id="brightness-val"></span></label>
+    <input type="range" min="-2" max="2" id="brightness" oninput="setVar('brightness', this.value, 'brightness-val')">
+  </div>
+  <div class="row">
+    <label>Contrast (-2 to 2): <span id="contrast-val"></span></label>
+    <input type="range" min="-2" max="2" id="contrast" oninput="setVar('contrast', this.value, 'contrast-val')">
+  </div>
+  <div class="row">
+    <label>Saturation (-2 to 2): <span id="saturation-val"></span></label>
+    <input type="range" min="-2" max="2" id="saturation" oninput="setVar('saturation', this.value, 'saturation-val')">
+  </div>
+  <div class="row toggle-row">
+    <label for="hmirror">Mirror horizontally</label>
+    <input type="checkbox" id="hmirror" onchange="setVar('hmirror', this.checked ? 1 : 0)">
+  </div>
+  <div class="row toggle-row">
+    <label for="vflip">Flip vertically</label>
+    <input type="checkbox" id="vflip" onchange="setVar('vflip', this.checked ? 1 : 0)">
+  </div>
+
+  <div class="info" id="info"></div>
+
+  <script>
+    function setVar(name, val, labelId) {
+      if (labelId) document.getElementById(labelId).textContent = val;
+      fetch('/control?var=' + name + '&val=' + val);
+    }
+
+    fetch('/status').then(r => r.json()).then(s => {
+      document.getElementById('framesize').value = s.framesize;
+      document.getElementById('quality').value = s.quality;
+      document.getElementById('quality-val').textContent = s.quality;
+      document.getElementById('brightness').value = s.brightness;
+      document.getElementById('brightness-val').textContent = s.brightness;
+      document.getElementById('contrast').value = s.contrast;
+      document.getElementById('contrast-val').textContent = s.contrast;
+      document.getElementById('saturation').value = s.saturation;
+      document.getElementById('saturation-val').textContent = s.saturation;
+      document.getElementById('hmirror').checked = !!s.hmirror;
+      document.getElementById('vflip').checked = !!s.vflip;
+      document.getElementById('info').textContent = 'MAC: ' + s.mac + '  |  IP: ' + s.ip;
+    });
+  </script>
+</body>
+</html>

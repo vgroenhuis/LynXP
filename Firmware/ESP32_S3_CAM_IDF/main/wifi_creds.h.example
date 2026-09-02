@@ -1,0 +1,10 @@
+#pragma once
+
+// Tried in order; first one found in the startup scan wins. Leave ssid as ""
+// to skip a slot. Copy this file to wifi_creds.h (gitignored) and fill in.
+
+#define WIFI_SSID_1 "your-ssid"
+#define WIFI_PASS_1 "your-password"
+
+#define WIFI_SSID_2 ""
+#define WIFI_PASS_2 ""

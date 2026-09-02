@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ESP32-S3-CAM Diagnostics</title>
+  <style>
+    html, body { margin: 0; background: #111; color: #eee; font-family: sans-serif; }
+    body { padding: 16px; max-width: 720px; }
+    a { color: #6cf; }
+    h2 { margin-top: 0; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+    td { padding: 3px 8px; font: 13px monospace; border-bottom: 1px solid #333; }
+    td.label { color: #888; }
+    td.warn { color: #f55; font-weight: bold; }
+    canvas { display: block; background: #1a1a1a; border: 1px solid #333; margin-bottom: 6px; width: 100%; height: 120px; }
+    .chart-title { font: 12px sans-serif; color: #888; margin: 12px 0 2px; }
+    #log { font: 11px monospace; color: #999; height: 140px; overflow-y: auto; background: #1a1a1a; border: 1px solid #333; padding: 4px 8px; }
+    #log div.bad { color: #f77; }
+  </style>
+</head>
+<body>
+  <p><a href="/">&larr; back to stream</a> &nbsp;|&nbsp; <a href="/settings">Settings</a></p>
+  <h2>Diagnostics</h2>
+
+  <table>
+    <tr><td class="label">RSSI</td><td id="v-rssi">-</td>
+        <td class="label">Reset reason</td><td id="v-reset">-</td></tr>
+    <tr><td class="label">Uptime</td><td id="v-uptime">-</td>
+        <td class="label">Reboots</td><td id="v-reboots">-</td></tr>
+    <tr><td class="label">Free heap</td><td id="v-heap">-</td>
+        <td class="label">Min free heap</td><td id="v-minheap">-</td></tr>
+    <tr><td class="label">Stream clients</td><td id="v-clients">-</td>
+        <td class="label">Capture fails</td><td id="v-camfail">-</td></tr>
+    <tr><td class="label">Frame count</td><td id="v-framecount">-</td>
+        <td class="label">Frame interval (last/max)</td><td id="v-frameinterval">-</td></tr>
+    <tr><td class="label">Slow frames (&gt;200ms)</td><td id="v-slowframes">-</td>
+        <td class="label">Send time (last/max)</td><td id="v-sendtime">-</td></tr>
+    <tr><td class="label">Slow sends (&gt;200ms)</td><td id="v-slowsends">-</td>
+        <td class="label"></td><td></td></tr>
+  </table>
+
+  <div class="chart-title">Frame interval (green) / send time (orange), ms -- last 60s</div>
+  <canvas id="chart-timing" width="680" height="120"></canvas>
+
+  <div class="chart-title">RSSI, dBm -- last 60s</div>
+  <canvas id="chart-rssi" width="680" height="120"></canvas>
+
+  <div class="chart-title">Event log (counter increases since this page opened)</div>
+  <div id="log"></div>
+
+  <script>
+    // Polls /diag (same JSON the UART STAT line carries, plus per-frame
+    // capture/send timing -- see main.c) every 300ms and keeps a rolling
+    // client-side history for the charts; the firmware itself only tracks
+    // instantaneous "last" and lifetime "max"/counters, no history buffer,
+    // to keep this cheap on the device.
+    const POLL_MS = 300;
+    const HISTORY_LEN = 200; // 60s at 300ms
+
+    const frameIntervalHistory = [];
+    const sendTimeHistory = [];
+    const rssiHistory = [];
+
+    let prevCounters = null; // {camFailCount, slowFrameCount, slowSendCount, rebootCount}
+
+    function fmtDuration(totalSeconds) {
+      const s = Math.floor(totalSeconds % 60);
+      const m = Math.floor(totalSeconds / 60) % 60;
+      const h = Math.floor(totalSeconds / 3600);
+      if (h > 0) return `${h}h ${m}m`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+
+    function setCell(id, text, warn) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.classList.toggle('warn', !!warn);
+    }
+
+    function logLine(text, bad) {
+      const log = document.getElementById('log');
+      const line = document.createElement('div');
+      if (bad) line.className = 'bad';
+      const t = new Date();
+      const ts = t.toLocaleTimeString();
+      line.textContent = `[${ts}] ${text}`;
+      log.appendChild(line);
+      // Cap the DOM log length so a long-running page doesn't grow forever.
+      while (log.children.length > 200) log.removeChild(log.firstChild);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function pushHistory(arr, value) {
+      arr.push(value);
+      if (arr.length > HISTORY_LEN) arr.shift();
+    }
+
+    // Plain min/max-scaled line chart, no external library -- this is
+    // embedded content served by a microcontroller, kept dependency-free
+    // like the rest of this project's pages.
+    function drawChart(canvas, series, colorMax) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      let allValues = [];
+      series.forEach((s) => { allValues = allValues.concat(s.data); });
+      if (allValues.length === 0) return;
+
+      let maxVal = Math.max(...allValues, 1);
+      let minVal = Math.min(...allValues, 0);
+      if (maxVal === minVal) maxVal = minVal + 1;
+
+      const toY = (v) => h - ((v - minVal) / (maxVal - minVal)) * (h - 10) - 5;
+      const toX = (i, len) => (i / (HISTORY_LEN - 1)) * w;
+
+      // Gridline + max label for scale reference.
+      ctx.strokeStyle = '#333';
+      ctx.beginPath();
+      ctx.moveTo(0, toY(maxVal));
+      ctx.lineTo(w, toY(maxVal));
+      ctx.stroke();
+      ctx.fillStyle = '#666';
+      ctx.font = '10px monospace';
+      ctx.fillText(String(Math.round(maxVal)) + (colorMax || ''), 4, toY(maxVal) - 2);
+
+      series.forEach((s) => {
+        if (s.data.length < 2) return;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        s.data.forEach((v, i) => {
+          const x = toX(i, s.data.length);
+          const y = toY(v);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      });
+    }
+
+    function poll() {
+      fetch('/diag')
+        .then((r) => r.json())
+        .then((d) => {
+          setCell('v-rssi', d.rssiDbm + ' dBm', d.rssiDbm !== 0 && d.rssiDbm < -75);
+          setCell('v-reset', d.resetReason, d.resetReason !== 'POWERON' && d.resetReason !== 'USB' &&
+                   d.resetReason !== 'SW' && d.resetReason !== 'JTAG');
+          setCell('v-uptime', fmtDuration(d.uptimeS));
+          setCell('v-reboots', d.rebootCount, d.rebootCount > 1);
+          setCell('v-heap', Math.round(d.freeHeapBytes / 1024) + ' KB');
+          setCell('v-minheap', Math.round(d.minFreeHeapBytes / 1024) + ' KB');
+          setCell('v-clients', d.clients);
+          setCell('v-camfail', d.camFailCount, d.camFailCount > 0);
+          setCell('v-framecount', d.frameCount);
+          setCell('v-frameinterval', `${d.lastFrameIntervalMs} / ${d.maxFrameIntervalMs} ms`, d.lastFrameIntervalMs > 200);
+          setCell('v-slowframes', d.slowFrameCount, d.slowFrameCount > 0);
+          setCell('v-sendtime', `${d.lastSendMs} / ${d.maxSendMs} ms`, d.lastSendMs > 200);
+          setCell('v-slowsends', d.slowSendCount, d.slowSendCount > 0);
+
+          pushHistory(frameIntervalHistory, d.lastFrameIntervalMs);
+          pushHistory(sendTimeHistory, d.lastSendMs);
+          pushHistory(rssiHistory, d.rssiDbm);
+
+          drawChart(document.getElementById('chart-timing'), [
+            { data: frameIntervalHistory, color: '#4c4' },
+            { data: sendTimeHistory, color: '#fa4' },
+          ], 'ms');
+          drawChart(document.getElementById('chart-rssi'), [
+            { data: rssiHistory, color: '#6cf' },
+          ], 'dBm');
+
+          if (prevCounters) {
+            if (d.camFailCount > prevCounters.camFailCount) {
+              logLine(`camFailCount ${prevCounters.camFailCount} -> ${d.camFailCount} (capture failed)`, true);
+            }
+            if (d.slowFrameCount > prevCounters.slowFrameCount) {
+              logLine(`slowFrameCount ${prevCounters.slowFrameCount} -> ${d.slowFrameCount} (frame interval ${d.lastFrameIntervalMs}ms)`, true);
+            }
+            if (d.slowSendCount > prevCounters.slowSendCount) {
+              logLine(`slowSendCount ${prevCounters.slowSendCount} -> ${d.slowSendCount} (send took ${d.lastSendMs}ms)`, true);
+            }
+            if (d.rebootCount > prevCounters.rebootCount) {
+              logLine(`rebootCount ${prevCounters.rebootCount} -> ${d.rebootCount} (reset=${d.resetReason})`, true);
+            }
+          }
+          prevCounters = {
+            camFailCount: d.camFailCount, slowFrameCount: d.slowFrameCount,
+            slowSendCount: d.slowSendCount, rebootCount: d.rebootCount,
+          };
+        })
+        .catch(() => logLine('poll failed (device unreachable?)', true));
+    }
+
+    poll();
+    setInterval(poll, POLL_MS);
+  </script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+# LynXP ESP32-C5 -- Stage 2 (WiFi + web server + WebSocket).
+# Waveshare ESP32-C5-WIFI6-KIT-N16R8-M, DevKitC-1-compatible pinout.
+
+CONFIG_IDF_TARGET="esp32c5"
+
+# --- flash / partitions ---
+# N16R8 module: 16 MB flash. Must be raised from IDF's 2 MB default --
+# otherwise the custom partition table below (which fits comfortably in a
+# fraction of the real 16 MB) still fails to build against an assumed 2 MB
+# ceiling.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# --- CPU / codegen ---
+# A 1 kHz control loop doing sinf/cosf/atan2f every tick wants the headroom.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# Dynamic frequency scaling would move the LEDC/PCNT peripheral clock out
+# from under the assumptions motors.cpp/encoders.cpp make.
+# CONFIG_PM_ENABLE is not set
+
+# --- FreeRTOS ---
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# --- watchdogs ---
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=3
+# Default is n, which makes the task watchdog merely LOG a stuck task and
+# carry on -- this robot can drive away, so a hang should reboot it.
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_INT_WDT=y
+
+# --- power ---
+CONFIG_ESP_BROWNOUT_DET=y
+CONFIG_SPI_FLASH_YIELD_DURING_ERASE=y
+
+# --- logging ---
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# --- OTA safety ---
+# Without this, a bad-but-valid OTA image bricks the board into a USB
+# reflash. With it, a freshly-OTA'd image boots PENDING_VERIFY and the
+# bootloader automatically reverts to the previous slot on the NEXT reboot
+# unless ota.cpp's ota_start_validation() calls
+# esp_ota_mark_app_valid_cancel_rollback() first (once WiFi+HTTP+the control
+# loop have all proven themselves alive).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# --- networking ---
+# The S3 firmware also set CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0 and
+# CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0 here, to keep WiFi/lwIP off the
+# control task's dedicated second core. C5 is single-core -- there is no
+# other core for them to run on instead, so both options are moot here and
+# deliberately left out rather than set to a value that can't mean anything.
+CONFIG_HTTPD_WS_SUPPORT=y
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=512
+CONFIG_HTTPD_ERR_RESP_NO_DELAY=y
+# httpd hard-checks max_open_sockets + 3 <= LWIP_MAX_SOCKETS at start. 12
+# open sockets are requested (web_server.cpp) because the UI opens ~6
+# connections per page navigation.
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# --- OLED status display ---
+# SSD1306 128x64 on I2C, GPIO2(SDA)/GPIO3(SCL) -- bench-verified pin map,
+# see Test_ESP32_C5_Robot_Peripherals's own sdkconfig.defaults for the
+# strapping-pin reasoning. No reset line wired.
+CONFIG_I2C_INTERFACE=y
+CONFIG_SSD1306_128x64=y
+CONFIG_SDA_GPIO=2
+CONFIG_SCL_GPIO=3
+CONFIG_RESET_GPIO=-1
+CONFIG_I2C_PORT_0=y
+CONFIG_OFFSETX=2

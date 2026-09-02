@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LynXP first-person view</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="cam-body">
+  <div class="cam-rotate-prompt">Rotate your device to landscape to enable controls.</div>
+  <div class="cam-fullscreen">
+    <img id="camStream" alt="Camera stream">
+    <canvas id="camFloorGrid" class="cam-floor-grid" style="display:none"></canvas>
+    <canvas id="camWaypointOverlay" class="cam-floor-grid" style="display:none"></canvas>
+    <canvas id="camFireballOverlay" class="cam-floor-grid" style="display:none"></canvas>
+    <details class="cam-menu-panel" id="camMenuPanel" open>
+      <summary>Menu</summary>
+      <div class="cam-menu-panel-body">
+        <a href="/" class="cam-overlay-btn">Main</a>
+        <button id="camFullscreenBtn" class="cam-overlay-btn">Fullscreen</button>
+        <a id="camSettingsLink" href="#" target="_blank" rel="noopener" class="cam-overlay-btn" style="display:none">Cam settings</a>
+      </div>
+    </details>
+    <button id="camFireballBtn" class="cam-overlay-btn cam-fireball-btn">🔥 Fireball</button>
+    <details class="cam-menu-panel cam-menu-panel-right" id="camOverlaysPanel" open>
+      <summary>Overlays</summary>
+      <div class="cam-menu-panel-body">
+        <label class="cam-toggle-switch">
+          <input type="checkbox" id="camToggleMapOverlay">
+          <span class="cam-toggle-slider"></span>
+          Map
+        </label>
+        <label class="cam-toggle-switch">
+          <input type="checkbox" id="camToggleFloorGrid">
+          <span class="cam-toggle-slider"></span>
+          Floor grid
+        </label>
+        <label class="cam-toggle-switch">
+          <input type="checkbox" id="camToggleWaypoints">
+          <span class="cam-toggle-slider"></span>
+          Waypoints
+        </label>
+      </div>
+    </details>
+    <canvas id="camMapOverlay" class="cam-map-overlay" width="160" height="160" style="display:none"></canvas>
+    <div id="cam-status" class="cam-status"></div>
+    <div id="camLeftJoystickBase" class="cam-floating-joystick-base" style="display:none">
+      <div id="camLeftJoystickKnob" class="cam-floating-joystick-knob"></div>
+    </div>
+    <div id="camRightJoystickBase" class="cam-floating-joystick-base cam-floating-joystick-base-right" style="display:none">
+      <div id="camRightJoystickKnob" class="cam-floating-joystick-knob"></div>
+    </div>
+  </div>
+  <script src="cam.js"></script>
+</body>
+</html>

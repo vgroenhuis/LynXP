@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ESP32-S3-CAM</title>
+  <style>
+    html, body { margin: 0; background: #111; height: 100%; }
+    .frame { max-width: 960px; margin: 0 auto; }
+    .frame img { display: block; width: 100%; height: auto; }
+    a.settings-link { position: fixed; top: 8px; right: 12px; color: #ccc; font: 14px sans-serif; text-decoration: none; }
+    a.diag-link { position: fixed; top: 8px; right: 76px; color: #ccc; font: 14px sans-serif; text-decoration: none; }
+    #reconnect-status { position: fixed; top: 8px; left: 12px; color: #fa4; font: 13px sans-serif; }
+  </style>
+</head>
+<body>
+  <a class="diag-link" href="/diag.html">Diagnostics</a>
+  <a class="settings-link" href="/settings">Settings</a>
+  <div id="reconnect-status"></div>
+  <div class="frame"><img id="stream-img" src=""></div>
+  <script>
+    // The stream runs on its own port (see README) so a stalled/slow client
+    // watching it can never block this page or /settings from loading.
+    const streamImg = document.getElementById('stream-img');
+    const statusEl = document.getElementById('reconnect-status');
+    const streamUrl = 'http://' + location.hostname + ':81/stream';
+    streamImg.src = streamUrl;
+
+    // A clean disconnect (server closes the socket, e.g. the SO_SNDTIMEO in
+    // main.c firing) makes the browser fire 'error' on the <img> fairly
+    // promptly, so still handle that directly -- fastest path when it
+    // applies.
+    streamImg.onerror = () => {
+      statusEl.textContent = 'Stream lost, reconnecting...';
+      streamImg.src = streamUrl + '?t=' + Date.now();
+    };
+    streamImg.onload = () => {
+      statusEl.textContent = '';
+    };
+
+    // But a literal power-cycle (unplug/replug) never sends a FIN or RST at
+    // all -- the connection just goes silent, and 'error' only fires once
+    // the OS's own TCP retransmission timeout gives up, which can take far
+    // longer than a couple of seconds (tens of seconds, sometimes more) --
+    // confirmed on real hardware: the stream sat frozen, then eventually
+    // went black, well after the cam was already back up and answering
+    // requests again. Don't wait on that: poll a *separate* lightweight
+    // endpoint (/diag, back on port 80, decoupled from whatever state the
+    // stream's own dead socket is stuck in) with our own short, explicit
+    // timeout, and force a fresh stream connection the moment the cam
+    // proves it's actually reachable again.
+    const HEARTBEAT_MS = 3000;
+    const HEARTBEAT_TIMEOUT_MS = 2000;
+    let wasUnreachable = false;
+
+    function heartbeat() {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), HEARTBEAT_TIMEOUT_MS);
+      fetch('/diag', { signal: controller.signal, cache: 'no-store' })
+        .then(() => {
+          clearTimeout(timer);
+          if (wasUnreachable) {
+            // The cam answered again after a spell of not responding at
+            // all -- force the stream to reconnect now rather than wait
+            // for its own socket to notice on its own timeline.
+            wasUnreachable = false;
+            statusEl.textContent = 'Reconnecting...';
+            streamImg.src = streamUrl + '?t=' + Date.now();
+          }
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          wasUnreachable = true;
+          statusEl.textContent = 'Cam unreachable, waiting...';
+        });
+    }
+    setInterval(heartbeat, HEARTBEAT_MS);
+  </script>
+</body>
+</html>
