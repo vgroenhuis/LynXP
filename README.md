@@ -7,4 +7,4 @@ The power and control circuit (powerbank, USB power delivery trigger, current se
 
 ![Power and control circuit diagram](Schematic/powerbank_circuit.svg)
 
-Also available as [PDF](Schematic/powerbank_circuit.pdf).
+Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powerbank_circuit.png).
