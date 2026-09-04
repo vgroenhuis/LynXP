@@ -35,7 +35,7 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 | Pushbutton | 12 mm | 1 | €1 | [Kiwi-electronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-normal) | Or use a toggle switch |
 | **Total** | | | **€144** | | |
 
-Total excludes filament, wires, screws, resistors.
+Total price excludes shipping costs, filament, wires, screws, resistors.
 
 ## Photos
 
