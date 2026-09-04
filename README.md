@@ -25,12 +25,12 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 | Pan servo | MG996R 180° | 1 | €7 | [TinyTronics](https://www.tinytronics.nl/en/mechanics-and-actuators/motors/servomotors/mg996r-servo) / [Otronic](https://www.otronic.nl/nl/servo-mg996r-180-graden.html)  | Orange-blue has SRT DL3020 which is overkill |
 | OLED display | SSD1306, 128x64, 1.3" | 1 | €7 | [TinyTronics](https://www.tinytronics.nl/en/displays/oled/1.3-inch-oled-display-128*64-pixels-white-i2c) | Orange-blue LynXP has 0.96", but this is too small |
 | nOOds flexible LED | 30 cm | 1 | €5 | [Adafruit](https://www.adafruit.com/product/5509) / [Kiwi-electronics](https://www.kiwi-electronics.com/en/leds-114/other-leds-360/noods-flexible-led-filament-3v-300mm-long-warm-white-11360)  | |
+| Breadboard | EIC premium 400 points | 1 | €4 | [Tinytronics](https://www.tinytronics.nl/en/tools-and-mounting/prototyping-supplies/breadboards/eic-premium-breadboard-400-points-transparent) | |
 | Motor driver | TB6612FNG | 1 | €3 | [Otronic](https://www.otronic.nl/nl/motor-driver-module-tb6612fng-voor-arduino.html) | |
 | Tilt servo | SG90 180° | 1 | €3 | [Bits&Parts](https://www.bitsandparts.nl/servo-motor-analoog-micro-servo-9g-sg90-180%C2%B0-p1907205) / [TinyTronics](https://www.tinytronics.nl/en/mechanics-and-actuators/motors/servomotors/sg90-mini-servo) | Orange-blue has Hitec HS-53 |
 | Bearing | 608ZZ | 3 | €1 | [123-3D](https://www.123-3d.nl/123-3D-Kogellager-608ZZ-10-stuks-i1406.html) | |
 | Buck converter | OT253-B47 | 1 | €2 | [Otronic](https://www.otronic.nl/en/step-down-buck-converter-from-45v-24v-to-5v-3a-4r.html) | |
 | O-ring | 31x5 mm | 2 | €1 | [Lagerkoning](https://www.lagerkoning.nl/o-ring-31x5mm-nbr-70.html) / [O-ring-stocks](https://www.o-ring-stocks.eu/nl/o-ring-31x5-nbr-nitril-70-shore-a-zwart-ors543) | For wheels |
-| Breadboard | EIC premium 400 points | 1 | €4 | [Tinytronics](https://www.tinytronics.nl/en/tools-and-mounting/prototyping-supplies/breadboards/eic-premium-breadboard-400-points-transparent) | |
 | On/off switch | 12x19 mm | 1 | €1 | [Tinytronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-small) | SPDT is better because switch closed = off |
 | Pushbutton | 12 mm | 1 | €1 | [Kiwi-electronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-normal) | |
 | **Total** | | | **€144** | | |
