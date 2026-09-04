@@ -2,7 +2,7 @@
 
 ![LynXP](Pictures/orange-blue/2026-09-04%2009.02.47.jpg)
 
-LynXP is a wheeled robot with web-based control interface.
+LynXP is a wheeled robot with pan-tilt camera and web-based control interface, through which minigames can be played.
 
 ## Electronics
 
