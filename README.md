@@ -18,7 +18,7 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 |---|---|---|---|---|---|
 | Powerbank | Anker Zolo 20.000 mAh | 1 | €35 | [Anker](https://www.anker.com/products/a1688) / [Bol](https://www.bol.com/nl/nl/p/anker-zolo-power-bank-20-000mah-30w-snelle-draagbare-oplader-met-ingebouwde-usb-c-kabel-1-usb-c-1-usb-a-batterijpakket-voor-iphone-16-15-15-pro-15-pro-max-15-plus-macbook-galaxy-en-meer/9300000193847941) | A different powerbank is possible, but may need design adjustments. |
 | Camera module | Seeed XIAO ESP32S3 Sense | 1 | €16 | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-Sense-p-5639.html) / [TinyTronics](https://www.tinytronics.nl/en/development-boards/microcontroller-boards/with-wi-fi/seeed-studio-xiao-esp32-s3-sense) / [Reichelt](https://www.reichelt.com/nl/nl/shop/product/xiao_esp32s3_sense_wifi_bt_camera_ov3660_zonder_header-358353) |  |
-| Drive motor | TT Motor GM37-520TB-1250-30-EN | 2 | €8 | [Alibaba](https://www.alibaba.com/product-detail/TT-Motor-High-Torque-37mm-GM37_1601884925507.html) / [Aliexpress](https://nl.aliexpress.com/item/1005007677802607.html) / [Funduinoshop](https://funduinoshop.com/nl/doe-het-zelf-workshop/kits/chassis/jgb37-520-encoder-tandwielmotor-kit-12v-12rpm-met-wiel) / [TTmotor](https://www.ttmotor.com/high-torque-dc-gear-motor-589121520253040455580100120160750rpm-product/) | GM37 is a quite common geared DC motor size, but it is hard to find one in EU with encoder attached. |
+| Drive motor | TT Motor GM37-520TB-1250-30-EN (12V, 30:1 transmission) | 2 | €10 | [Alibaba](https://www.alibaba.com/product-detail/TT-Motor-High-Torque-37mm-GM37_1601884925507.html) / [Aliexpress](https://nl.aliexpress.com/item/1005007677802607.html) / [Funduinoshop](https://funduinoshop.com/nl/doe-het-zelf-workshop/kits/chassis/jgb37-520-encoder-tandwielmotor-kit-12v-12rpm-met-wiel) / [TTmotor](https://www.ttmotor.com/high-torque-dc-gear-motor-589121520253040455580100120160750rpm-product/) | GM37 is a quite common geared DC motor size, but it is hard to find one in EU with encoder attached. |
 | Main MCU | ESP32-C5-WIFI6-KIT-N16R8-M | 1 | €13 | [Aliexpress](https://nl.aliexpress.com/item/1005012275503208.html) | |
 | USB-PD trigger board | HUSB238 | 1 | €11 | [Adafruit](https://www.adafruit.com/product/5991) / [Kiwi-electronics](https://www.kiwi-electronics.com/en/adafruit-usb-type-c-power-delivery-dummy-i2c-or-switchable-husb238-20162) | |
 | Current sensor | INA260 | 1 | €11 | [Adafruit](https://www.adafruit.com/product/4226) / [Kiwi-electronics](https://www.kiwi-electronics.com/nl/adafruit-ina260-high-or-low-side-voltage-current-power-sensor-4222)  |  |
@@ -33,7 +33,7 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 | Breadboard | EIC premium 400 points | 1 | €4 | [Tinytronics](https://www.tinytronics.nl/en/tools-and-mounting/prototyping-supplies/breadboards/eic-premium-breadboard-400-points-transparent) | |
 | On/off switch | 12x19 mm | 1 | €1 | [Tinytronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-small) | SPDT is better because switch closed = off |
 | Pushbutton | 12 mm | 1 | €1 | [Kiwi-electronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-normal) | |
-| **Total** | | | **€140** | | |
+| **Total** | | | **€144** | | |
 
 Total excludes filament, wires, screws, resistors.
 
