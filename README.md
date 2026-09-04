@@ -9,5 +9,13 @@ The power and control circuit (powerbank, USB power delivery trigger, current se
 
 Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powerbank_circuit.png).
 
+## Photos
+
+![LynXP](Pictures/orange-blue/2026-09-04%2009.02.47.jpg)
+
+More photos:
+- [Orange-blue version](Pictures/orange-blue)
+- [Older iterations](Pictures/older%20iterations)
+
 ## AI disclaimer
 Claude was used to help developing software and circuit diagrams. No AI tools were used for hardware development.
