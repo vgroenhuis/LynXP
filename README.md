@@ -28,7 +28,7 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 | Breadboard | EIC premium 400 points | 1 | €4 | [Tinytronics](https://www.tinytronics.nl/en/tools-and-mounting/prototyping-supplies/breadboards/eic-premium-breadboard-400-points-transparent) | |
 | Motor driver | TB6612FNG | 1 | €3 | [Otronic](https://www.otronic.nl/nl/motor-driver-module-tb6612fng-voor-arduino.html) | |
 | Tilt servo | SG90 180° | 1 | €3 | [Bits&Parts](https://www.bitsandparts.nl/servo-motor-analoog-micro-servo-9g-sg90-180%C2%B0-p1907205) / [TinyTronics](https://www.tinytronics.nl/en/mechanics-and-actuators/motors/servomotors/sg90-mini-servo) | Orange-blue has Hitec HS-53 |
-| Bearing | 608ZZ | 3 | €1 | [123-3D](https://www.123-3d.nl/123-3D-Kogellager-608ZZ-10-stuks-i1406.html) | |
+| Bearing | 608ZZ | 3 | €1 | [123-3D](https://www.123-3d.nl/123-3D-Kogellager-608ZZ-10-stuks-i1406.html) | For caster |
 | Buck converter | OT253-B47 | 1 | €2 | [Otronic](https://www.otronic.nl/en/step-down-buck-converter-from-45v-24v-to-5v-3a-4r.html) | |
 | O-ring | 31x5 mm | 2 | €1 | [Lagerkoning](https://www.lagerkoning.nl/o-ring-31x5mm-nbr-70.html) / [O-ring-stocks](https://www.o-ring-stocks.eu/nl/o-ring-31x5-nbr-nitril-70-shore-a-zwart-ors543) | For wheels |
 | On/off switch | 12x19 mm | 1 | €1 | [Tinytronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-small) | SPDT is better because switch closed = off |
