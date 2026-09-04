@@ -1,4 +1,7 @@
 # LynXP
+
+![LynXP](Pictures/orange-blue/2026-09-04%2009.02.47.jpg)
+
 LynXP is a wheeled robot with web-based control interface.
 
 ## Electronics
@@ -10,8 +13,6 @@ The power and control circuit (powerbank, USB power delivery trigger, current se
 Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powerbank_circuit.png).
 
 ## Photos
-
-![LynXP](Pictures/orange-blue/2026-09-04%2009.02.47.jpg)
 
 More photos:
 - [Orange-blue version](Pictures/orange-blue)
