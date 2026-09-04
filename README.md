@@ -32,7 +32,7 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 | Buck converter | OT253-B47 | 1 | €2 | [Otronic](https://www.otronic.nl/en/step-down-buck-converter-from-45v-24v-to-5v-3a-4r.html) | |
 | O-ring | 60x5 mm | 2 | €1 | [Lagerkoning](https://www.lagerkoning.nl/o-ring-60x5mm-nbr-70.html) / [O-ring-stocks](https://www.o-ring-stocks.eu/nl/o-ring-60x5-nbr-nitril-70-shore-a-zwart-ors2856) | Inner diameter 60 mm, thickness 5 mm. Used as tyres for wheels. When mounted on rim, effective outer diameter is 71.5 mm. |
 | On/off switch | 12x19 mm | 1 | €1 | [Tinytronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-small) | Optional; SPDT is better because switch closed = off |
-| Pushbutton | 12 mm | 1 | €1 | [Kiwi-electronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-normal) | Or use a toggle switch |
+| Pushbutton | 12 mm | 1 | €1 | [Kiwi-electronics](https://www.tinytronics.nl/en/switches/manual-switches/rocker-switches/standaard-built-in-rocker-switch-normal) | To show QR code on OLED; toggle switch also possible |
 | **Total** | | | **€144** | | |
 
 Total price excludes shipping costs, filament, wires, screws, resistors.
