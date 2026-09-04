@@ -44,7 +44,13 @@ namespace {
 //     monsterStandoffDistanceM (Camera page's fireball/monster mini-game,
 //     now configurable from the Main page's "Game settings" panel instead
 //     of hardcoded in cam.js).
-constexpr uint32_t SETTINGS_VERSION = 27;
+// 28: added gameMode (select "No game"/"Monster hunt" from the Main page,
+//     default "No game"); dropped monsterStandoffDistanceM, added
+//     monsterLegDistanceM -- monsters no longer chase-and-hold at a fixed
+//     distance from the camera, they pick a new (lightly player-biased)
+//     random heading and walk it for this many meters before re-choosing,
+//     so they don't park themselves in front of the player indefinitely.
+constexpr uint32_t SETTINGS_VERSION = 28;
 constexpr const char *NVS_NAMESPACE = "robot";
 constexpr const char *NVS_KEY = "settings";
 
@@ -110,10 +116,11 @@ void applyDefaultSettings() {
     std::strncpy(settings.otaUsername, "admin", sizeof(settings.otaUsername) - 1);
     settings.otaUsername[sizeof(settings.otaUsername) - 1] = '\0';
     settings.otaPassword[0] = '\0'; // empty = auth disabled until the user sets one
+    settings.gameMode = GAME_MODE_NONE;
     settings.fireballSpeedMps = 0.5f;
     settings.monsterSpeedMps = 0.1f;
     settings.monsterCount = 2;
-    settings.monsterStandoffDistanceM = 0.2f;
+    settings.monsterLegDistanceM = 1.0f;
 }
 
 bool saveSettings() {

@@ -22,6 +22,11 @@ enum LOG_TYPES { LEFT_WHEEL = 0, BOTH_WHEELS };
 enum LOG_UNIT { ENCODER_STEPS, WHEEL_RAD, WHEEL_DEG, WHEEL_REV, DISTANCE };
 enum CONTROL_FRAME_ROTATION_STRATEGY { CONTROL_FRAME_ROTATION_CLOSEST_FACE = 0, CONTROL_FRAME_ROTATION_FIXED_HEMISPHERE };
 enum CAMERA_JOYSTICK_CURVE { CAMERA_JOYSTICK_CURVE_LINEAR = 0, CAMERA_JOYSTICK_CURVE_QUADRATIC };
+// Which Camera-page mini-game (see cam.js) is active, if any -- selectable
+// from the Main page's "Game settings" panel. GAME_MODE_NONE hides the
+// Fireball button and skips initializing the whole fireball/monster system
+// entirely (no /pose polling either), not just visually.
+enum GAME_MODE { GAME_MODE_NONE = 0, GAME_MODE_MONSTER_HUNT };
 
 struct Settings {
     uint32_t settingsVersion;
@@ -107,10 +112,15 @@ struct Settings {
     // cosmetic, no effect on the robot itself, but configurable from the
     // Main page rather than hardcoded so the "feel" can be tuned without a
     // firmware change.
+    int gameMode; // GAME_MODE -- which game (if any) is active
     float fireballSpeedMps;
     float monsterSpeedMps;
     int monsterCount;
-    float monsterStandoffDistanceM; // where a monster settles once caught up -- directly in front of the camera
+    // A monster picks a new heading (mostly random, lightly biased toward
+    // the player) every time it's travelled this far in its current one,
+    // rather than continuously re-aiming at the player -- keeps it roaming
+    // instead of parking itself in front of the camera indefinitely.
+    float monsterLegDistanceM;
 };
 
 extern Settings settings;

@@ -400,6 +400,13 @@
       <details class="panel" id="panel-game-settings">
         <summary>Game settings</summary>
         <div class="panel-body">
+          <div class="form-group">
+            <label for="gameMode">Game:</label>
+            <select id="gameMode">
+              <option value="none">No game</option>
+              <option value="monster_hunt">Monster hunt</option>
+            </select>
+          </div>
           <div class="inline-group">
             <label for="fireballSpeedMps">Fireball speed (m/s):</label>
             <input type="number" id="fireballSpeedMps" min="0.01" step="0.1">
@@ -413,8 +420,8 @@
             <input type="number" id="monsterCount" min="0" max="10" step="1">
           </div>
           <div class="inline-group">
-            <label for="monsterStandoffDistanceM">Monster standoff distance (m):</label>
-            <input type="number" id="monsterStandoffDistanceM" min="0" step="0.05">
+            <label for="monsterLegDistanceM" title="How far a monster travels in its currently-chosen direction before picking a new one.">Monster leg distance (m):</label>
+            <input type="number" id="monsterLegDistanceM" min="0.05" step="0.1">
           </div>
         </div>
       </details>

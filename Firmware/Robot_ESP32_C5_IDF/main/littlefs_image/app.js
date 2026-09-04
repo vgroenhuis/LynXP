@@ -1843,10 +1843,11 @@ function loadParams() {
       document.getElementById("cameraTiltDeg").value = data.cameraTiltDeg;
       document.getElementById("cameraVerticalFovDeg").value = data.cameraVerticalFovDeg;
 
+      document.getElementById("gameMode").value = data.gameMode === 1 ? "monster_hunt" : "none";
       document.getElementById("fireballSpeedMps").value = data.fireballSpeedMps;
       document.getElementById("monsterSpeedMps").value = data.monsterSpeedMps;
       document.getElementById("monsterCount").value = data.monsterCount;
-      document.getElementById("monsterStandoffDistanceM").value = data.monsterStandoffDistanceM;
+      document.getElementById("monsterLegDistanceM").value = data.monsterLegDistanceM;
 
       document.getElementById("ssid").value = data.altSsid || "";
       document.getElementById("password").value = data.altPassword || "";
@@ -2386,7 +2387,9 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById(name).addEventListener("change", (e) => setParam(name, e.target.value));
   });
 
-  ["fireballSpeedMps", "monsterSpeedMps", "monsterCount", "monsterStandoffDistanceM"].forEach((name) => {
+  document.getElementById("gameMode").addEventListener("change", (e) => setParam("gameMode", e.target.value));
+
+  ["fireballSpeedMps", "monsterSpeedMps", "monsterCount", "monsterLegDistanceM"].forEach((name) => {
     document.getElementById(name).addEventListener("change", (e) => setParam(name, e.target.value));
   });
 

@@ -160,10 +160,11 @@ window.addEventListener("DOMContentLoaded", () => {
       // Game settings (see the Main page's "Game settings" panel) -- piggy-
       // backed onto this same fetch rather than a second round-trip, same
       // reasoning as the floor-grid calibration below.
+      if (typeof data.gameMode === "number") gameMode = data.gameMode === 1 ? "monster_hunt" : "none";
       if (typeof data.fireballSpeedMps === "number") fireballSpeedMps = data.fireballSpeedMps;
       if (typeof data.monsterSpeedMps === "number") monsterSpeedMps = data.monsterSpeedMps;
       if (typeof data.monsterCount === "number") monsterCount = data.monsterCount;
-      if (typeof data.monsterStandoffDistanceM === "number") monsterStandoffDistanceM = data.monsterStandoffDistanceM;
+      if (typeof data.monsterLegDistanceM === "number") monsterLegDistanceM = data.monsterLegDistanceM;
       fireballLifetimeMs = ((FIREBALL_MAX_RANGE_M - FIREBALL_START_DISTANCE_M) / fireballSpeedMps) * 1000;
 
       return {
@@ -204,15 +205,21 @@ window.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("camFireballBtn").addEventListener("click", () => {
     calibPromise.then((calib) => {
-      if (calib) spawnFireball(calib);
+      if (calib && gameMode === "monster_hunt") spawnFireball(calib);
     });
   });
 
-  // Monsters are ambient -- they wander the scene whether or not anyone's
-  // ever fired a fireball -- so this starts as soon as calibration is in,
-  // not lazily on first button press like the toggleable overlays above.
+  // The whole fireball/monster system -- button included -- only exists
+  // when "Monster hunt" is selected on the Main page's "Game settings"
+  // panel; GAME_MODE_NONE (the default) hides the button and skips even
+  // starting the ambient monster wander/pose-polling below.
   calibPromise.then((calib) => {
-    if (calib) ensureFireballOverlayInitialized(calib);
+    if (!calib) return;
+    document.getElementById("camFireballBtn").style.display = gameMode === "monster_hunt" ? "block" : "none";
+    // Monsters are ambient -- they wander the scene whether or not anyone's
+    // ever fired a fireball -- so this starts as soon as calibration is in,
+    // not lazily on first button press like the toggleable overlays above.
+    if (gameMode === "monster_hunt") ensureFireballOverlayInitialized(calib);
   });
 });
 
@@ -227,11 +234,12 @@ window.addEventListener("DOMContentLoaded", () => {
 // LAUNCH DIRECTION -- the camera's pan+tilt aim at that instant -- since a
 // real projectile doesn't change course just because the shooter moves or
 // looks elsewhere after it's already away.
-// fireballSpeedMps/monsterSpeedMps/monsterCount/monsterStandoffDistanceM are
-// configurable from the Main page's "Game settings" panel (persisted
+// gameMode/fireballSpeedMps/monsterSpeedMps/monsterCount/monsterLegDistanceM
+// are configurable from the Main page's "Game settings" panel (persisted
 // robot-side, like every other setting) rather than hardcoded -- loaded
 // from /params below, with these as fallback defaults if that fetch fails.
 // The rest stay internal tuning constants, not exposed as settings.
+let gameMode = "none"; // "none" | "monster_hunt" -- gates the whole fireball/monster system, see DOMContentLoaded above
 let fireballSpeedMps = 0.5;
 const FIREBALL_RADIUS_M = 0.08;
 const FIREBALL_START_DISTANCE_M = 0.2; // launched a short distance out, not exactly at the camera (a projection singularity)
@@ -239,17 +247,18 @@ const FIREBALL_MAX_RANGE_M = 5; // straight-line distance travelled (from launch
 let fireballLifetimeMs = ((FIREBALL_MAX_RANGE_M - FIREBALL_START_DISTANCE_M) / fireballSpeedMps) * 1000; // recomputed once fireballSpeedMps loads from /params
 const FIREBALL_FADE_FRACTION = 0.8; // fraction of its lifetime before it starts fading out
 
-// Monsters wander the world, biased toward the robot's current position,
-// and respawn a short distance away whenever a fireball connects.
+// Monsters roam in straight-line "legs": each pick a heading (mostly
+// random, lightly biased toward the robot's current position), walk it for
+// monsterLegDistanceM, then pick a fresh heading -- rather than continuously
+// re-aiming at the player, which just parks them in front of the camera.
+// Respawns a short distance away whenever a fireball connects.
 let monsterCount = 2;
 let monsterSpeedMps = 0.1;
 const MONSTER_RADIUS_M = 0.15;
 const MONSTER_SPAWN_MIN_DISTANCE_M = 2;
 const MONSTER_SPAWN_MAX_DISTANCE_M = 3;
-const MONSTER_CHASE_WEIGHT = 0.75; // 0 = pure random wander, 1 = beeline straight for the target
-const MONSTER_WANDER_TURN_RATE_RAD_PER_S = 1.2; // how fast its own random heading can drift
-let monsterStandoffDistanceM = 0.2; // where it settles once caught up -- directly in front of the camera, not on top of it
-const MONSTER_ARRIVE_TOLERANCE_M = 0.03; // once within this band of the standoff point, it holds position instead of jittering around it forever
+const MONSTER_DIRECTION_BIAS = 0.3; // 0 = pure random heading, 1 = always exactly toward the player; kept low for "slightly favouring"
+let monsterLegDistanceM = 1.0; // distance walked on one chosen heading before a new one is picked
 const MONSTER_UPDATE_MAX_DT_S = 0.25; // caps one physics step so a backgrounded tab's huge first dt can't teleport it
 const MONSTER_HIT_RADIUS_M = FIREBALL_RADIUS_M + MONSTER_RADIUS_M; // world-distance below which a fireball connects
 const MONSTER_DEATH_LINGER_MS = 5000; // how long a dead monster stays visible (motionless, eyes X'd) before it's removed and a fresh one spawns
@@ -272,7 +281,7 @@ const CROSSHAIR_GAP_PX = 4;
 let fireballOverlayInitialized = false;
 let fireballLastPose = { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 };
 let activeFireballs = [];
-let monsters = []; // {x, y, wanderAngleRad, state: "alive"|"dead", diedAtMs}
+let monsters = []; // {x, y, headingRad, legDistanceRemainingM, state: "alive"|"dead", diedAtMs}
 let monsterUpdateLastMs = null;
 
 function randomPositionAround(px, py, minDistM, maxDistM) {
@@ -336,26 +345,24 @@ function ensureFireballOverlayInitialized(calib) {
   function ensureMonstersSpawned(px, py) {
     while (monsters.length < monsterCount) {
       const pos = randomPositionAround(px, py, MONSTER_SPAWN_MIN_DISTANCE_M, MONSTER_SPAWN_MAX_DISTANCE_M);
-      monsters.push({ x: pos.x, y: pos.y, wanderAngleRad: Math.random() * 2 * Math.PI, state: "alive", diedAtMs: 0 });
+      // legDistanceRemainingM starts at 0 so the very first update tick
+      // immediately picks a real (player-biased) heading instead of walking
+      // this throwaway spawn-time angle for a full leg.
+      monsters.push({ x: pos.x, y: pos.y, headingRad: 0, legDistanceRemainingM: 0, state: "alive", diedAtMs: 0 });
     }
   }
 
-  // Each monster's heading blends a straight line toward its target point
-  // with its own slowly-drifting random wander direction -- blended as unit
-  // vectors (not by averaging the two angles directly, which has a
-  // wraparound bug whenever they're on opposite sides of +-180deg). A dead
+  // Each monster walks in a straight line ("leg") for monsterLegDistanceM,
+  // then picks a fresh heading and starts a new leg -- rather than
+  // continuously re-aiming at the player, which just parks it in front of
+  // the camera indefinitely. The new heading blends a straight line toward
+  // the robot's current position with a uniformly random direction (as unit
+  // vectors, not by averaging angles directly, which has a wraparound bug
+  // whenever they're on opposite sides of +-180deg), weighted by
+  // MONSTER_DIRECTION_BIAS so it only *slightly* favours the player. A dead
   // monster is skipped entirely here (stays exactly where it died) until
   // MONSTER_DEATH_LINGER_MS removes it, at which point the count top-up
   // below spawns its replacement.
-  //
-  // The target isn't the robot's own position -- it's a point
-  // monsterStandoffDistanceM directly in front of the CAMERA'S current
-  // aim (chassis heading + pan), so a monster that catches up ends up
-  // somewhere the player can actually see it rather than closing to zero
-  // distance (where it'd sit behind/beside the chassis, or exactly on top
-  // of it, out of view). Once within MONSTER_ARRIVE_TOLERANCE_M of that
-  // point it just holds position -- still tracking a slowly-moving/panning
-  // target, but not endlessly jittering around it once caught up.
   function updateMonsters(pose, nowMs) {
     monsters = monsters.filter((m) => m.state !== "dead" || nowMs - m.diedAtMs < MONSTER_DEATH_LINGER_MS);
     ensureMonstersSpawned(pose.x, pose.y);
@@ -366,27 +373,22 @@ function ensureFireballOverlayInitialized(calib) {
     const dtS = Math.min((nowMs - monsterUpdateLastMs) / 1000, MONSTER_UPDATE_MAX_DT_S);
     monsterUpdateLastMs = nowMs;
 
-    const cameraThetaRad = pose.theta + (pose.servoAngleDeg * Math.PI) / 180;
-    const targetX = pose.x + monsterStandoffDistanceM * Math.cos(cameraThetaRad);
-    const targetY = pose.y + monsterStandoffDistanceM * Math.sin(cameraThetaRad);
-
     monsters.forEach((m) => {
       if (m.state === "dead") return;
-      const dxToTarget = targetX - m.x;
-      const dyToTarget = targetY - m.y;
-      const distToTarget = Math.hypot(dxToTarget, dyToTarget);
-      if (distToTarget <= MONSTER_ARRIVE_TOLERANCE_M) return; // close enough -- hold position
 
-      m.wanderAngleRad += (Math.random() - 0.5) * MONSTER_WANDER_TURN_RATE_RAD_PER_S * dtS;
-      const chaseAngleRad = Math.atan2(dyToTarget, dxToTarget);
-      const vx = MONSTER_CHASE_WEIGHT * Math.cos(chaseAngleRad) + (1 - MONSTER_CHASE_WEIGHT) * Math.cos(m.wanderAngleRad);
-      const vy = MONSTER_CHASE_WEIGHT * Math.sin(chaseAngleRad) + (1 - MONSTER_CHASE_WEIGHT) * Math.sin(m.wanderAngleRad);
-      const vLen = Math.hypot(vx, vy) || 1;
-      // Capped at distToTarget so a fast-approaching monster can't overshoot
-      // past the standoff point in one physics step.
-      const stepM = Math.min(monsterSpeedMps * dtS, distToTarget);
-      m.x += (vx / vLen) * stepM;
-      m.y += (vy / vLen) * stepM;
+      if (m.legDistanceRemainingM <= 0) {
+        const towardPlayerRad = Math.atan2(pose.y - m.y, pose.x - m.x);
+        const randomRad = Math.random() * 2 * Math.PI;
+        const vx = MONSTER_DIRECTION_BIAS * Math.cos(towardPlayerRad) + (1 - MONSTER_DIRECTION_BIAS) * Math.cos(randomRad);
+        const vy = MONSTER_DIRECTION_BIAS * Math.sin(towardPlayerRad) + (1 - MONSTER_DIRECTION_BIAS) * Math.sin(randomRad);
+        m.headingRad = Math.atan2(vy, vx);
+        m.legDistanceRemainingM = monsterLegDistanceM;
+      }
+
+      const stepM = Math.min(monsterSpeedMps * dtS, m.legDistanceRemainingM);
+      m.x += stepM * Math.cos(m.headingRad);
+      m.y += stepM * Math.sin(m.headingRad);
+      m.legDistanceRemainingM -= stepM;
     });
   }
 

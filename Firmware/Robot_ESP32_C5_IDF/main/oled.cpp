@@ -3,6 +3,7 @@
 #include "button.hpp"
 #include "qr_display.hpp"
 #include "ina260.hpp"
+#include "uart_link.hpp"
 
 extern "C" {
 #include "ssd1306.h"
@@ -17,12 +18,7 @@ extern "C" {
 // nopnop2002/esp-idf-ssd1306 component. Pins/panel size/I2C port are set in
 // sdkconfig.defaults (CONFIG_SDA_GPIO etc.), not here -- that's how this
 // component's Kconfig-driven config works. Ported from
-// Test_ESP32_C5_IDF_for_S3_CAM/main/oled.c's status screen. The S3 CAM's own
-// identity used to be shown here too (relayed over UART -- see
-// uart_link.cpp), but that only ever existed so its IP could be read off
-// and copied into the Main page/QR code by hand -- moot now that the C5
-// picks it up automatically the moment the cam starts reporting, with no
-// manual step anywhere.
+// Test_ESP32_C5_IDF_for_S3_CAM/main/oled.c's status screen.
 
 namespace {
 
@@ -93,6 +89,27 @@ void render_status() {
         }
     } else {
         render_row_padded(2, "no INA260");
+    }
+
+    // S3 CAM status, relayed over UART (uart_link.cpp) -- same MAC-then-IP
+    // convention as this board's own WiFi row above: while the cam hasn't
+    // joined WiFi yet (or we've never/no-longer heard from it at all over
+    // UART), its MAC is the only thing worth showing. Prefix kept to a
+    // single "C " (not "CAM ", used on the compact-MAC branch below where
+    // there's headroom to spare) so a full dotted-quad IP still fits within
+    // the 16-column display.
+    if (uart_link_peer_is_stale()) {
+        render_row_padded(3, "CAM no link");
+    } else if (std::strcmp(uart_link_get_peer_ip(), "0.0.0.0") == 0) {
+        char compactMac[13];
+        format_compact_mac(uart_link_get_peer_mac(), compactMac, sizeof(compactMac));
+        char row[17];
+        std::snprintf(row, sizeof(row), "CAM %s", compactMac);
+        render_row_padded(3, row);
+    } else {
+        char row[17];
+        std::snprintf(row, sizeof(row), "C %s", uart_link_get_peer_ip());
+        render_row_padded(3, row);
     }
 }
 

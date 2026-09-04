@@ -382,10 +382,15 @@ esp_err_t handle_set(httpd_req_t *req) {
         settings.otaPassword[sizeof(settings.otaPassword) - 1] = '\0';
         dirty = true;
     }
+    if (get_query_str(req, "gameMode", buf, sizeof(buf))) {
+        if (std::strcmp(buf, "none") == 0) settings.gameMode = GAME_MODE_NONE;
+        else if (std::strcmp(buf, "monster_hunt") == 0) settings.gameMode = GAME_MODE_MONSTER_HUNT;
+        dirty = true;
+    }
     if (get_query_float(req, "fireballSpeedMps", &fval)) { settings.fireballSpeedMps = std::clamp(fval, 0.01f, 10.0f); dirty = true; }
     if (get_query_float(req, "monsterSpeedMps", &fval)) { settings.monsterSpeedMps = std::clamp(fval, 0.01f, 10.0f); dirty = true; }
     if (get_query_int(req, "monsterCount", &ival)) { settings.monsterCount = std::clamp(ival, 0, 10); dirty = true; }
-    if (get_query_float(req, "monsterStandoffDistanceM", &fval)) { settings.monsterStandoffDistanceM = std::clamp(fval, 0.0f, 5.0f); dirty = true; }
+    if (get_query_float(req, "monsterLegDistanceM", &fval)) { settings.monsterLegDistanceM = std::clamp(fval, 0.05f, 20.0f); dirty = true; }
     if (dirty) {
         saveSettings();
     }
@@ -421,7 +426,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         "\"lastHangConnCount\":%d,\"lastHangWsConnCount\":%d,"
         "\"altSsid\":\"%s\",\"altPassword\":\"%s\","
         "\"otaUsername\":\"%s\",\"otaPassword\":\"%s\","
-        "\"fireballSpeedMps\":%.3f,\"monsterSpeedMps\":%.3f,\"monsterCount\":%d,\"monsterStandoffDistanceM\":%.3f}",
+        "\"gameMode\":%d,\"fireballSpeedMps\":%.3f,\"monsterSpeedMps\":%.3f,\"monsterCount\":%d,\"monsterLegDistanceM\":%.3f}",
         settings.loggingEnabled ? "true" : "false", settings.debugWeb ? "true" : "false",
         settings.dataLogRate, settings.mode, settings.logType, settings.logUnit,
         settings.kp, settings.ki, settings.kd, settings.differentiatorCutoffHz,
@@ -449,7 +454,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         bc.core0TotalConns, bc.core0WsConns,
         settings.altSsid, settings.altPassword,
         settings.otaUsername, settings.otaPassword,
-        settings.fireballSpeedMps, settings.monsterSpeedMps, settings.monsterCount, settings.monsterStandoffDistanceM);
+        settings.gameMode, settings.fireballSpeedMps, settings.monsterSpeedMps, settings.monsterCount, settings.monsterLegDistanceM);
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json);
