@@ -40,7 +40,7 @@ Total price excludes shipping costs, filament, wires, screws, resistors.
 ## Photos
 
 More photos:
-- [Orange-blue version](Pictures/orange-blue)
+- [LynXP One](Pictures/orange-blue)
 - [Older iterations](Pictures/older%20iterations)
 
 ## AI disclaimer
