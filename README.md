@@ -2,7 +2,7 @@
 
 ![LynXP](Pictures/orange-blue/2026-09-04%2009.02.47.jpg)
 
-LynXP is a wheeled robot with pan-tilt camera and web-based control interface, through which minigames can be played.
+LynXP is a wheeled robot with pan-tilt camera and web-based control interface, through which minigames can be played. It is based on the SmartXP robot used in Creative Technology curriculum at University of Twente, hence the -XP in the name.
 
 ## Electronics
 
