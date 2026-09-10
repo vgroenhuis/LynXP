@@ -37,6 +37,15 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 
 Total price excludes shipping costs, filament, wires, screws, resistors.
 
+## CAD
+
+Will be added around mid-Sept
+
+## Assembly
+
+Will be added after adding CAD files
+
+
 ## Photos
 
 More photos:
