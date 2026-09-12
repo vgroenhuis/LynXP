@@ -2,7 +2,7 @@
 
 ![LynXP](Pictures/orange-blue/2026-09-04%2009.02.47.jpg)
 
-LynXP is a wheeled robot with pan-tilt camera and web-based control interface, through which minigames can be played.
+LynXP is a wheeled robot with pan-tilt camera and web-based control interface, through which minigames can be played. It is based on the SmartXP robot used in Creative Technology curriculum at University of Twente, hence the -XP in the name.
 
 ## Electronics
 
@@ -36,6 +36,15 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 | **Total** | | | **€143** | | |
 
 Total price excludes shipping costs, filament, wires, screws, resistors.
+
+## CAD
+
+Will be added around mid-Sept
+
+## Assembly
+
+Will be added after adding CAD files
+
 
 ## Photos
 
