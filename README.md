@@ -39,12 +39,13 @@ Total price excludes shipping costs, filament, wires, screws, resistors.
 
 ## CAD
 
-Will be added around mid-Sept
+Solidworks source files and STEP exports are available in [CAD/LynXP One Sept 2026](<CAD/LynXP One Sept 2026>):
+- [Solidworks](<CAD/LynXP One Sept 2026/Solidworks>): native parts (`.SLDPRT`) and assemblies (`.SLDASM`), including [CompleteAssembly.SLDASM](<CAD/LynXP One Sept 2026/Solidworks/CompleteAssembly.SLDASM>)
+- [STEP](<CAD/LynXP One Sept 2026/STEP>): neutral format for slicing and viewable in any CAD tool, including the [full robot assembly](<CAD/LynXP One Sept 2026/STEP/Full robot assembled/CompleteAssembly.STEP>)
 
 ## Assembly
 
-Will be added after adding CAD files
-
+Will be added later.
 
 ## Photos
 
