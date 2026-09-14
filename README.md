@@ -16,7 +16,7 @@ Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powe
 
 | Component | Part | Qty | Cost (each) | Supplier | Notes |
 |---|---|---|---|---|---|
-| Powerbank | Anker Zolo 10.000 mAh | 1 | €35 | [Anker](https://www.anker.com/products/a1688) / [GSMNetShop](https://gsmnetshop.nl/products/externe-batterij-anker-zolo-10000mah-30w-qc-plus-pd-1-x-usb-a-2-x-usb-c-zwart-a1688h11) / [DeBatterijPro](https://www.debatterijpro.nl/nl/product/anker-zolo-powerbank-10000mah-30w-qc-pluspd-met-usb-c-kabel-zwart.html) | Dimensions 110x65.5x25 mm. A different powerbank is possible, but may need design adjustments. |
+| Powerbank | Anker Zolo 10.000 mAh | 1 | €35 | [Anker](https://www.anker.com/products/a1688) / [GSMNetShop](https://gsmnetshop.nl/products/externe-batterij-anker-zolo-10000mah-30w-qc-plus-pd-1-x-usb-a-2-x-usb-c-zwart-a1688h11) / [DeBatterijPro](https://www.debatterijpro.nl/nl/product/anker-zolo-powerbank-10000mah-30w-qc-pluspd-met-usb-c-kabel-zwart.html) | Dimensions 110x65.5x25 mm. A different powerbank is possible; use the [CAD_Generators wall generator](https://github.com/vgroenhuis/CAD_Generators) to create a holder for other dimensions. |
 | Drive motor | TT Motor GM37-520TB-1250-30-EN (12V, 30:1 transmission) | 2 | €10 | [Alibaba](https://www.alibaba.com/product-detail/TT-Motor-High-Torque-37mm-GM37_1601884925507.html) / [Aliexpress](https://nl.aliexpress.com/item/1005007677802607.html) / [Funduinoshop](https://funduinoshop.com/nl/doe-het-zelf-workshop/kits/chassis/jgb37-520-encoder-tandwielmotor-kit-12v-12rpm-met-wiel) / [TTmotor](https://www.ttmotor.com/high-torque-dc-gear-motor-589121520253040455580100120160750rpm-product/) | GM37 is a quite common geared DC motor size, but it is hard to find one in EU with encoder attached. |
 | Camera module | Seeed XIAO ESP32S3 Sense | 1 | €16 | [Seeed Studio](https://www.seeedstudio.com/XIAO-ESP32S3-Sense-p-5639.html) / [TinyTronics](https://www.tinytronics.nl/en/development-boards/microcontroller-boards/with-wi-fi/seeed-studio-xiao-esp32-s3-sense) / [Reichelt](https://www.reichelt.com/nl/nl/shop/product/xiao_esp32s3_sense_wifi_bt_camera_ov3660_zonder_header-358353) |  |
 | Main MCU | ESP32-C5-WIFI6-KIT-N16R8-M | 1 | €12 | [Aliexpress](https://nl.aliexpress.com/item/1005012275503208.html) | Compatible with ESP32-C5-DevkitC-1 from Espressif |
@@ -42,6 +42,8 @@ Total price excludes shipping costs, filament, wires, screws, resistors.
 Solidworks source files and STEP exports are available in [CAD/LynXP One Sept 2026](<CAD/LynXP One Sept 2026>):
 - [Solidworks](<CAD/LynXP One Sept 2026/Solidworks>): native parts (`.SLDPRT`) and assemblies (`.SLDASM`), including [CompleteAssembly.SLDASM](<CAD/LynXP One Sept 2026/Solidworks/CompleteAssembly.SLDASM>)
 - [STEP](<CAD/LynXP One Sept 2026/STEP>): neutral format for slicing and viewable in any CAD tool, including the [full robot assembly](<CAD/LynXP One Sept 2026/STEP/Full robot assembled/CompleteAssembly.STEP>)
+
+The powerbank holder walls can be regenerated for different powerbank dimensions using [CAD_Generators](https://github.com/vgroenhuis/CAD_Generators).
 
 ## Assembly
 
