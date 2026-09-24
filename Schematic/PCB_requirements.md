@@ -247,13 +247,13 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 
 - **Must**: MCP23017 at 3.3 V, RESET pulled up (optionally to a GPIO), INTA/INTB to ESP32 GPIOs.
 - **Note** *(verify)*: newer MCP23017 datasheets specify **GPA7 and GPB7 as output-only**. Use these
-  two pins for outputs (LEDs, camera power enable) and not for switches.
+  two pins for outputs (e.g. LEDs) and not for switches.
 - Suggested allocation:
   - GPA0–GPA3: TB6612FNG AIN1, AIN2, BIN1, BIN2 (outputs). Pull-downs on these four lines so both
     motors are stopped while the MCP23017 is in reset or not yet configured.
   - 8-position DIP switch (inputs, see §9).
   - Large user switches/buttons (inputs).
-  - User LEDs, camera power enable (as needed).
+  - User LEDs (as needed).
   - All unused pins on a labelled 2.54 mm female header with GND and 3.3 V.
 
 ---
@@ -320,8 +320,7 @@ All three options on the board, electrically in parallel (only one used at a tim
 - 115200 baud, 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the UART lines.
 - Place the connector so the cable has room to follow the pan/tilt motion; provide a strain-relief
   point (hole for a cable tie) next to it.
-- **Should**: camera 5 V through a load switch controlled by the MCP23017, so firmware can
-  power-cycle a hung camera. Budget ≥ 500 mA for the camera.
+- Budget ≥ 500 mA on the 5 V rail for the camera.
 - Protect against back-feeding when the XIAO's own USB is plugged in for programming *(verify
   whether the XIAO already has a diode on its 5 V pin)*.
 
@@ -371,5 +370,5 @@ The following firmware changes follow from this board and are not part of the PC
 PCA9685 driver for servos and motor PWM (and OE control), MCP23017 driver for motor direction,
 DIP switch/buttons/LEDs, motor updates over I²C (the 1 kHz control loop must budget for I²C
 writes or update the motors at a lower rate), PD voltage
-handling at 12 V instead of 9 V (motor PWM limits), camera power-cycling,
+handling at 12 V instead of 9 V (motor PWM limits),
 and any pin reassignments.
