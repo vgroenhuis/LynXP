@@ -188,6 +188,7 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 | OLED (SH1106/SSD1306-compatible) | 0x3C (0x3D via solder jumper) |
 | INA260 | 0x40 (A0, A1 to GND) |
 | PCA9685 | **0x41** (A0 to 3.3 V, A1–A5 to GND); its All-Call address 0x70 is also in use |
+| Board-ID EEPROM (§12.1) | 0x50 |
 
 - **Should**: one or two Qwiic/STEMMA QT (JST-SH 4-pin, 3.3 V) connectors plus a 2.54 mm I²C
   header for add-ons.
@@ -341,25 +342,41 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 - Board outline and mounting holes **must** fit the LynXP frame in place of the breadboard and
   module holders (see the CAD in [CAD/LynXP One Sept 2026](<../CAD/LynXP One Sept 2026>),
-  e.g. `Frame_16x10` and `BreadboardHolder_Clamp`). M3 mounting holes, isolated from GND or
-  GND-connected by solder jumper.
+  e.g. `Frame_16x10` and `BreadboardHolder_Clamp`).
+- **Must**: mounting holes **3.2 mm** diameter (M3), positioned on a **10 mm grid** so they line up
+  with the frame. Isolated from GND or GND-connected by solder jumper.
+- **Must**: the PCB can be screwed onto the robot without separate standoff parts. Each mounting
+  hole gets a standoff cylinder of the correct height (clearing bottom-side components and
+  through-hole pins) as part of the 3D-printed frame/mount, delivered as CAD (Solidworks + STEP)
+  together with the PCB.
 - USB-C ports, main power switch, large user switches and DIP switch reachable with the robot
   assembled (board edge / top side). The POWER port faces the powerbank.
 - The on-board OLED visible and the camera connector placed so the cable reaches the pan-tilt head.
 - A 3D model (STEP) of the assembled PCB must be delivered for integration in the Solidworks
   assembly.
-- Two-layer board preferred, four-layer acceptable. Solid ground plane; separate high-current
+- **Must**: **four-layer** board. Solid ground plane; separate high-current
   (motor/servo) return paths from logic ground and join them near the power input.
-- Parts should be available from JLCPCB/LCSC or similar for assembly; through-hole connectors and
-  switches may be hand-soldered. Passive size ≥ 0603 (0805 preferred) for hand rework.
+- **Must**: manufactured and assembled by JLCPCB; all parts available from JLCPCB/LCSC.
+  Through-hole connectors and switches may be hand-soldered.
+- **Must**: the design passes a check with JLCPCB's **JLCDFM** tool before ordering; the DFM report
+  is part of the deliverables. Passive size ≥ 0603 (0805 preferred) for hand rework.
 - Silkscreen: project name, board revision, date, polarity marks, pin-1 marks, rail voltages.
+
+### 12.1 Board identification
+- **Must**: firmware must be able to determine that it runs on this PCB instead of the
+  breadboard + loose wires setup (the two have different pin maps), and which board revision.
+- Implement with a small I²C EEPROM (e.g. 24C02, address 0x50, write-protect enabled after
+  programming) holding board name and revision. The presence of the PCA9685 at 0x41 and the
+  MCP23017 at 0x20 (neither exists on the breadboard) serves as a secondary check.
 
 ---
 
 ## 13. Deliverables
 
-- Schematic (PDF + source, KiCad preferred), PCB layout source, Gerbers, BOM with manufacturer part
-  numbers, pick-and-place file, STEP model.
+- **Must**: designed in **KiCad**; the KiCad project (schematic, PCB layout, custom symbols,
+  footprints and 3D models) committed to the LynXP repository (e.g. a `PCB/` folder).
+- Schematic PDF, Gerbers, pick-and-place (CPL) file, STEP model, JLCDFM report.
+- BOM listing for every part the **JLCPCB/LCSC part number** (Cxxxxx), plus manufacturer part number.
 - Pin map table (ESP32 GPIO, MCP23017 pin, PCA9685 channel per function) so
   [board_pins.hpp](../Firmware/Robot_ESP32_C5_IDF/main/board_pins.hpp) can be updated.
 - Updated power/control diagram replacing [powerbank_circuit.png](powerbank_circuit.png).
@@ -370,5 +387,5 @@ The following firmware changes follow from this board and are not part of the PC
 PCA9685 driver for servos and motor PWM (and OE control), MCP23017 driver for motor direction,
 DIP switch/buttons/LEDs, motor updates over I²C (the 1 kHz control loop must budget for I²C
 writes or update the motors at a lower rate), PD voltage
-handling at 12 V instead of 9 V (motor PWM limits),
-and any pin reassignments.
+handling at 12 V instead of 9 V (motor PWM limits), board detection at startup (§12.1) with
+the breadboard or PCB pin map selected accordingly, and any pin reassignments.
