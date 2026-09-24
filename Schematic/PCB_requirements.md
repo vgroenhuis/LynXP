@@ -100,9 +100,9 @@ re-inserting the cable works; switching the load does not.
 | Rail | Source | Minimum rating | Notes |
 |---|---|---|---|
 | **12 V** (VBUS after PD, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
-| **5 V** logic | Buck from 12 V | 3 A | Camera, nOOds, encoders (option), exposed |
+| **5 V** logic | Buck from 12 V | 3 A | Camera, nOOds, exposed |
 | **V_SERVO** (5 V) | Separate buck from 12 V | 3 A continuous | 8 servo headers |
-| **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O |
+| **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O, encoders |
 
 - Bucks **must** accept 5–20 V input with margin (≥ 28 V abs. max) because the rail follows the PD
   voltage.
@@ -278,8 +278,8 @@ All three options on the board, electrically in parallel (only one used at a tim
 3. **2-pin screw terminal** for M+/M− only (motors without encoder, or thick wires).
 
 ### 8.3 Encoders
-- Encoder VCC selectable by jumper: **3.3 V (default)** or 5 V. The ESP32 is not 5 V tolerant, so
-  with 5 V the A/B lines **must** be level-limited (resistor divider or buffer) before the GPIO.
+- Encoder VCC is **3.3 V**, so A/B connect directly to the ESP32 GPIOs (no selector jumper, no
+  level limiting).
 - Footprints for pull-ups and small RC filters (DNP by default) on each A/B line.
 - Encoder spec (for reference): 12 PPR, 30:1 gearbox.
 
