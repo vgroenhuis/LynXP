@@ -91,7 +91,7 @@ re-inserting the cable works; switching the load does not.
 - **Must** place an INA260 (integrated shunt, high-side) in series with the 12 V rail directly after
   the PD output switch, so it measures the complete robot consumption.
 - I²C address: **0x40** (firmware `INA260_I2C_ADDR`), A0 and A1 hardwired to GND.
-- **Should** route the ALERT pin to a GPIO or MCP23017 input.
+- ALERT pin left unconnected.
 
 ---
 
@@ -249,7 +249,7 @@ control loop cannot go through I²C). Encoders **must** stay on native GPIOs (PC
 - Suggested allocation:
   - 8-position DIP switch (inputs, see §9).
   - Large user switches/buttons (inputs).
-  - User LEDs, camera power enable, INA260 ALERT, TB6612 STBY monitor (as needed).
+  - User LEDs, camera power enable, TB6612 STBY monitor (as needed).
   - All unused pins on a labelled 2.54 mm female header with GND and 3.3 V.
 
 ---
