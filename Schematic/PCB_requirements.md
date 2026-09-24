@@ -343,11 +343,14 @@ All three options on the board, electrically in parallel (only one used at a tim
 - Board outline and mounting holes **must** fit the LynXP frame in place of the breadboard and
   module holders (see the CAD in [CAD/LynXP One Sept 2026](<../CAD/LynXP One Sept 2026>),
   e.g. `Frame_16x10` and `BreadboardHolder_Clamp`).
+- **Must**: board size at most **120 × 100 mm**; **80 × 100 mm** preferred.
+- **Must**: **single-sided assembly**: all SMD parts on the top side. The bottom side carries only
+  through-hole solder joints.
 - **Must**: mounting holes **3.2 mm** diameter (M3), positioned on a **10 mm grid** so they line up
   with the frame. Isolated from GND or GND-connected by solder jumper.
 - **Must**: the PCB can be screwed onto the robot without separate standoff parts. Each mounting
-  hole gets a standoff cylinder of the correct height (clearing bottom-side components and
-  through-hole pins) as part of the 3D-printed frame/mount, delivered as CAD (Solidworks + STEP)
+  hole gets a standoff cylinder of the correct height (clearing the through-hole pins on the
+  bottom side) as part of the 3D-printed frame/mount, delivered as CAD (Solidworks + STEP)
   together with the PCB.
 - USB-C ports, main power switch, large user switches and DIP switch reachable with the robot
   assembled (board edge / top side). The POWER port faces the powerbank.
