@@ -25,9 +25,10 @@ committing to the layout.
 | Extra GPIO | — | **MCP23017** 16-bit I/O expander (new) |
 | Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
-| OLED, nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
+| OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED panel on the PCB** (see §5.1) |
+| nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
 
-Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, OLED display, nOOds LED.
+Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LED.
 
 ---
 
@@ -97,7 +98,7 @@ re-inserting the cable works; switching the load does not.
 | Rail | Source | Minimum rating | Notes |
 |---|---|---|---|
 | **12 V** (VBUS after PD, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
-| **5 V** logic | Buck from 12 V | 3 A | Camera, OLED (if 5 V), nOOds, encoders (option), exposed |
+| **5 V** logic | Buck from 12 V | 3 A | Camera, nOOds, encoders (option), exposed |
 | **V_SERVO** | Separate buck from 12 V | 5 A continuous | 8 servo headers; jumper for **5 V / 6 V** |
 | **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O |
 
@@ -181,16 +182,40 @@ control loop cannot go through I²C). Encoders **must** stay on native GPIOs (PC
 |---|---|
 | HUSB238 | 0x08 (fixed) |
 | MCP23017 | 0x20 (A0–A2 solder jumpers) |
-| SSD1306 OLED | 0x3C |
+| OLED (SH1106/SSD1306-compatible) | 0x3C (0x3D via solder jumper) |
 | INA260 | 0x40 (keep) |
 | PCA9685 | **0x41** or other free address via A0–A5 solder jumpers; also note its All-Call address 0x70 |
 
-- **Must**: 4-pin 2.54 mm female header for the OLED. Common SSD1306/SH1106 modules come with
-  either **GND-VCC-SCL-SDA** or **VCC-GND-SCL-SDA** pin order; provide solder jumpers (or two
-  header positions) to support both, and OLED supply selectable 3.3 V/5 V. Mounting holes for the
-  1.3" OLED module are a plus.
 - **Should**: one or two Qwiic/STEMMA QT (JST-SH 4-pin, 3.3 V) connectors plus a 2.54 mm I²C
   header for add-ons.
+
+### 5.1 On-board 1.3" OLED display
+- **Must**: the 1.3" 128×64 monochrome OLED is part of the PCB, not a plug-in module. Use a bare
+  1.3" OLED glass panel with integrated controller and FPC tail (typically 30-pin, soldered or in
+  an FPC connector), with all support circuitry on the PCB. Panel colour white (as on LynXP One);
+  blue or yellow acceptable.
+- Controller: the current firmware uses the SSD1306 driver with a 2-column offset
+  (`CONFIG_OFFSETX=2` in [sdkconfig.defaults](../Firmware/Robot_ESP32_C5_IDF/sdkconfig.defaults)),
+  i.e. the LynXP One module is effectively an **SH1106** (132-column RAM). An SH1106 panel is
+  preferred so firmware stays unchanged; an SSD1306/SSD1309 panel is acceptable if documented.
+  *(verify controller of the chosen panel)*
+- Interface: **I²C** on the shared bus, address 0x3C (0x3D selectable). Interface-select pins
+  (BS0–BS2) strapped for I²C, D1/D2 joined for SDA as the panel datasheet specifies.
+- Supply: logic from 3.3 V. The OLED drive voltage (VCC/VPP, typically 7–15 V) must be generated
+  as required by the controller: internal charge pump with its flying capacitors (SH1106/SSD1306),
+  or a small external boost converter if the panel needs external VCC (e.g. SSD1309). Include
+  IREF resistor, VCOMH/VCC decoupling and all other passives from the panel's reference circuit.
+- RES# (reset) connected to an MCP23017 output or ESP32 GPIO with RC fallback, so firmware can
+  reset a hung display.
+- **Should**: the display power can be switched off (load switch or controller sleep is enough).
+- Mechanical: the panel **must** be on the top side, fully visible with the robot assembled,
+  readable in the orientation the robot is normally viewed from (text upright). Provide a cut-out
+  or keep-out under the FPC bend, and a mounting method for the glass (double-sided foam tape
+  area and/or a 3D-printed bezel with M2/M2.5 holes; include the bezel in the STEP deliverable).
+  Keep tall components and connectors away from the panel so it is not damaged or shadowed.
+- **Should**: as a fallback, a 4-pin 2.54 mm female header on the same I²C bus for an external
+  OLED module, with solder jumpers for both common pin orders (GND-VCC-SCL-SDA and
+  VCC-GND-SCL-SDA).
 
 ---
 
@@ -314,7 +339,7 @@ All three options on the board, electrically in parallel (only one used at a tim
   GND-connected by solder jumper.
 - USB-C ports, main power switch, large user switches and DIP switch reachable with the robot
   assembled (board edge / top side). The POWER port faces the powerbank.
-- The OLED and camera connectors placed so cables reach their mounts on the frame.
+- The on-board OLED visible and the camera connector placed so the cable reaches the pan-tilt head.
 - A 3D model (STEP) of the assembled PCB must be delivered for integration in the Solidworks
   assembly.
 - Two-layer board preferred, four-layer acceptable. Solid ground plane; separate high-current
