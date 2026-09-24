@@ -21,7 +21,7 @@ committing to the layout.
 | 5 V buck converter | OT253-B47 module | Buck converter on the PCB |
 | 3.3 V supply | Devkit LDO | Regulator on the PCB |
 | Motor driver | TB6612FNG module | **TB6612FNG** chip on the PCB |
-| Servo PWM | ESP32 LEDC (2 channels) | **PCA9685** 16-channel PWM driver (new) |
+| Servo and motor PWM | ESP32 LEDC | **PCA9685** 16-channel PWM driver (new) |
 | Extra GPIO | — | **MCP23017** 16-bit I/O expander (new) |
 | Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
@@ -149,29 +149,27 @@ re-inserting the cable works; switching the load does not.
   (GPIO11/GPIO12 *(verify)*), plus EN and BOOT so an adapter can also flash the module. 3.3 V pin
   via solder jumper, open by default.
 
-### 4.2 Suggested pin map (compatible with current firmware)
-Keeping the bench-verified LynXP One pin map avoids firmware changes. The designer may reassign
-pins; any change must be documented so `board_pins.hpp` can be updated.
+### 4.2 Suggested pin map
+Motor PWM and pan/tilt servos move to the PCA9685 and motor direction pins to the MCP23017 (see
+§6, §7); the remaining ESP32 pins keep the bench-verified LynXP One assignment. The designer may
+reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 
-| Function | GPIO (current firmware) |
+| Function | Connection |
 |---|---|
-| Motor PWMB (left) / PWMA (right) | 0 / 9 |
-| Motor BIN1, BIN2 (left) | 6, 1 |
-| Motor AIN1, AIN2 (right) | 7, 8 |
+| Motor PWMA (right) / PWMB (left) | PCA9685 channel 8 / 9 |
+| Motor AIN1, AIN2 (right) / BIN1, BIN2 (left) | MCP23017 GPA0, GPA1 / GPA2, GPA3 |
+| Pan / tilt servo | PCA9685 channel 0 / 1 |
 | Encoder left A, B | 26, 25 |
 | Encoder right A, B | 24, 23 |
 | I²C SDA / SCL | 2 / 3 |
 | Camera UART RX / TX | 4 / 28 |
-| Pan / tilt servo (legacy direct drive) | 5 / 10 |
 | QR pushbutton | 27 |
 | UART0 TX / RX | 11 / 12 *(verify)* |
 
-Freed/remaining GPIOs (e.g. 5, 10 when servos move to the PCA9685) should go
-to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
+Freed GPIOs (0, 1, 5, 6, 7, 8, 9, 10) and other remaining GPIOs should go to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
 and a 2.54 mm female header with all remaining free GPIOs.
 
-Motor PWM and direction pins **must** stay on native ESP32 GPIOs (20 kHz PWM and the 1 kHz
-control loop cannot go through I²C). Encoders **must** stay on native GPIOs (PCNT peripheral).
+Encoders **must** stay on native GPIOs (PCNT peripheral).
 
 ---
 
@@ -222,21 +220,23 @@ control loop cannot go through I²C). Encoders **must** stay on native GPIOs (PC
 
 ---
 
-## 6. PCA9685 PWM driver and servos
+## 6. PCA9685 PWM driver: servos and motor PWM
 
 - **Must**: PCA9685 powered from 3.3 V (3.3 V signal levels are fine for hobby servos).
 - **Must**: OE pin pulled **high** (outputs disabled) by default and controlled by an ESP32 GPIO,
-  so servos receive no pulses until firmware has initialised them. This also prevents the random
-  boot-time pan rotation seen on LynXP One.
+  so servos and motors receive no pulses until firmware has initialised them. This also prevents
+  the random boot-time pan rotation seen on LynXP One.
+- **Note**: all 16 PCA9685 channels share one PWM frequency. With servos on the same chip, the
+  motor PWM runs at the servo frequency (~50 Hz) instead of the current 20 kHz. This is acceptable
+  for the TB6612FNG; expect audible motor noise and coarser low-speed behaviour.
 - **Must**: **8 servo headers**, standard 3-pin 2.54 mm male (GND, V_SERVO, signal — in that
   order, with polarity marked on silkscreen), on PCA9685 channels 0–7:
   - channel 0 = **PAN**, channel 1 = **TILT**, channels 2–7 = **SPARE 1–6** (label space).
   - Series resistor (~220 Ω) on each signal line.
   - Spacing wide enough to plug in 8 servo connectors side by side.
-- **Should**: solder jumpers on PAN and TILT signal lines to choose between PCA9685 channel 0/1 and
-  the direct ESP32 GPIO5/GPIO10, so the existing firmware works unchanged during bring-up.
-- **Must**: break out PCA9685 channels 8–15 on a 2.54 mm female header (with GND and 5 V next to it).
-- **Should**: one channel drives a logic-level low-side MOSFET for the **nOOds LED** (dimmable),
+- Channels 8 and 9: TB6612FNG PWMA (right motor) and PWMB (left motor).
+- **Must**: break out PCA9685 channels 10–15 on a 2.54 mm female header (with GND and 5 V next to it).
+- **Should**: channel 10 drives a logic-level low-side MOSFET for the **nOOds LED** (dimmable),
   with footprint for the series resistor (47 Ω on LynXP One) and a 2-pin connector.
 
 ---
@@ -247,6 +247,8 @@ control loop cannot go through I²C). Encoders **must** stay on native GPIOs (PC
 - **Note** *(verify)*: newer MCP23017 datasheets specify **GPA7 and GPB7 as output-only**. Use these
   two pins for outputs (LEDs, camera power enable) and not for switches.
 - Suggested allocation:
+  - GPA0–GPA3: TB6612FNG AIN1, AIN2, BIN1, BIN2 (outputs). Pull-downs on these four lines so both
+    motors are stopped while the MCP23017 is in reset or not yet configured.
   - 8-position DIP switch (inputs, see §9).
   - Large user switches/buttons (inputs).
   - User LEDs, camera power enable, TB6612 STBY monitor (as needed).
@@ -328,7 +330,7 @@ All three options on the board, electrically in parallel (only one used at a tim
 - Addressable status LED (WS2812/SK6812) on a free GPIO; **may** also add a 3-pin header to chain
   more.
 - nOOds LED 2-pin connector (see §6).
-- Female header breakout of all free ESP32 GPIOs, MCP23017 spare pins and PCA9685 channels 8–15,
+- Female header breakout of all free ESP32 GPIOs, MCP23017 spare pins and PCA9685 channels 10–15,
   each group with GND and supply pins next to it.
 - All connectors labelled on the silkscreen with signal name and voltage.
 
@@ -364,6 +366,8 @@ All three options on the board, electrically in parallel (only one used at a tim
 ## 14. Firmware impact (for information)
 
 The following firmware changes follow from this board and are not part of the PCB design:
-PCA9685 servo driver (and OE control), MCP23017 driver for DIP switch/buttons/LEDs, PD voltage
+PCA9685 driver for servos and motor PWM (and OE control), MCP23017 driver for motor direction,
+DIP switch/buttons/LEDs, motor updates over I²C (the 1 kHz control loop must budget for I²C
+writes or update the motors at a lower rate), PD voltage
 handling at 12 V instead of 9 V (motor PWM limits), camera power-cycling,
 and any pin reassignments.
