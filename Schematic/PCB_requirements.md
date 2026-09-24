@@ -93,7 +93,7 @@ re-inserting the cable works; switching the load does not.
 |---|---|---|---|
 | **12 V** (VBUS after PD, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
 | **5 V** logic | Buck from 12 V | 3 A | Camera, nOOds, encoders (option), exposed |
-| **V_SERVO** | Separate buck from 12 V | 5 A continuous | 8 servo headers; jumper for **5 V / 6 V** |
+| **V_SERVO** (5 V) | Separate buck from 12 V | 3 A continuous | 8 servo headers |
 | **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O |
 
 - Bucks **must** accept 5–20 V input with margin (≥ 28 V abs. max) because the rail follows the PD
