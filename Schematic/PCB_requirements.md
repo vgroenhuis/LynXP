@@ -1,0 +1,341 @@
+# LynXP main PCB — requirements
+
+This document lists the requirements for a single main PCB that replaces the breadboard, the
+breakout modules and the wiring of LynXP One (see [powerbank_circuit.png](powerbank_circuit.png)
+and the [BOM in the README](../README.md#bill-of-materials)). As many functions as practical
+should be on the PCB itself instead of on plug-in modules.
+
+Key words: **must** = hard requirement, **should** = strongly preferred, **may** = optional/nice to have.
+Items marked *(verify)* are facts the designer must check against the current datasheet before
+committing to the layout.
+
+---
+
+## 1. Scope: what moves onto the PCB
+
+| Function | LynXP One (breadboard) | PCB |
+|---|---|---|
+| Main MCU | Waveshare ESP32-C5-WIFI6-KIT devkit | **ESP32-C5-WROOM-1U** module soldered on the PCB |
+| USB-PD trigger | Adafruit HUSB238 breakout | **HUSB238** chip + USB-C receptacle on the PCB |
+| Current/voltage sensor | Adafruit INA260 breakout | **INA260** chip on the PCB |
+| 5 V buck converter | OT253-B47 module | Buck converter on the PCB |
+| 3.3 V supply | Devkit LDO | Regulator on the PCB |
+| Motor driver | TB6612FNG module | **TB6612FNG** chip on the PCB |
+| Servo PWM | ESP32 LEDC (2 channels) | **PCA9685** 16-channel PWM driver (new) |
+| Extra GPIO | — | **MCP23017** 16-bit I/O expander (new) |
+| Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
+| Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
+| OLED, nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
+
+Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, OLED display, nOOds LED.
+
+---
+
+## 2. Power input: USB-PD (HUSB238)
+
+### 2.1 Negotiation
+- **Must** have a USB-C receptacle (power only; CC1, CC2, VBUS, GND) for the powerbank, labelled
+  **"POWER"** on the silkscreen, clearly different from the programming port.
+- **Must** use the HUSB238 as PD sink controller. Default request: **12 V** (the GM37 motors are
+  12 V motors; LynXP One ran them at 9 V).
+- **Should** allow selecting the requested voltage (at least 9 V and 12 V; 5/15/20 V a bonus) with
+  solder jumpers or a DIP switch on the HUSB238 voltage-select resistor network *(verify resistor
+  values in the HUSB238 datasheet)*. The ISET/current resistor (10.5 kΩ on LynXP One) must also be
+  on the board.
+- **Must** connect the HUSB238 I²C (address 0x08) to the main I²C bus so firmware can read the
+  contract and optionally request another PDO.
+- If the powerbank can only deliver 9 V, the "12 V" rail simply carries 9 V. Everything on this rail
+  must therefore work from 5 V up to 20 V (see 2.5).
+
+### 2.2 On/off switch that wakes the powerbank (important)
+Many powerbanks (including the Anker Zolo) switch their output off after a period of low current,
+and only turn it on again when they detect a *new* attach event on the CC lines. Pulling and
+re-inserting the cable works; switching the load does not.
+
+- **Must**: the main on/off switch breaks the **CC1 and CC2** lines between the USB-C receptacle and
+  the HUSB238 (e.g. a DPDT slide/toggle switch, one pole per CC line). Switching OFF looks like a
+  cable unplug to the powerbank (it removes VBUS itself); switching ON is a fresh attach, which
+  wakes the powerbank and restarts PD negotiation.
+  - Side effect: the switch carries only CC signal current, so no high-current switch is needed.
+  - Keep CC traces short, place the switch close to the receptacle and the HUSB238. The switch
+    must be a real mechanical switch, large and easy to reach from outside the robot (panel or
+    edge mount, or wired to an off-board panel switch via a small connector with a footprint for
+    an on-board switch as well).
+- **Should** add a spare pole (or separate switch) that also opens the HUSB238 output load switch,
+  so the output is guaranteed off even with a non-compliant source.
+- **May** add a *normally-closed* momentary pushbutton in series with the CC lines ("WAKE") to
+  re-wake a sleeping powerbank without cycling the main switch.
+- **Should** add a firmware-controlled keep-alive load: a logic-level MOSFET + power resistor on the
+  12 V rail (e.g. ~100–200 mA pulse) driven from a GPIO, so firmware can periodically pulse load to
+  keep the powerbank awake when the robot is idle. Resistor must be rated for the pulse energy;
+  footprint may be left unpopulated.
+- Note: the powerbank must be connected with a **USB-C to USB-C** cable. A USB-A to C cable has
+  no CC handshake and cannot be woken or switched this way.
+
+### 2.3 Inrush and capacitance
+- USB-C limits sink bulk capacitance on VBUS before a contract is established (≤10 µF *(verify)*).
+  Large bulk capacitors (motor/servo rails) **must** sit behind a load switch/PMOS that only closes
+  once the HUSB238 reports a valid contract (as the Adafruit breakout does), with soft-start.
+
+### 2.4 Protection
+- **Must**: TVS diode on VBUS rated for the maximum selectable PD voltage (≥ 20 V standoff if 20 V
+  can be selected).
+- **Must**: fuse (PTC or eFuse) on the 12 V rail sized for the total budget (~2.5–3 A at 12 V for a
+  30 W powerbank *(verify powerbank PDO list)*).
+- **Should**: ESD protection on CC lines.
+
+### 2.5 Current sensing (INA260)
+- **Must** place an INA260 (integrated shunt, high-side) in series with the 12 V rail directly after
+  the PD output switch, so it measures the complete robot consumption.
+- I²C address: keep **0x40** (firmware `INA260_I2C_ADDR`). A0/A1 via solder jumpers.
+- **Should** route the ALERT pin to a GPIO or MCP23017 input.
+
+---
+
+## 3. Power rails
+
+| Rail | Source | Minimum rating | Notes |
+|---|---|---|---|
+| **12 V** (VBUS after PD, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
+| **5 V** logic | Buck from 12 V | 3 A | Camera, OLED (if 5 V), nOOds, encoders (option), exposed |
+| **V_SERVO** | Separate buck from 12 V | 5 A continuous | 8 servo headers; jumper for **5 V / 6 V** |
+| **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O |
+
+- Bucks **must** accept 5–20 V input with margin (≥ 28 V abs. max) because the rail follows the PD
+  voltage.
+- Servos **should** get their own buck, separate from logic 5 V, so servo stall currents
+  (MG996R ~2.5 A stall) cannot brown out the ESP32. Bulk capacitance on V_SERVO (≥ 470–1000 µF,
+  low-ESR).
+- 3.3 V regulator must handle ESP32-C5 Wi-Fi peaks (≥ 500 mA peak for the module alone); an LDO
+  from 5 V with ≥ 1 A rating or a small buck.
+- When only the programming USB port is connected, the 5 V/3.3 V logic **must** run from USB VBUS
+  through an ORing diode / ideal diode, without back-feeding into the buck output or the PD side.
+  V_SERVO and 12 V stay unpowered in that case.
+- **Must**: power-good LED on each rail (12 V, 5 V, V_SERVO, 3.3 V).
+- **Should**: test points on every rail and GND.
+
+### 3.1 Exposed power
+- **Must** expose **GND, 3.3 V, 5 V and 12 V** (and **should** V_SERVO) both on:
+  - **screw terminals** (5.0 mm or 3.5 mm pitch, one terminal per rail + at least two GND), and
+  - **2.54 mm female headers** (several pins per rail, e.g. a 2×N or 4×1 block per rail).
+- Silkscreen voltage next to every pin. Use distinct connector colours or clear markings to avoid
+  plugging a 3.3 V device into 12 V.
+
+---
+
+## 4. Main MCU: ESP32-C5-WROOM-1U
+
+- **Must** use ESP32-C5-WROOM-1U (external antenna, U.FL/IPEX). Variant with PSRAM preferred
+  (current devkit is N16R8); choose flash/PSRAM size to match the firmware partition table
+  ([partitions.csv](../Firmware/Robot_ESP32_C5_IDF/partitions.csv)) *(verify availability)*.
+- **Must** route the U.FL cable to an external antenna mounting point away from motors, the metal
+  frame and the powerbank; keep the module away from the buck converters and motor traces.
+- **Must**: EN reset button, BOOT button (strapping pin GPIO28 *(verify)*), EN RC delay
+  (10 kΩ / 1 µF), decoupling per module datasheet.
+- Reserved pins (from [board_pins.hpp](../Firmware/Robot_ESP32_C5_IDF/main/board_pins.hpp)):
+  GPIO13/14 = USB D−/D+, GPIO16–22 = flash/PSRAM, GPIO15 possibly PSRAM on R-variants *(verify)*.
+  Strapping pins GPIO2, 7, 25, 27, 28 must not be forced to a wrong level at reset by attached
+  circuitry *(verify required strap levels)*.
+
+### 4.1 Programming port
+- **Must**: exactly one USB-C receptacle, labelled **"PROG"**, wired to the ESP32-C5 native
+  USB-Serial/JTAG (GPIO13/14). No USB-UART converter chip. 5.1 kΩ Rd on its own CC1/CC2, ESD
+  protection on D+/D− (e.g. USBLC6-2), 90 Ω differential routing.
+- **Must**: a 2.54 mm UART0 header for an external USB-UART adapter: GND, U0TXD, U0RXD
+  (GPIO11/GPIO12 *(verify)*), plus EN and BOOT so an adapter can also flash the module. 3.3 V pin
+  via solder jumper, open by default.
+
+### 4.2 Suggested pin map (compatible with current firmware)
+Keeping the bench-verified LynXP One pin map avoids firmware changes. The designer may reassign
+pins; any change must be documented so `board_pins.hpp` can be updated.
+
+| Function | GPIO (current firmware) |
+|---|---|
+| Motor PWMB (left) / PWMA (right) | 0 / 9 |
+| Motor BIN1, BIN2 (left) | 6, 1 |
+| Motor AIN1, AIN2 (right) | 7, 8 |
+| Encoder left A, B | 26, 25 |
+| Encoder right A, B | 24, 23 |
+| I²C SDA / SCL | 2 / 3 |
+| Camera UART RX / TX | 4 / 28 |
+| Pan / tilt servo (legacy direct drive) | 5 / 10 |
+| QR pushbutton | 27 |
+| UART0 TX / RX | 11 / 12 *(verify)* |
+
+Freed/remaining GPIOs (e.g. 5, 10 when servos move to the PCA9685, and 15 if available) should go
+to: MCP23017 INTA/INTB, PCA9685 OE, keep-alive load, an addressable status LED (WS2812/SK6812),
+and a 2.54 mm female header with all remaining free GPIOs.
+
+Motor PWM and direction pins **must** stay on native ESP32 GPIOs (20 kHz PWM and the 1 kHz
+control loop cannot go through I²C). Encoders **must** stay on native GPIOs (PCNT peripheral).
+
+---
+
+## 5. I²C bus
+
+- One 3.3 V I²C bus shared by all devices, pull-ups on the PCB (e.g. 4.7 kΩ, with footprint to
+  change to 2.2 kΩ), 400 kHz capable.
+- Address map (must be conflict-free — note the PCA9685 default **0x40 clashes with the INA260**):
+
+| Device | Address |
+|---|---|
+| HUSB238 | 0x08 (fixed) |
+| MCP23017 | 0x20 (A0–A2 solder jumpers) |
+| SSD1306 OLED | 0x3C |
+| INA260 | 0x40 (keep) |
+| PCA9685 | **0x41** or other free address via A0–A5 solder jumpers; also note its All-Call address 0x70 |
+
+- **Must**: 4-pin 2.54 mm female header for the OLED. Common SSD1306/SH1106 modules come with
+  either **GND-VCC-SCL-SDA** or **VCC-GND-SCL-SDA** pin order; provide solder jumpers (or two
+  header positions) to support both, and OLED supply selectable 3.3 V/5 V. Mounting holes for the
+  1.3" OLED module are a plus.
+- **Should**: one or two Qwiic/STEMMA QT (JST-SH 4-pin, 3.3 V) connectors plus a 2.54 mm I²C
+  header for add-ons.
+
+---
+
+## 6. PCA9685 PWM driver and servos
+
+- **Must**: PCA9685 powered from 3.3 V (3.3 V signal levels are fine for hobby servos).
+- **Must**: OE pin pulled **high** (outputs disabled) by default and controlled by an ESP32 GPIO,
+  so servos receive no pulses until firmware has initialised them. This also prevents the random
+  boot-time pan rotation seen on LynXP One.
+- **Must**: **8 servo headers**, standard 3-pin 2.54 mm male (GND, V_SERVO, signal — in that
+  order, with polarity marked on silkscreen), on PCA9685 channels 0–7:
+  - channel 0 = **PAN**, channel 1 = **TILT**, channels 2–7 = **SPARE 1–6** (label space).
+  - Series resistor (~220 Ω) on each signal line.
+  - Spacing wide enough to plug in 8 servo connectors side by side.
+- **Should**: solder jumpers on PAN and TILT signal lines to choose between PCA9685 channel 0/1 and
+  the direct ESP32 GPIO5/GPIO10, so the existing firmware works unchanged during bring-up.
+- **Must**: break out PCA9685 channels 8–15 on a 2.54 mm female header (with GND and 5 V next to it).
+- **Should**: one channel drives a logic-level low-side MOSFET for the **nOOds LED** (dimmable),
+  with footprint for the series resistor (47 Ω on LynXP One) and a 2-pin connector.
+
+---
+
+## 7. MCP23017 GPIO expander
+
+- **Must**: MCP23017 at 3.3 V, RESET pulled up (optionally to a GPIO), INTA/INTB to ESP32 GPIOs.
+- **Note** *(verify)*: newer MCP23017 datasheets specify **GPA7 and GPB7 as output-only**. Use these
+  two pins for outputs (LEDs, camera power enable) and not for switches.
+- Suggested allocation:
+  - 8-position DIP switch (inputs, see §9).
+  - Large user switches/buttons (inputs).
+  - User LEDs, camera power enable, INA260 ALERT, TB6612 STBY monitor (as needed).
+  - All unused pins on a labelled 2.54 mm female header with GND and 3.3 V.
+
+---
+
+## 8. Motors
+
+### 8.1 Driver
+- **Must**: TB6612FNG on the PCB, VM = 12 V rail, VCC = 3.3 V, STBY pulled up (current firmware
+  assumes always-enabled); **should** route STBY through the motor-enable switch (§9) and/or a GPIO.
+- Channel A = RIGHT motor, channel B = LEFT motor (matches firmware).
+- Generous copper and thermal vias for the TB6612FNG (1.2 A continuous / 3.2 A peak per channel).
+  GM37-520 stall current at 12 V should be checked against this *(verify)*; if it is too high, a
+  pin-compatible-in-function alternative with IN1/IN2/PWM control may be proposed.
+- Bulk capacitor (≥ 100 µF) and 100 nF at VM.
+
+### 8.2 Motor connectors (per motor, both motors)
+All three options on the board, electrically in parallel (only one used at a time):
+1. **6-pin 2.0 mm pitch socket** matching the GM37-520 encoder motor cable (JST-PH-style).
+   Signals: M+, M−, encoder VCC, encoder GND, encoder A, encoder B. Pin order **must** be checked
+   against the actual TT Motor GM37-520TB-1250-30-EN cable *(verify)*; silkscreen the pin names.
+2. **2.54 mm female header** (6-pin, same signals).
+3. **2-pin screw terminal** for M+/M− only (motors without encoder, or thick wires).
+
+### 8.3 Encoders
+- Encoder VCC selectable by jumper: **3.3 V (default)** or 5 V. The ESP32 is not 5 V tolerant, so
+  with 5 V the A/B lines **must** be level-limited (resistor divider or buffer) before the GPIO.
+- Footprints for pull-ups and small RC filters (DNP by default) on each A/B line.
+- Encoder spec (for reference): 12 PPR, 30:1 gearbox.
+
+---
+
+## 9. Switches, buttons and labels
+
+- **Main power switch** (large, see §2.2): DPDT (or more poles) breaking CC1/CC2.
+- **Should**: large **motor-enable** switch (TB6612 STBY or VM) and **servo-power** switch
+  (V_SERVO enable), both readable by firmware — handy for bench testing with the robot on the table.
+- **Must**: at least **3–4 large user switches/buttons** (e.g. 12 mm tactile buttons with caps or
+  toggle switches) on native GPIO or MCP23017:
+  - one is the existing **QR button** (GPIO27, pull-up, active low),
+  - the others free for firmware/minigame use.
+- **Must**: at least one **8-position DIP switch** on the MCP23017 (e.g. robot ID, mode flags).
+- **Must**: **space for labels** next to every user switch, DIP position, spare servo, spare
+  header and exposed rail: white solder-mask/silkscreen fields that can be written on with a
+  permanent marker, large enough for a short word.
+- Reset (EN) and BOOT buttons (small is fine).
+
+---
+
+## 10. Camera (XIAO ESP32-S3 Sense)
+
+- The camera sits on the pan-tilt head. A **4-wire flat cable** is soldered to the XIAO and ends in
+  a connector that plugs into the PCB.
+- **Must**: keyed, latching/friction-locked 4-pin connector on the PCB (e.g. JST-PH 2.0 mm or
+  JST-XH 2.5 mm; the designer selects one and specifies the mating cable connector).
+  Pinout:
+
+| Pin | Signal | XIAO side | ESP32-C5 side |
+|---|---|---|---|
+| 1 | 5 V | 5V pad | 5 V rail |
+| 2 | GND | GND | GND |
+| 3 | CAM_TX | D0 (GPIO1, TX) | GPIO4 (UART1 RX) |
+| 4 | CAM_RX | D1 (GPIO2, RX) | GPIO28 (UART1 TX) |
+
+- 115200 baud, 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the UART lines.
+- Place the connector so the cable has room to follow the pan/tilt motion; provide a strain-relief
+  point (hole for a cable tie) next to it.
+- **Should**: camera 5 V through a load switch controlled by the MCP23017, so firmware can
+  power-cycle a hung camera. Budget ≥ 500 mA for the camera.
+- Protect against back-feeding when the XIAO's own USB is plugged in for programming *(verify
+  whether the XIAO already has a diode on its 5 V pin)*.
+
+---
+
+## 11. Other connectors and indicators
+
+- Addressable status LED (WS2812/SK6812) on a free GPIO; **may** also add a 3-pin header to chain
+  more.
+- nOOds LED 2-pin connector (see §6).
+- Female header breakout of all free ESP32 GPIOs, MCP23017 spare pins and PCA9685 channels 8–15,
+  each group with GND and supply pins next to it.
+- All connectors labelled on the silkscreen with signal name and voltage.
+
+---
+
+## 12. Mechanical and manufacturing
+
+- Board outline and mounting holes **must** fit the LynXP frame in place of the breadboard and
+  module holders (see the CAD in [CAD/LynXP One Sept 2026](<../CAD/LynXP One Sept 2026>),
+  e.g. `Frame_16x10` and `BreadboardHolder_Clamp`). M3 mounting holes, isolated from GND or
+  GND-connected by solder jumper.
+- USB-C ports, main power switch, large user switches and DIP switch reachable with the robot
+  assembled (board edge / top side). The POWER port faces the powerbank.
+- The OLED and camera connectors placed so cables reach their mounts on the frame.
+- A 3D model (STEP) of the assembled PCB must be delivered for integration in the Solidworks
+  assembly.
+- Two-layer board preferred, four-layer acceptable. Solid ground plane; separate high-current
+  (motor/servo) return paths from logic ground and join them near the power input.
+- Parts should be available from JLCPCB/LCSC or similar for assembly; through-hole connectors and
+  switches may be hand-soldered. Passive size ≥ 0603 (0805 preferred) for hand rework.
+- Silkscreen: project name, board revision, date, polarity marks, pin-1 marks, rail voltages.
+
+---
+
+## 13. Deliverables
+
+- Schematic (PDF + source, KiCad preferred), PCB layout source, Gerbers, BOM with manufacturer part
+  numbers, pick-and-place file, STEP model.
+- Pin map table (ESP32 GPIO, MCP23017 pin, PCA9685 channel per function) so
+  [board_pins.hpp](../Firmware/Robot_ESP32_C5_IDF/main/board_pins.hpp) can be updated.
+- Updated power/control diagram replacing [powerbank_circuit.png](powerbank_circuit.png).
+
+## 14. Firmware impact (for information)
+
+The following firmware changes follow from this board and are not part of the PCB design:
+PCA9685 servo driver (and OE control), MCP23017 driver for DIP switch/buttons/LEDs, PD voltage
+handling at 12 V instead of 9 V (motor PWM limits), keep-alive load pulsing, camera power-cycling,
+and any pin reassignments.
