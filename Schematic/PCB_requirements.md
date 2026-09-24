@@ -62,14 +62,8 @@ re-inserting the cable works; switching the load does not.
     must be a real mechanical switch, large and easy to reach from outside the robot (panel or
     edge mount, or wired to an off-board panel switch via a small connector with a footprint for
     an on-board switch as well).
-- **Should** add a spare pole (or separate switch) that also opens the HUSB238 output load switch,
+- **Should** use a spare pole of the same main switch to also open the HUSB238 output load switch,
   so the output is guaranteed off even with a non-compliant source.
-- **May** add a *normally-closed* momentary pushbutton in series with the CC lines ("WAKE") to
-  re-wake a sleeping powerbank without cycling the main switch.
-- **Should** add a firmware-controlled keep-alive load: a logic-level MOSFET + power resistor on the
-  12 V rail (e.g. ~100–200 mA pulse) driven from a GPIO, so firmware can periodically pulse load to
-  keep the powerbank awake when the robot is idle. Resistor must be rated for the pulse energy;
-  footprint may be left unpopulated.
 - Note: the powerbank must be connected with a **USB-C to USB-C** cable. A USB-A to C cable has
   no CC handshake and cannot be woken or switched this way.
 
@@ -164,7 +158,7 @@ pins; any change must be documented so `board_pins.hpp` can be updated.
 | UART0 TX / RX | 11 / 12 *(verify)* |
 
 Freed/remaining GPIOs (e.g. 5, 10 when servos move to the PCA9685, and 15 if available) should go
-to: MCP23017 INTA/INTB, PCA9685 OE, keep-alive load, an addressable status LED (WS2812/SK6812),
+to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
 and a 2.54 mm female header with all remaining free GPIOs.
 
 Motor PWM and direction pins **must** stay on native ESP32 GPIOs (20 kHz PWM and the 1 kHz
@@ -362,5 +356,5 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 The following firmware changes follow from this board and are not part of the PCB design:
 PCA9685 servo driver (and OE control), MCP23017 driver for DIP switch/buttons/LEDs, PD voltage
-handling at 12 V instead of 9 V (motor PWM limits), keep-alive load pulsing, camera power-cycling,
+handling at 12 V instead of 9 V (motor PWM limits), camera power-cycling,
 and any pin reassignments.
