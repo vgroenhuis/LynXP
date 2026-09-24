@@ -82,7 +82,7 @@ re-inserting the cable works; switching the load does not.
 ### 2.5 Current sensing (INA260)
 - **Must** place an INA260 (integrated shunt, high-side) in series with the 12 V rail directly after
   the PD output switch, so it measures the complete robot consumption.
-- I²C address: keep **0x40** (firmware `INA260_I2C_ADDR`). A0/A1 via solder jumpers.
+- I²C address: **0x40** (firmware `INA260_I2C_ADDR`), A0 and A1 hardwired to GND.
 - **Should** route the ALERT pin to a GPIO or MCP23017 input.
 
 ---
