@@ -175,8 +175,8 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 
 ## 5. I²C bus
 
-- One 3.3 V I²C bus shared by all devices, pull-ups on the PCB (e.g. 4.7 kΩ, with footprint to
-  change to 2.2 kΩ), 400 kHz capable.
+- One 3.3 V I²C bus shared by all devices. No pull-up resistors on the PCB; the ESP32-C5's
+  internal pull-ups are used.
 - Address map (must be conflict-free — note the PCA9685 default **0x40 clashes with the INA260**):
 
 | Device | Address |
@@ -184,8 +184,8 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 | HUSB238 | 0x08 (fixed) |
 | MCP23017 | 0x20 (A0–A2 solder jumpers) |
 | OLED (SH1106/SSD1306-compatible) | 0x3C (0x3D via solder jumper) |
-| INA260 | 0x40 (keep) |
-| PCA9685 | **0x41** or other free address via A0–A5 solder jumpers; also note its All-Call address 0x70 |
+| INA260 | 0x40 (A0, A1 to GND) |
+| PCA9685 | **0x41** (A0 to 3.3 V, A1–A5 to GND); its All-Call address 0x70 is also in use |
 
 - **Should**: one or two Qwiic/STEMMA QT (JST-SH 4-pin, 3.3 V) connectors plus a 2.54 mm I²C
   header for add-ons.
