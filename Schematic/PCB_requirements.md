@@ -120,17 +120,18 @@ re-inserting the cable works; switching the load does not.
 
 ## 4. Main MCU: ESP32-C5-WROOM-1U
 
-- **Must** use ESP32-C5-WROOM-1U (external antenna, U.FL/IPEX). Variant with PSRAM preferred
+- **Must** use ESP32-C5-WROOM-1U (external antenna, U.FL/IPEX). A variant **with PSRAM is required**
   (current devkit is N16R8); choose flash/PSRAM size to match the firmware partition table
   ([partitions.csv](../Firmware/Robot_ESP32_C5_IDF/partitions.csv)) *(verify availability)*.
 - **Must** route the U.FL cable to an external antenna mounting point away from motors, the metal
   frame and the powerbank; keep the module away from the buck converters and motor traces.
-- **Must**: EN reset button, BOOT button (strapping pin GPIO28 *(verify)*), EN RC delay
+- **Must**: EN reset button, BOOT button on GPIO28, EN RC delay
   (10 kΩ / 1 µF), decoupling per module datasheet.
 - Reserved pins (from [board_pins.hpp](../Firmware/Robot_ESP32_C5_IDF/main/board_pins.hpp)):
-  GPIO13/14 = USB D−/D+, GPIO16–22 = flash/PSRAM, GPIO15 possibly PSRAM on R-variants *(verify)*.
-  Strapping pins GPIO2, 7, 25, 27, 28 must not be forced to a wrong level at reset by attached
-  circuitry *(verify required strap levels)*.
+  GPIO13/14 = USB D−/D+, GPIO16–22 = flash/PSRAM, **GPIO15 cannot be used** (PSRAM).
+- Strapping: **GPIO28 must not be externally driven** — only the BOOT button may pull it low. It
+  may only connect to inputs (as the camera UART RX line in the pin map below). The other
+  strapping pins need no special care.
 
 ### 4.1 Programming port
 - **Must**: exactly one USB-C receptacle, labelled **"PROG"**, wired to the ESP32-C5 native
@@ -157,7 +158,7 @@ pins; any change must be documented so `board_pins.hpp` can be updated.
 | QR pushbutton | 27 |
 | UART0 TX / RX | 11 / 12 *(verify)* |
 
-Freed/remaining GPIOs (e.g. 5, 10 when servos move to the PCA9685, and 15 if available) should go
+Freed/remaining GPIOs (e.g. 5, 10 when servos move to the PCA9685) should go
 to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
 and a 2.54 mm female header with all remaining free GPIOs.
 
