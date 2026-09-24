@@ -253,7 +253,7 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
     motors are stopped while the MCP23017 is in reset or not yet configured.
   - 8-position DIP switch (inputs, see §9).
   - Large user switches/buttons (inputs).
-  - User LEDs, camera power enable, TB6612 STBY monitor (as needed).
+  - User LEDs, camera power enable (as needed).
   - All unused pins on a labelled 2.54 mm female header with GND and 3.3 V.
 
 ---
@@ -261,8 +261,8 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 ## 8. Motors
 
 ### 8.1 Driver
-- **Must**: TB6612FNG on the PCB, VM = 12 V rail, VCC = 3.3 V, STBY pulled up (current firmware
-  assumes always-enabled); **should** route STBY through the motor-enable switch (§9) and/or a GPIO.
+- **Must**: TB6612FNG on the PCB, VM = 12 V rail, VCC = 3.3 V, STBY pulled up to 3.3 V (always
+  enabled, as the current firmware assumes; no switch).
 - Channel A = RIGHT motor, channel B = LEFT motor (matches firmware).
 - Generous copper and thermal vias for the TB6612FNG (1.2 A continuous / 3.2 A peak per channel).
   GM37-520 stall current at 12 V should be checked against this *(verify)*; if it is too high, a
@@ -287,9 +287,9 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 ## 9. Switches, buttons and labels
 
-- **Main power switch** (large, see §2.2): DPDT (or more poles) breaking CC1/CC2.
-- **Should**: large **motor-enable** switch (TB6612 STBY or VM) and **servo-power** switch
-  (V_SERVO enable), both readable by firmware — handy for bench testing with the robot on the table.
+- **Main power switch** (large, see §2.2): multi-pole, breaking CC1/CC2 and sleeping/waking the PD
+  controller. No other power or enable switches (no motor-enable or servo-power switch), to avoid
+  a switch being forgotten in the wrong state.
 - **Must**: at least **3–4 large user switches/buttons** (e.g. 12 mm tactile buttons with caps or
   toggle switches) on native GPIO or MCP23017:
   - one is the existing **QR button** (GPIO27, pull-up, active low),
