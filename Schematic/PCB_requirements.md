@@ -175,8 +175,10 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 
 ## 5. I²C bus
 
-- One 3.3 V I²C bus shared by all devices. No pull-up resistors on the PCB; the ESP32-C5's
-  internal pull-ups are used.
+- One 3.3 V I²C bus shared by all devices. The ESP32-C5's internal pull-ups are used by default.
+- **Must**: footprints for external SDA/SCL pull-up resistors to 3.3 V (0805, unpopulated by
+  default; fit e.g. 4.7 kΩ or 2.2 kΩ if the bus needs to run faster or more reliably, e.g. at
+  400 kHz for the motor updates over I²C).
 - Address map (must be conflict-free — note the PCA9685 default **0x40 clashes with the INA260**):
 
 | Device | Address |
