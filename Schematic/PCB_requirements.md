@@ -54,15 +54,23 @@ and only turn it on again when they detect a *new* attach event on the CC lines.
 re-inserting the cable works; switching the load does not.
 
 - **Must**: the main on/off switch breaks the **CC1 and CC2** lines between the USB-C receptacle and
-  the HUSB238 (e.g. a DPDT slide/toggle switch, one pole per CC line). Switching OFF looks like a
-  cable unplug to the powerbank (it removes VBUS itself); switching ON is a fresh attach, which
-  wakes the powerbank and restarts PD negotiation.
+  the HUSB238 (one pole per CC line). Switching OFF looks like a cable unplug to the powerbank (it
+  removes VBUS itself); switching ON is a fresh attach, which wakes the powerbank.
+- **Must**: the same switch also puts the **PD controller to sleep when OFF and wakes it when ON**,
+  so that every switch-on starts the PD controller from its initial state and it renegotiates the
+  contract, instead of keeping stale state alive on residual VBUS/bulk-capacitor charge or on
+  voltage back-fed from the programming USB port. Implement with an extra pole on the main switch,
+  e.g. driving the PD controller's enable/sleep pin, or cutting its supply combined with a VBUS
+  discharge path so it gets a clean power-on reset *(verify which mechanism the HUSB238 supports;
+  a comparable PD sink controller with a proper enable pin is acceptable if the HUSB238 has none)*.
+- The main switch is therefore a multi-pole switch (e.g. 3PDT/4PDT slide or toggle). There must be
+  only this one power switch for the PD input; no separate wake/sleep buttons.
   - Side effect: the switch carries only CC signal current, so no high-current switch is needed.
   - Keep CC traces short, place the switch close to the receptacle and the HUSB238. The switch
     must be a real mechanical switch, large and easy to reach from outside the robot (panel or
     edge mount, or wired to an off-board panel switch via a small connector with a footprint for
     an on-board switch as well).
-- **Should** use a spare pole of the same main switch to also open the HUSB238 output load switch,
+- **Should** use another pole of the same main switch to also open the PD output load switch,
   so the output is guaranteed off even with a non-compliant source.
 - Note: the powerbank must be connected with a **USB-C to USB-C** cable. A USB-A to C cable has
   no CC handshake and cannot be woken or switched this way.
