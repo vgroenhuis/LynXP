@@ -1,4 +1,5 @@
 #include "ws_broadcast.hpp"
+#include "debug_pan.hpp"
 #include "web_server.hpp"
 #include "control_modes.hpp"
 #include "odometry.hpp"
@@ -464,10 +465,31 @@ void ws_poll_task(void *arg) {
         // control frame's reference direction even while the chassis turns
         // to strafe/reverse. Clamped to the servo's +/-90 deg range.
         breadcrumb_mark_core0(CORE0_CP_SERVO_FOLLOW);
-        constexpr unsigned long SERVO_FOLLOW_INTERVAL_MS = 50; // 20Hz -- plenty for a pan servo
-        if (settings.servoFollowControlFrame && (nowMs - lastServoFollowUpdateMs >= SERVO_FOLLOW_INTERVAL_MS)) {
+        //
+        // Measured (debug_pan.cpp experiments: camera heading tracked from
+        // the video while the robot turns in place): the servo lags its
+        // command by roughly 60 ms, so aiming at the CURRENT chassis heading
+        // left the camera trailing by rate x lag -- ~12 deg at 130 deg/s and
+        // ~24 deg at 240 deg/s with the old 60 ms update spacing. Updating
+        // every tick (20 ms, the servo's own PWM frame) and aiming where the
+        // chassis will be g_panLeadMs from now (rate x lead) brings that
+        // down to ~2-5 deg. Both are runtime knobs, see debug_pan.hpp.
+        if (settings.servoFollowControlFrame && !g_panFollowSuspended &&
+            (nowMs - lastServoFollowUpdateMs >= (unsigned long) g_panFollowIntervalMs)) {
             lastServoFollowUpdateMs = nowMs;
-            float headingDiffRad = wrapToPi(controlFrameThetaRad - poseThetaRad);
+            float predictedThetaRad = poseThetaRad;
+            if (g_panLeadMs > 0.0f) {
+                float wheelCircumference_m = (float) M_PI * settings.wheelDiameterMm / 1000.0f;
+                float omegaRadPerSec = (wheelVelRevPerSec[1] - wheelVelRevPerSec[0]) * wheelCircumference_m /
+                                       (settings.wheelbaseMm / 1000.0f);
+                // Ignore encoder blips at standstill (below ~6 deg/s the lead
+                // would add < 0.5 deg anyway), so a still robot doesn't keep
+                // nudging (and re-energizing) the servo.
+                if (std::fabs(omegaRadPerSec) > 0.1f) {
+                    predictedThetaRad += omegaRadPerSec * g_panLeadMs / 1000.0f;
+                }
+            }
+            float headingDiffRad = wrapToPi(controlFrameThetaRad - predictedThetaRad);
             float newAngle = std::clamp(headingDiffRad * 180.0f / (float) M_PI, -90.0f, 90.0f);
             // Only counts as "active" (and only re-writes the pulse) if the
             // needed angle actually moved -- a stationary robot/control
@@ -611,6 +633,17 @@ void ws_poll_task(void *arg) {
 }
 
 } // namespace
+
+void ws_broadcast_set_pan_angle(float deg) {
+    currentServoAngleDeg = std::clamp(deg, settings.servoMinAngleDeg, settings.servoMaxAngleDeg);
+    lastPanActiveMs = millis_now();
+    panServoIdle = false;
+    writePanServoPulse();
+}
+
+void ws_broadcast_hold_drive_command() {
+    lastDriveCommandMs = millis_now();
+}
 
 TaskHandle_t ws_broadcast_get_poll_task_handle() {
     return g_pollTaskHandle;

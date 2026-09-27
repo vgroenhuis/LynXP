@@ -20,6 +20,11 @@
 // handling). Call once from app_main(), after web_server_init().
 void ws_broadcast_start();
 
+// For debug_pan.cpp's experiments: set the pan servo directly (as the
+// servo_angle WS message does), and keep the drive-command watchdog fed.
+void ws_broadcast_set_pan_angle(float deg);
+void ws_broadcast_hold_drive_command();
+
 // For watchdog_system_init()/diagnostics_register_tasks() to subscribe/
 // measure this task. Valid only after ws_broadcast_start() returns.
 TaskHandle_t ws_broadcast_get_poll_task_handle();
