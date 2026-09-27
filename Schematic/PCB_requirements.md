@@ -167,9 +167,10 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | I²C SDA / SCL | 2 / 3 |
 | Camera UART RX / TX | 4 / 28 |
 | QR pushbutton | 27 |
+| Screen-select potentiometer (§5.1) | GPIO1 (ADC-capable *(verify)*) |
 | UART0 TX / RX | 11 / 12 *(verify)* |
 
-Freed GPIOs (0, 1, 5, 6, 7, 8, 9, 10) and other remaining GPIOs should go to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
+Freed GPIOs (0, 5, 6, 7, 8, 9, 10) and other remaining GPIOs should go to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
 and a 2.54 mm female header with all remaining free GPIOs.
 
 Encoders **must** stay on native GPIOs (PCNT peripheral).
@@ -221,6 +222,13 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
   or keep-out under the FPC bend, and a mounting method for the glass (double-sided foam tape
   area and/or a 3D-printed bezel with M2/M2.5 holes; include the bezel in the STEP deliverable).
   Keep tall components and connectors away from the panel so it is not damaged or shadowed.
+- **Must**: a **potentiometer with turn knob directly right of the OLED**, used to select the screen
+  shown (e.g. main screen, QR code, Wi-Fi diagnostics, game statistics). PCB-mount rotary
+  potentiometer with shaft (e.g. 9 mm type, linear, 10 kΩ) and a knob large enough to turn by
+  hand, between 3.3 V and GND, wiper to a native ESP32-C5 ADC pin with a 100 nF filter capacitor.
+  The knob must be reachable with the robot assembled and not obstruct the view of the display.
+  Firmware divides the rotation into zones (with hysteresis), one per screen, so the knob
+  position always corresponds to the same screen.
 - **Should**: as a fallback, a 4-pin 2.54 mm female header on the same I²C bus for an external
   OLED module, with solder jumpers for both common pin orders (GND-VCC-SCL-SDA and
   VCC-GND-SCL-SDA).
@@ -407,7 +415,8 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 The following firmware changes follow from this board and are not part of the PCB design:
 PCA9685 driver for servos and motor PWM (and OE control), MCP23017 driver for motor direction,
-DIP switch/buttons/LEDs, ADC driver for the analog inputs, motor updates over I²C (the 1 kHz control loop must budget for I²C
+DIP switch/buttons/LEDs, ADC driver for the analog inputs, screen selection with the
+potentiometer, motor updates over I²C (the 1 kHz control loop must budget for I²C
 writes or update the motors at a lower rate), PD voltage
 handling at 12 V instead of 9 V (motor PWM limits), board detection at startup (§12.1) with
 the breadboard or PCB pin map selected accordingly, and any pin reassignments.
