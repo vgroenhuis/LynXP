@@ -10,6 +10,8 @@
   <nav class="top-nav">
     <a href="/" class="nav-link active">Main</a>
     <a href="/cam" class="nav-link">First-person view</a>
+    <a href="/games" class="nav-link">Games &amp; apps</a>
+    <a href="/wifi" class="nav-link">Wi-Fi</a>
   </nav>
   <div id="reboot-notice" class="reboot-notice" style="display:none" title="Click to dismiss">
     &#9888; The robot's last reboot was triggered by the watchdog (a hang was detected and it recovered automatically). <span class="reboot-notice-dismiss">(click to dismiss)</span>
@@ -78,6 +80,13 @@
             <span>Stream clients:</span><span id="s3camClients">-</span>
             <span>Ping avg/last:</span><span id="s3camPing">-</span>
             <span>Ping loss:</span><span id="s3camPingLoss">-</span>
+            <span>Firmware:</span><span id="s3camFirmware">-</span>
+          </div>
+          <div class="form-group">
+            <h4>Update camera firmware</h4>
+            <input type="file" id="camFwFile" accept=".bin">
+            <button id="uploadCamFwBtn">Upload &amp; reboot camera</button>
+            <p id="camOtaStatus" class="games-small"></p>
           </div>
         </div>
       </details>
@@ -370,7 +379,7 @@
           </div>
           <div class="form-group inline-group">
             <label for="camGridColor">Grid color:</label>
-            <input type="color" id="camGridColor" value="#28ff78">
+            <input type="color" id="camGridColor" value="#c0c0c0">
           </div>
           <div class="form-group inline-group">
             <label for="camGridOpacity">Grid opacity (%):</label>
@@ -397,42 +406,10 @@
         </div>
       </details>
 
-      <details class="panel" id="panel-game-settings">
-        <summary>Game settings</summary>
+      <details class="panel" id="panel-wifi">
+        <summary>Wi-Fi networks</summary>
         <div class="panel-body">
-          <div class="form-group">
-            <label for="gameMode">Game:</label>
-            <select id="gameMode">
-              <option value="none">No game</option>
-              <option value="monster_hunt">Monster hunt</option>
-            </select>
-          </div>
-          <div class="inline-group">
-            <label for="fireballSpeedMps">Fireball speed (m/s):</label>
-            <input type="number" id="fireballSpeedMps" min="0.01" step="0.1">
-          </div>
-          <div class="inline-group">
-            <label for="monsterSpeedMps">Monster speed (m/s):</label>
-            <input type="number" id="monsterSpeedMps" min="0.01" step="0.05">
-          </div>
-          <div class="inline-group">
-            <label for="monsterCount">Monster count:</label>
-            <input type="number" id="monsterCount" min="0" max="10" step="1">
-          </div>
-          <div class="inline-group">
-            <label for="monsterLegDistanceM" title="How far a monster travels in its currently-chosen direction before picking a new one.">Monster leg distance (m):</label>
-            <input type="number" id="monsterLegDistanceM" min="0.05" step="0.1">
-          </div>
-        </div>
-      </details>
-
-      <details class="panel" id="panel-alternate-wifi">
-        <summary>Alternate Wi-Fi</summary>
-        <div class="panel-body">
-          <label>SSID: <input type="text" id="ssid"></label><br>
-          <label>Password: <input type="password" id="password"></label><br>
-          <button id="wifiConnectBtn">Connect</button>
-          <p id="wifi-status"></p>
+          <div id="wifiManagerRoot"></div>
         </div>
       </details>
 
@@ -625,6 +602,7 @@
       </details>
   </div>
 
+  <script src="wifi.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

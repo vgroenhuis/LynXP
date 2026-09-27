@@ -15,6 +15,8 @@ idf_component_register(
         "breadcrumb.cpp"
         "log_task.cpp"
         "wifi_connect.cpp"
+        "wifi_networks.cpp"
+        "captive_dns.cpp"
         "uart_link.cpp"
         "ping_diag.cpp"
         "oled.cpp"
@@ -27,6 +29,8 @@ idf_component_register(
         "watchdog.cpp"
         "littlefs_init.cpp"
         "ota.cpp"
+        "app_data.cpp"
+        "model_store.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         driver          # gpio, ledc, pulse_cnt, gptimer
@@ -48,6 +52,7 @@ idf_component_register(
         cjson           # espressif/cjson managed component
         mdns            # espressif/mdns managed component
         ssd1306         # nopnop2002/ssd1306 managed component
+        u8g2            # olikraus/u8g2 -- off-screen text rendering for the OLED (oled.cpp)
         qrcode          # espressif/qrcode managed component
         joltwallet__littlefs   # joltwallet/littlefs's actual registered component name
 )

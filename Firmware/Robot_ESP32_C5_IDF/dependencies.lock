@@ -48,6 +48,14 @@ dependencies:
       path: components/ssd1306
       type: git
     version: 4b655f2aeafa9a86250a5b99317700699c822375
+  olikraus/u8g2:
+    component_hash: b87cdc08208d2a7feaa1db3445f2f964de5e7099813782c6ec257e5fb760064c
+    dependencies: []
+    source:
+      git: https://github.com/olikraus/u8g2.git
+      path: .
+      type: git
+    version: 414efcdb7a908667ea461c9e3a3a31da14fc4ea5
 direct_dependencies:
 - espressif/cjson
 - espressif/mdns
@@ -55,6 +63,7 @@ direct_dependencies:
 - idf
 - joltwallet/littlefs
 - nopnop2002/ssd1306
-manifest_hash: 43b389d1f5c12f79f95a18b8bb4b781b2ac89b51a8cddb25b36a87877eef79c2
+- olikraus/u8g2
+manifest_hash: 83f30873d39479cbb65fa726da2344c21d37a26c196c100db6f2440a809ad1bb
 target: esp32c5
 version: 3.0.0

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "esp_http_server.h"
+
 // App firmware + filesystem OTA, lifted from the proven-on-hardware
 // Test_ESP32_S3_Feather_ESP_IDF spike's update_post_handler/
 // update_fs_post_handler, with three hardening changes on top:
@@ -32,3 +34,13 @@ void ota_register_routes();
 // USB reflash. Call once from app_main(), after every other subsystem has
 // been started.
 void ota_start_validation();
+
+// Shared with other raw-flash uploads (model_store.cpp):
+// Checks the OTA Basic-auth credentials; if they don't match, sends the 401
+// itself and returns false.
+bool ota_request_authorized(httpd_req_t *req);
+// Stops the motors, silences the servos and suspends the control task (off
+// its watchdog) for the duration of a long flash erase/write -- see
+// handle_update_fs_post()'s comment for why. ota_resume_robot() undoes it.
+void ota_pause_robot();
+void ota_resume_robot();

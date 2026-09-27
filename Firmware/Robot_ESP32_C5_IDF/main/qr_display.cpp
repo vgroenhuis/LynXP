@@ -58,16 +58,27 @@ void render_callback(esp_qrcode_handle_t qrcode) {
     ssd1306_bitmaps(s_renderDev, 0, 0, s_canvas, CANVAS_W, CANVAS_H, false);
 }
 
-} // namespace
-
-void qr_display_render(SSD1306_t *dev, const char *ip) {
-    char url[64];
-    std::snprintf(url, sizeof(url), "http://%s/", ip);
-
+void render_text(SSD1306_t *dev, const char *text) {
     s_renderDev = dev;
     esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
     cfg.display_func = render_callback;
     cfg.max_qrcode_version = QR_MAX_VERSION;
     cfg.qrcode_ecc_level = ESP_QRCODE_ECC_LOW;
-    esp_qrcode_generate(&cfg, url);
+    esp_qrcode_generate(&cfg, text);
+}
+
+} // namespace
+
+void qr_display_render(SSD1306_t *dev, const char *ip) {
+    char url[64];
+    std::snprintf(url, sizeof(url), "http://%s/", ip);
+    render_text(dev, url);
+}
+
+// The hotspot's SSID ("LynXP-" + hex digits) never contains ';', ',', ':'
+// or '\', so no escaping is needed.
+void qr_display_render_wifi_join(SSD1306_t *dev, const char *ssid) {
+    char payload[80];
+    std::snprintf(payload, sizeof(payload), "WIFI:T:nopass;S:%s;;", ssid);
+    render_text(dev, payload);
 }

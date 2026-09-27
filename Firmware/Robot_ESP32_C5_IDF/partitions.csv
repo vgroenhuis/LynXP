@@ -26,3 +26,8 @@ phy_init,   data, phy,     ,        0x1000,
 ota_0,      app,  ota_0,   ,        0x200000,
 ota_1,      app,  ota_1,   ,        0x200000,
 storage,    data, spiffs,  ,        0x100000,
+# model: the object-detection model (YOLOv8n ONNX, ~6 MB) served to the
+# browser by model_store.cpp. Appended after every existing partition, so
+# adding it moved nothing -- NVS/settings, both app slots and the web UI keep
+# their offsets. Installed/replaced over HTTP from the Games & apps page.
+model,      data, 0x40,    ,        0x800000,

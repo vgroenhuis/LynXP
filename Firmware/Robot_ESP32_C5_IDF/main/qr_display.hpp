@@ -11,3 +11,8 @@ extern "C" {
 // a real connected `ip` (not "0.0.0.0"). Ported from
 // Test_ESP32_C5_IDF_for_S3_CAM/main/qr_display.c.
 void qr_display_render(SSD1306_t *dev, const char *ip);
+
+// Renders a full-screen "join this WiFi network" QR code for an open network
+// (the standard WIFI:T:nopass;S:...;; payload phone cameras understand) --
+// used for the setup hotspot, so joining it is one scan.
+void qr_display_render_wifi_join(SSD1306_t *dev, const char *ssid);

@@ -13,3 +13,9 @@ dependencies:
   nopnop2002/ssd1306:
     git: https://github.com/nopnop2002/esp-idf-ssd1306.git
     path: components/ssd1306
+  # Only used as an off-screen renderer (proportional + large fonts) for the
+  # status screen; the pixels still go out through nopnop2002/ssd1306's I2C
+  # handle -- see oled.cpp.
+  olikraus/u8g2:
+    git: https://github.com/olikraus/u8g2.git
+    version: 2.37.1

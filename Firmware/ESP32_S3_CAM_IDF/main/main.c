@@ -1,5 +1,6 @@
 // XIAO ESP32S3 Sense: low-latency MJPEG stream over WiFi for remote robot control.
 #include <string.h>
+#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/in.h>
@@ -22,8 +23,9 @@
 #include "nvs_flash.h"
 #include "esp_camera.h"
 #include "driver/uart.h"
-
-#include "wifi_creds.h"
+#include "nvs.h"
+#include "esp_ota_ops.h"
+#include "esp_app_desc.h"
 
 static const char *TAG = "cam";
 
@@ -93,6 +95,7 @@ static volatile uint32_t s_slow_send_count = 0;
 
 static void status_uart_send(void);
 static int get_active_clients(void);
+static void hex_encode(const char *in, char *out, size_t out_len);
 
 // Full esp_reset_reason_t as of IDF v6.1 -- notably including USB/JTAG,
 // which are the common, benign cases on this board during development (its
@@ -122,46 +125,283 @@ static const char *reset_reason_str(esp_reset_reason_t reason) {
 }
 
 // ---------------------------------------------------------------------------
-// WiFi: quick scan against the two configured networks, then connect.
+// WiFi. No compiled-in credentials: the robot (ESP32-C5) owns the list of
+// networks and its setup UI, and tells this camera which network to join
+// over the status UART ("WIFI ssid=<hex> pass=<hex>", see
+// status_uart_rx_task()) whenever the camera isn't on the same network as
+// the robot. The camera remembers every network it's been given (most
+// recent first, in NVS), so after a reboot it rejoins by itself without
+// waiting for the robot -- and still works standalone on USB for testing.
+//
+// This S3 is 2.4 GHz only; the robot knows that and won't send a 5 GHz-only
+// network (its own C5 radio does both bands).
 // ---------------------------------------------------------------------------
 
-typedef struct {
-    const char *ssid;
-    const char *pass;
-} wifi_network_t;
+#define CAM_WIFI_MAX 10
+#define WIFI_CONNECT_TIMEOUT_MS 15000
+#define WIFI_RETRY_INTERVAL_MS 3000
 
-static const wifi_network_t WIFI_NETWORKS[] = {
-    {WIFI_SSID_1, WIFI_PASS_1},
-    {WIFI_SSID_2, WIFI_PASS_2},
-};
-#define WIFI_NETWORK_COUNT (sizeof(WIFI_NETWORKS) / sizeof(WIFI_NETWORKS[0]))
+typedef struct {
+    char ssid[33];
+    char pass[65];
+} cam_wifi_net_t;
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAILED_BIT    BIT1
-#define WIFI_CONNECT_TIMEOUT_MS 15000
+#define WIFI_PUSH_BIT      BIT2  // the robot sent a network to switch to
+#define WIFI_SCAN_BIT      BIT3  // the robot asked what networks this camera can hear
+#define SCAN_PASSIVE_MS    150   // listen-only channels need to catch at least one ~102 ms beacon
+#define SCAN_REPORT_MAX    30
+
+static void status_uart_write(const char *line, int len);
+static void ota_mark_valid_once(void);
 
 static EventGroupHandle_t s_wifi_event_group;
+static SemaphoreHandle_t s_wifi_lock;
+static cam_wifi_net_t s_nets[CAM_WIFI_MAX]; // most recently used/pushed first
+static int s_net_count = 0;
+static volatile bool s_wifi_connected = false;
+static char s_attempt_ssid[33] = "";
+static char s_connected_ssid[33] = "";
+static char s_pending_ssid[33] = "";       // set by a push; wifi_task switches to it
+
+static void copy_str(char *dst, size_t dst_len, const char *src) {
+    size_t n = strnlen(src, dst_len - 1);
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+// wifi_config_t's ssid[32]/password[64] aren't NUL-terminated when full.
+static void copy_field(uint8_t *dst, size_t dst_len, const char *src) {
+    memset(dst, 0, dst_len);
+    size_t n = strlen(src);
+    memcpy(dst, src, n < dst_len ? n : dst_len);
+}
+
+static void nets_save_locked(void) {
+    nvs_handle_t h;
+    if (nvs_open("camwifi", NVS_READWRITE, &h) != ESP_OK) return;
+    if (s_net_count > 0) {
+        nvs_set_blob(h, "nets", s_nets, s_net_count * sizeof(cam_wifi_net_t));
+    } else {
+        nvs_erase_key(h, "nets");
+    }
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+// Moves (or inserts) a network to the front of the list. Only writes flash
+// if something actually changed. Returns true if the list changed.
+static bool nets_promote_locked(const char *ssid, const char *pass) {
+    if (s_net_count > 0 && strcmp(s_nets[0].ssid, ssid) == 0 && strcmp(s_nets[0].pass, pass) == 0) return false;
+    cam_wifi_net_t entry = {0};
+    copy_str(entry.ssid, sizeof(entry.ssid), ssid);
+    copy_str(entry.pass, sizeof(entry.pass), pass);
+    int existing = -1;
+    for (int i = 0; i < s_net_count; i++) {
+        if (strcmp(s_nets[i].ssid, ssid) == 0) { existing = i; break; }
+    }
+    int shift_end = existing >= 0 ? existing : (s_net_count < CAM_WIFI_MAX ? s_net_count++ : CAM_WIFI_MAX - 1);
+    memmove(&s_nets[1], &s_nets[0], shift_end * sizeof(cam_wifi_net_t));
+    s_nets[0] = entry;
+    nets_save_locked();
+    return true;
+}
+
+// Loads the remembered list. On the very first boot of this firmware the
+// list doesn't exist yet: seed it with whatever network the WiFi driver last
+// used (it persists that itself) -- i.e. the one the old hardcoded-credentials
+// firmware was on -- so updating doesn't knock the camera offline.
+static void nets_load(void) {
+    nvs_handle_t h;
+    size_t len = sizeof(s_nets);
+    bool found = false;
+    if (nvs_open("camwifi", NVS_READONLY, &h) == ESP_OK) {
+        found = nvs_get_blob(h, "nets", s_nets, &len) == ESP_OK;
+        uint8_t migrated = 0;
+        if (nvs_get_u8(h, "migrated", &migrated) == ESP_OK && migrated) found = true;
+        nvs_close(h);
+    }
+    s_net_count = found ? (int) (len / sizeof(cam_wifi_net_t)) : 0;
+    for (int i = 0; i < s_net_count; i++) {
+        s_nets[i].ssid[32] = '\0';
+        s_nets[i].pass[64] = '\0';
+    }
+
+    if (!found) {
+        wifi_config_t cfg = {0};
+        if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK && cfg.sta.ssid[0] != '\0') {
+            char ssid[33] = {0}, pass[65] = {0};
+            memcpy(ssid, cfg.sta.ssid, sizeof(cfg.sta.ssid));
+            memcpy(pass, cfg.sta.password, sizeof(cfg.sta.password));
+            nets_promote_locked(ssid, pass);
+            ESP_LOGI(TAG, "Imported last-used network \"%s\"", ssid);
+        }
+        if (nvs_open("camwifi", NVS_READWRITE, &h) == ESP_OK) {
+            nvs_set_u8(h, "migrated", 1);
+            nvs_commit(h);
+            nvs_close(h);
+        }
+    }
+    ESP_LOGI(TAG, "%d remembered network(s)", s_net_count);
+}
+
+// Called from the UART RX task when the robot sends a network.
+static void wifi_handle_push(const char *ssid, const char *pass) {
+    if (ssid[0] == '\0') return;
+    xSemaphoreTake(s_wifi_lock, portMAX_DELAY);
+    bool changed = nets_promote_locked(ssid, pass);
+    bool switch_needed = !s_wifi_connected || strcmp(s_connected_ssid, ssid) != 0;
+    if (switch_needed) copy_str(s_pending_ssid, sizeof(s_pending_ssid), ssid);
+    xSemaphoreGive(s_wifi_lock);
+    if (switch_needed) {
+        ESP_LOGI(TAG, "Robot says: join \"%s\"%s", ssid, changed ? " (new/updated)" : "");
+        xEventGroupSetBits(s_wifi_event_group, WIFI_PUSH_BIT);
+    }
+}
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                 int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
-        ESP_LOGW(TAG, "WiFi disconnected, reason=%d", event->reason);
+        ESP_LOGW(TAG, "WiFi %s, reason=%d", s_wifi_connected ? "disconnected" : "connect failed", event->reason);
+        s_wifi_connected = false;
+        snprintf(s_ip_str, sizeof(s_ip_str), "0.0.0.0");
         xEventGroupSetBits(s_wifi_event_group, WIFI_FAILED_BIT);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         snprintf(s_ip_str, sizeof(s_ip_str), IPSTR, IP2STR(&event->ip_info.ip));
+        copy_str(s_connected_ssid, sizeof(s_connected_ssid), s_attempt_ssid);
+        s_wifi_connected = true;
+        ESP_LOGI(TAG, "Connected to %s - stream ready at http://%s/ (MJPEG on port 81)", s_connected_ssid, s_ip_str);
         status_uart_send(); // push the new IP to the C5 immediately instead of waiting for the next heartbeat
+        ota_mark_valid_once(); // a freshly OTA'd image has now proven itself
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }
 
-// Scans (short dwell time - a couple hundred ms, one pass) to see which
-// configured networks are actually in range, then only attempts the
-// highest-priority one that's present, instead of blindly running a full
-// connect timeout against every configured network in order. Re-scans and
-// retries forever until one connects.
-static void connect_to_wifi(void) {
+static bool wifi_attempt(const char *ssid) {
+    cam_wifi_net_t net = {0};
+    bool known = false;
+    xSemaphoreTake(s_wifi_lock, portMAX_DELAY);
+    for (int i = 0; i < s_net_count; i++) {
+        if (strcmp(s_nets[i].ssid, ssid) == 0) { net = s_nets[i]; known = true; break; }
+    }
+    if (known) copy_str(s_attempt_ssid, sizeof(s_attempt_ssid), ssid);
+    xSemaphoreGive(s_wifi_lock);
+    if (!known) return false;
+
+    ESP_LOGI(TAG, "Connecting to WiFi: %s", net.ssid);
+    wifi_config_t wifi_cfg = {0};
+    copy_field(wifi_cfg.sta.ssid, sizeof(wifi_cfg.sta.ssid), net.ssid);
+    copy_field(wifi_cfg.sta.password, sizeof(wifi_cfg.sta.password), net.pass);
+    wifi_cfg.sta.threshold.authmode = net.pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+
+    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAILED_BIT);
+    if (esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg) != ESP_OK || esp_wifi_connect() != ESP_OK) return false;
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAILED_BIT,
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(WIFI_CONNECT_TIMEOUT_MS));
+    if ((bits & WIFI_CONNECTED_BIT) && s_wifi_connected) return true;
+    esp_wifi_disconnect();
+    return false;
+}
+
+// Scans, then tries the most recently used remembered network that's in
+// range. A network pushed by the robot is tried straight away (no scan
+// needed, so hidden networks work too). Retries forever, and rejoins after
+// any later disconnect.
+static const wifi_scan_config_t SCAN_CFG = {
+    .show_hidden = false,
+    .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+    .scan_time.active.min = 60,
+    .scan_time.active.max = 120,
+    .scan_time.passive = SCAN_PASSIVE_MS,
+    .home_chan_dwell_time = WIFI_SCAN_HOME_CHANNEL_DWELL_DEFAULT_TIME,
+};
+
+// Scans and reports every network heard to the robot, one
+// "AP ssid=<hex> rssi=<dBm> ch=<n> sec=<0|1>" line each (strongest access
+// point per SSID), then "APEND". This camera's external antenna often hears
+// 2.4 GHz networks the robot's own board antenna misses. While streaming,
+// this briefly stalls the picture -- it only runs when asked.
+static void scan_and_report(void) {
+    uint16_t n = SCAN_REPORT_MAX;
+    wifi_ap_record_t *records = malloc(n * sizeof(wifi_ap_record_t));
+    int sent = 0;
+    if (records && esp_wifi_scan_start(&SCAN_CFG, true) == ESP_OK &&
+        esp_wifi_scan_get_ap_records(&n, records) == ESP_OK) {
+        for (int i = 0; i < n; i++) {
+            const char *ssid = (const char *)records[i].ssid;
+            if (ssid[0] == '\0') continue;
+            bool dup = false; // records come strongest first, so the first of each SSID wins
+            for (int j = 0; j < i && !dup; j++) dup = strcmp((const char *)records[j].ssid, ssid) == 0;
+            if (dup) continue;
+            char hex[67];
+            hex_encode(ssid, hex, sizeof(hex));
+            char line[128];
+            int len = snprintf(line, sizeof(line), "AP ssid=%s rssi=%d ch=%d sec=%d\n", hex, records[i].rssi,
+                               records[i].primary, records[i].authmode != WIFI_AUTH_OPEN);
+            status_uart_write(line, len);
+            sent++;
+        }
+    }
+    free(records);
+    esp_wifi_clear_ap_list();
+    status_uart_write("APEND\n", 6);
+    ESP_LOGI(TAG, "Reported %d network(s) to the robot", sent);
+}
+
+static void wifi_task(void *arg) {
+    while (true) {
+        if (!s_wifi_connected) {
+            char target[33] = "";
+            xSemaphoreTake(s_wifi_lock, portMAX_DELAY);
+            copy_str(target, sizeof(target), s_pending_ssid);
+            s_pending_ssid[0] = '\0';
+            int count = s_net_count;
+            xSemaphoreGive(s_wifi_lock);
+
+            if (target[0] == '\0' && count > 0 && esp_wifi_scan_start(&SCAN_CFG, true) == ESP_OK) {
+                uint16_t n = 20;
+                wifi_ap_record_t *records = malloc(n * sizeof(wifi_ap_record_t));
+                if (records && esp_wifi_scan_get_ap_records(&n, records) == ESP_OK) {
+                    xSemaphoreTake(s_wifi_lock, portMAX_DELAY);
+                    for (int i = 0; i < s_net_count && target[0] == '\0'; i++) {
+                        for (int j = 0; j < n; j++) {
+                            if (strcmp((const char *)records[j].ssid, s_nets[i].ssid) == 0) {
+                                copy_str(target, sizeof(target), s_nets[i].ssid);
+                                break;
+                            }
+                        }
+                    }
+                    xSemaphoreGive(s_wifi_lock);
+                }
+                free(records);
+                esp_wifi_clear_ap_list();
+            }
+
+            if (target[0] != '\0' && wifi_attempt(target)) continue;
+            // Wait out the retry interval -- or less, if the robot sends a network.
+            EventBits_t woke = xEventGroupWaitBits(s_wifi_event_group, WIFI_PUSH_BIT | WIFI_SCAN_BIT, pdTRUE, pdFALSE,
+                                                   pdMS_TO_TICKS(WIFI_RETRY_INTERVAL_MS));
+            if (woke & WIFI_SCAN_BIT) scan_and_report();
+            continue;
+        }
+
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_FAILED_BIT | WIFI_PUSH_BIT | WIFI_SCAN_BIT,
+                                               pdTRUE, pdFALSE, portMAX_DELAY);
+        if (bits & WIFI_SCAN_BIT) scan_and_report();
+        if ((bits & WIFI_PUSH_BIT) && s_wifi_connected) {
+            // The robot is on a different network -- follow it.
+            esp_wifi_disconnect();
+            xEventGroupWaitBits(s_wifi_event_group, WIFI_FAILED_BIT, pdTRUE, pdFALSE, pdMS_TO_TICKS(3000));
+            s_wifi_connected = false;
+        }
+    }
+}
+
+static void wifi_start(void) {
+    s_wifi_lock = xSemaphoreCreateMutex();
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -173,63 +413,13 @@ static void connect_to_wifi(void) {
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
         IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, &ip_handler));
 
+    nets_load(); // after esp_wifi_init(): the first-boot import reads the driver's persisted config
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE)); // no modem sleep - lowest latency
 
-    wifi_scan_config_t scan_cfg = {
-        .show_hidden = false,
-        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-        .scan_time.active.min = 60,
-        .scan_time.active.max = 120,
-    };
-
-    while (true) {
-        ESP_LOGI(TAG, "Scanning for WiFi networks...");
-        esp_wifi_scan_start(&scan_cfg, true); // blocking, quick (short dwell above)
-
-        uint16_t ap_count = 0;
-        esp_wifi_scan_get_ap_num(&ap_count);
-        if (ap_count > 20) ap_count = 20;
-        wifi_ap_record_t ap_records[20];
-        uint16_t ap_records_len = ap_count;
-        esp_wifi_scan_get_ap_records(&ap_records_len, ap_records);
-
-        int chosen = -1;
-        for (int i = 0; i < (int)WIFI_NETWORK_COUNT && chosen == -1; i++) {
-            if (WIFI_NETWORKS[i].ssid[0] == '\0') continue;
-            for (int j = 0; j < ap_records_len; j++) {
-                if (strcmp((const char *)ap_records[j].ssid, WIFI_NETWORKS[i].ssid) == 0) {
-                    chosen = i;
-                    break;
-                }
-            }
-        }
-
-        if (chosen == -1) {
-            ESP_LOGI(TAG, "No configured WiFi network in range - rescanning");
-            vTaskDelay(pdMS_TO_TICKS(2000));
-            continue;
-        }
-
-        ESP_LOGI(TAG, "Connecting to WiFi: %s", WIFI_NETWORKS[chosen].ssid);
-        wifi_config_t wifi_cfg = {0};
-        strlcpy((char *)wifi_cfg.sta.ssid, WIFI_NETWORKS[chosen].ssid, sizeof(wifi_cfg.sta.ssid));
-        strlcpy((char *)wifi_cfg.sta.password, WIFI_NETWORKS[chosen].pass, sizeof(wifi_cfg.sta.password));
-
-        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAILED_BIT);
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
-        esp_wifi_connect();
-
-        EventBits_t bits = xEventGroupWaitBits(
-            s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAILED_BIT,
-            pdFALSE, pdFALSE, pdMS_TO_TICKS(WIFI_CONNECT_TIMEOUT_MS));
-
-        if (bits & WIFI_CONNECTED_BIT) return;
-
-        ESP_LOGW(TAG, "Connect failed/timed out - rescanning");
-        esp_wifi_disconnect();
-    }
+    xTaskCreate(wifi_task, "wifi", 4096, NULL, tskIDLE_PRIORITY + 2, NULL);
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +513,7 @@ static void status_uart_init(void) {
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    ESP_ERROR_CHECK(uart_driver_install(STATUS_UART_PORT, 256, 0, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_driver_install(STATUS_UART_PORT, 512, 0, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(STATUS_UART_PORT, &cfg));
     ESP_ERROR_CHECK(uart_set_pin(STATUS_UART_PORT, STATUS_UART_TX_GPIO, STATUS_UART_RX_GPIO,
                                   UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
@@ -355,12 +545,77 @@ static void status_uart_send(void) {
         (unsigned long) s_cam_fail_count, (unsigned long) s_reboot_count,
         get_active_clients(), reset_reason_str(esp_reset_reason()));
     uart_write_bytes(STATUS_UART_PORT, line, len);
+
+    // Which network this camera is on, so the robot can tell whether it
+    // needs to hand over its own. A separate line rather than a STAT field:
+    // an older robot build (192-byte line buffer) would otherwise drop whole
+    // STAT lines when the SSID is long. Hex, since SSIDs may contain spaces.
+    char ssid_hex[sizeof(s_connected_ssid) * 2];
+    hex_encode(s_wifi_connected ? s_connected_ssid : "", ssid_hex, sizeof(ssid_hex));
+    len = snprintf(line, sizeof(line), "NET ssid=%s\n", ssid_hex);
+    uart_write_bytes(STATUS_UART_PORT, line, len);
+}
+
+static void status_uart_write(const char *line, int len) {
+    uart_write_bytes(STATUS_UART_PORT, line, len);
 }
 
 static void status_uart_task(void *arg) {
     while (true) {
         status_uart_send();
         vTaskDelay(pdMS_TO_TICKS(STATUS_UART_PERIOD_MS));
+    }
+}
+
+static void hex_encode(const char *in, char *out, size_t out_len) {
+    static const char HEX[] = "0123456789abcdef";
+    size_t j = 0;
+    for (size_t i = 0; in[i] != '\0' && j + 2 < out_len; i++) {
+        uint8_t b = (uint8_t) in[i];
+        out[j++] = HEX[b >> 4];
+        out[j++] = HEX[b & 0xF];
+    }
+    out[j] = '\0';
+}
+
+static void hex_decode(const char *in, char *out, size_t out_len) {
+    size_t j = 0;
+    for (size_t i = 0; in[i] != '\0' && in[i] != ' ' && in[i + 1] != '\0' && j + 1 < out_len; i += 2) {
+        char pair[3] = {in[i], in[i + 1], '\0'};
+        out[j++] = (char) strtol(pair, NULL, 16);
+    }
+    out[j] = '\0';
+}
+
+// Lines from the robot:
+//   WIFI ssid=<hex> pass=<hex>   join this network
+//   SCAN                         report what this camera hears
+static void status_uart_rx_task(void *arg) {
+    char line[320];
+    size_t len = 0;
+    uint8_t byte;
+    while (true) {
+        if (uart_read_bytes(STATUS_UART_PORT, &byte, 1, portMAX_DELAY) <= 0) continue;
+        if (byte == '\r') continue;
+        if (byte != '\n') {
+            if (len < sizeof(line) - 1) line[len++] = (char) byte;
+            else len = 0; // overlong -- drop, resync on the next newline
+            continue;
+        }
+        line[len] = '\0';
+        len = 0;
+        if (strcmp(line, "SCAN") == 0) {
+            xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_BIT);
+            continue;
+        }
+        if (strncmp(line, "WIFI ", 5) != 0) continue;
+        const char *s = strstr(line, "ssid=");
+        const char *p = strstr(line, "pass=");
+        if (s == NULL) continue;
+        char ssid[33], pass[65];
+        hex_decode(s + 5, ssid, sizeof(ssid));
+        hex_decode(p ? p + 5 : "", pass, sizeof(pass));
+        wifi_handle_push(ssid, pass);
     }
 }
 
@@ -496,15 +751,89 @@ static esp_err_t diag_handler(httpd_req_t *req) {
 
 static esp_err_t status_handler(httpd_req_t *req) {
     sensor_t *s = esp_camera_sensor_get();
-    char json[256];
+    const esp_app_desc_t *app = esp_app_get_description();
+    char json[384];
     int len = snprintf(json, sizeof(json),
         "{\"mac\":\"%s\",\"ip\":\"%s\",\"framesize\":\"%s\",\"quality\":%d,"
-        "\"brightness\":%d,\"contrast\":%d,\"saturation\":%d,\"hmirror\":%d,\"vflip\":%d}",
+        "\"brightness\":%d,\"contrast\":%d,\"saturation\":%d,\"hmirror\":%d,\"vflip\":%d,"
+        "\"fwVersion\":\"%s\",\"fwBuilt\":\"%s %s\",\"otaSlot\":\"%s\"}",
         s_mac_str, s_ip_str, framesize_to_str(s->status.framesize), s->status.quality,
         s->status.brightness, s->status.contrast, s->status.saturation,
-        s->status.hmirror, s->status.vflip);
+        s->status.hmirror, s->status.vflip,
+        app->version, app->date, app->time, esp_ota_get_running_partition()->label);
     httpd_resp_set_type(req, "application/json");
+    // Read cross-origin by the robot's pages (camera firmware update panel).
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, json, len);
+}
+
+// ---------------------------------------------------------------------------
+// OTA: POST /update with the raw firmware image as the body -- from the
+// robot's Main page (S3 CAM panel), or `curl --data-binary @fw.bin
+// http://<cam>/update`. Written to the other app slot, then booted; the new
+// image has to prove itself by joining WiFi (ota_mark_valid_once()) or the
+// bootloader rolls back to this one on the next reboot. Deliberately no
+// Content-Type requirement, so a browser can send it as text/plain and skip
+// a CORS preflight; the OPTIONS handler covers clients that preflight anyway.
+// ---------------------------------------------------------------------------
+
+static void ota_mark_valid_once(void) {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    esp_ota_img_states_t state;
+    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK &&
+        state == ESP_OTA_IMG_PENDING_VERIFY) {
+        esp_ota_mark_app_valid_cancel_rollback();
+        ESP_LOGI(TAG, "New firmware confirmed good (joined WiFi) -- rollback cancelled");
+    }
+}
+
+static esp_err_t update_options_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static esp_err_t update_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
+    if (part == NULL || req->content_len <= 0 || (size_t) req->content_len > part->size) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, part ? "Missing or oversized image" : "No OTA partition -- flash once over USB");
+        return ESP_OK;
+    }
+    esp_ota_handle_t ota;
+    esp_err_t err = esp_ota_begin(part, OTA_SIZE_UNKNOWN, &ota);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+        return ESP_OK;
+    }
+    ESP_LOGI(TAG, "OTA: receiving %d bytes into %s", req->content_len, part->label);
+    static char buf[4096]; // one update at a time -- httpd serves this server's requests sequentially
+    int remaining = req->content_len;
+    while (remaining > 0) {
+        int n = httpd_req_recv(req, buf, remaining < (int) sizeof(buf) ? remaining : (int) sizeof(buf));
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (n <= 0 || esp_ota_write(ota, buf, n) != ESP_OK) {
+            esp_ota_abort(ota);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Upload interrupted or flash write failed");
+            return ESP_OK;
+        }
+        remaining -= n;
+    }
+    err = esp_ota_end(ota); // also validates the image
+    if (err == ESP_OK) err = esp_ota_set_boot_partition(part);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, err == ESP_ERR_OTA_VALIDATE_FAILED ? "Not a valid camera firmware image" : esp_err_to_name(err));
+        return ESP_OK;
+    }
+    httpd_resp_sendstr(req, "OK, camera rebooting into new firmware...");
+    ESP_LOGI(TAG, "OTA complete, rebooting");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
 }
 
 // ---------------------------------------------------------------------------
@@ -585,6 +914,11 @@ static void stream_client_task(void *pvParameters) {
 
     esp_err_t res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
     if (res == ESP_OK) res = httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    // Lets the robot's pages (a different origin: the robot's IP, port 80)
+    // read frames back out of an <img crossorigin> via a canvas -- needed by
+    // the in-browser object detection app (detect.js). Without it the canvas
+    // is "tainted" and getImageData() throws.
+    if (res == ESP_OK) res = httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
     // Disable Nagle on this socket - every frame should go out immediately
     // rather than being batched, which matters for a robot-control feed.
@@ -708,8 +1042,13 @@ static void start_camera_server(void) {
     httpd_uri_t status_uri = {"/status", HTTP_GET, status_handler, NULL};
     httpd_uri_t diag_uri = {"/diag", HTTP_GET, diag_handler, NULL};
     httpd_uri_t diag_page_uri = {"/diag.html", HTTP_GET, diag_page_handler, NULL};
+    httpd_uri_t update_uri = {"/update", HTTP_POST, update_handler, NULL};
+    httpd_uri_t update_options_uri = {"/update", HTTP_OPTIONS, update_options_handler, NULL};
+    main_config.recv_wait_timeout = 10; // an upload pauses briefly while flash sectors erase
 
     if (httpd_start(&s_main_httpd, &main_config) == ESP_OK) {
+        httpd_register_uri_handler(s_main_httpd, &update_uri);
+        httpd_register_uri_handler(s_main_httpd, &update_options_uri);
         httpd_register_uri_handler(s_main_httpd, &index_uri);
         httpd_register_uri_handler(s_main_httpd, &settings_uri);
         httpd_register_uri_handler(s_main_httpd, &control_uri);
@@ -753,15 +1092,18 @@ void app_main(void) {
     ESP_LOGI(TAG, "MAC address: %s", s_mac_str);
 
     status_uart_init();
-    xTaskCreate(status_uart_task, "status_uart", 2048, NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(status_uart_task, "status_uart", 3072, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     if (!init_camera()) {
         ESP_LOGE(TAG, "Halting: camera init failed");
         while (true) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    connect_to_wifi();
-    ESP_LOGI(TAG, "Stream ready at: http://%s/  (MJPEG stream on port 81)", s_ip_str);
+    // Non-blocking: joins (and keeps rejoining) in the background. The HTTP
+    // servers don't need an IP to start -- they just become reachable once
+    // one arrives.
+    wifi_start();
+    xTaskCreate(status_uart_rx_task, "status_uart_rx", 3072, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     start_camera_server();
 }

@@ -22,11 +22,6 @@ enum LOG_TYPES { LEFT_WHEEL = 0, BOTH_WHEELS };
 enum LOG_UNIT { ENCODER_STEPS, WHEEL_RAD, WHEEL_DEG, WHEEL_REV, DISTANCE };
 enum CONTROL_FRAME_ROTATION_STRATEGY { CONTROL_FRAME_ROTATION_CLOSEST_FACE = 0, CONTROL_FRAME_ROTATION_FIXED_HEMISPHERE };
 enum CAMERA_JOYSTICK_CURVE { CAMERA_JOYSTICK_CURVE_LINEAR = 0, CAMERA_JOYSTICK_CURVE_QUADRATIC };
-// Which Camera-page mini-game (see cam.js) is active, if any -- selectable
-// from the Main page's "Game settings" panel. GAME_MODE_NONE hides the
-// Fireball button and skips initializing the whole fireball/monster system
-// entirely (no /pose polling either), not just visually.
-enum GAME_MODE { GAME_MODE_NONE = 0, GAME_MODE_MONSTER_HUNT };
 
 struct Settings {
     uint32_t settingsVersion;
@@ -101,26 +96,27 @@ struct Settings {
     float cameraHeightMm;
     float cameraTiltDeg;
     float cameraVerticalFovDeg;
-    char altSsid[100];
-    char altPassword[100];
+    // Formerly the single "Alternate Wi-Fi" override. Networks now live in
+    // their own NVS list (wifi_networks.cpp), which imports and then clears
+    // these once. Kept only so the blob layout -- and every calibrated
+    // value after it -- survives the update without a SETTINGS_VERSION
+    // bump; safe to drop the next time the version is bumped anyway.
+    char legacyAltSsid[100];
+    char legacyAltPassword[100];
     // HTTP Basic Auth credentials guarding /update and /update-fs. Empty
     // otaPassword means auth is disabled (the pre-existing open behavior) --
     // see ota.cpp's ota_check_basic_auth().
     char otaUsername[32];
     char otaPassword[32];
-    // Camera page's fireball/monster mini-game (see cam.js) -- purely
-    // cosmetic, no effect on the robot itself, but configurable from the
-    // Main page rather than hardcoded so the "feel" can be tuned without a
-    // firmware change.
-    int gameMode; // GAME_MODE -- which game (if any) is active
-    float fireballSpeedMps;
-    float monsterSpeedMps;
-    int monsterCount;
-    // A monster picks a new heading (mostly random, lightly biased toward
-    // the player) every time it's travelled this far in its current one,
-    // rather than continuously re-aiming at the player -- keeps it roaming
-    // instead of parking itself in front of the camera indefinitely.
-    float monsterLegDistanceM;
+    // Formerly the Monster hunt game's settings. Games and apps now keep
+    // their settings in their own JSON document (app_data.hpp, edited on the
+    // Games & apps page), so these are unused -- kept only so the blob layout
+    // survives without a SETTINGS_VERSION bump. Drop at the next bump.
+    int legacyGameMode;
+    float legacyFireballSpeedMps;
+    float legacyMonsterSpeedMps;
+    int legacyMonsterCount;
+    float legacyMonsterLegDistanceM;
 };
 
 extern Settings settings;

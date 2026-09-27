@@ -4,6 +4,9 @@
 #include "control_modes.hpp"
 #include "odometry.hpp"
 #include "wifi_connect.hpp"
+#include "wifi_networks.hpp"
+#include "app_data.hpp"
+#include "oled.hpp"
 #include "uart_link.hpp"
 #include "ping_diag.hpp"
 #include "motors.hpp"
@@ -12,7 +15,9 @@
 
 #include "cJSON.h"
 #include "esp_log.h"
+#include "lwip/sockets.h"
 
+#include <strings.h>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -61,7 +66,88 @@ constexpr StaticFile STATIC_FILES[] = {
     {"/cam", "/littlefs/cam.html", "text/html", 0},
     {"/cam.html", "/littlefs/cam.html", "text/html", 0},
     {"/cam.js", "/littlefs/cam.js", "application/javascript", 60},
+    {"/wifi", "/littlefs/wifi.html", "text/html", 0},
+    {"/games", "/littlefs/games.html", "text/html", 0},
 };
+
+// Any other file in littlefs_image/ is served by its own name with a type
+// from its extension -- so adding a page/script (games, apps) doesn't also
+// need an entry above. HTML always revalidates; everything else gets the
+// same short cache as app.js (see StaticFile::cacheMaxAgeSec).
+struct ExtensionType {
+    const char *ext;
+    const char *contentType;
+    unsigned cacheMaxAgeSec;
+};
+constexpr ExtensionType EXTENSION_TYPES[] = {
+    {".html", "text/html", 0},
+    {".js", "application/javascript", 60},
+    {".css", "text/css", 60},
+    {".json", "application/json", 60},
+    {".png", "image/png", 3600},
+    {".svg", "image/svg+xml", 3600},
+    {".wav", "audio/wav", 3600},
+};
+
+// Resolves a request path to a littlefs file by extension. Rejects anything
+// that could climb out of the mount ("..") or isn't a known type.
+bool resolve_by_extension(const char *uriPath, char *fsPath, size_t fsPathLen, StaticFile *out) {
+    if (uriPath[0] != '/' || std::strstr(uriPath, "..") != nullptr) return false;
+    const char *dot = std::strrchr(uriPath, '.');
+    if (dot == nullptr) return false;
+    for (const auto &t : EXTENSION_TYPES) {
+        if (std::strcmp(dot, t.ext) != 0) continue;
+        std::snprintf(fsPath, fsPathLen, "/littlefs%s", uriPath);
+        FILE *probe = fopen(fsPath, "r");
+        if (probe == nullptr) return false;
+        fclose(probe);
+        *out = {uriPath, fsPath, t.contentType, t.cacheMaxAgeSec};
+        return true;
+    }
+    return false;
+}
+
+constexpr char CAPTIVE_PORTAL_URL[] = "http://192.168.4.1/wifi";
+
+// True if this request came in through the setup hotspot rather than the
+// robot's normal network. The server socket is dual-stack when lwIP has
+// IPv6, so an IPv4 peer shows up as an IPv4-mapped v6 address.
+bool request_via_ap(httpd_req_t *req) {
+    sockaddr_storage local = {};
+    socklen_t len = sizeof(local);
+    if (getsockname(httpd_req_to_sockfd(req), (sockaddr *) &local, &len) != 0) return false;
+    uint32_t addr = 0;
+    if (local.ss_family == AF_INET) {
+        addr = ((sockaddr_in *) &local)->sin_addr.s_addr;
+    } else if (local.ss_family == AF_INET6) {
+        std::memcpy(&addr, ((uint8_t *) &((sockaddr_in6 *) &local)->sin6_addr) + 12, 4);
+    } else {
+        return false;
+    }
+    return wifi_is_ap_address(addr);
+}
+
+// A hotspot client asking for some other host (a phone's connectivity
+// check, or whatever site it tried to open) -- as opposed to someone who
+// deliberately typed the robot's address.
+bool host_is_foreign(httpd_req_t *req) {
+    char host[64];
+    if (httpd_req_get_hdr_value_str(req, "Host", host, sizeof(host)) != ESP_OK) return false;
+    if (char *colon = std::strchr(host, ':')) *colon = '\0';
+    return std::strcmp(host, "192.168.4.1") != 0 && strcasecmp(host, "lynxp.local") != 0 &&
+           strcasecmp(host, "lynxp") != 0;
+}
+
+// iOS only treats a redirect as a captive portal if the response has a
+// body, hence the text rather than an empty 302.
+esp_err_t send_captive_redirect(httpd_req_t *req) {
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", CAPTIVE_PORTAL_URL);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "LynXP Wi-Fi setup: http://192.168.4.1/wifi");
+    return ESP_OK;
+}
 
 // Streams the file in 1 KB chunks rather than the Pico version's
 // malloc(whole file)+single send -- app.js alone is over 100 KB, which was
@@ -112,8 +198,19 @@ esp_err_t serve_static_file(httpd_req_t *req, const StaticFile &f) {
 // ordering hazard that could shadow them. Falling through to "not found"
 // for everything else is exactly the Pico version's `else { 404 }` branch
 // in its own dispatch chain.
+//
+// On the setup hotspot this is also the captive portal: anything aimed at a
+// foreign host, or any unknown path, redirects to the /wifi page. That's
+// what makes phones pop their "sign in to network" sheet on joining (their
+// connectivity probes -- /generate_204, /hotspot-detect.html,
+// /connecttest.txt, ... -- all land here via captive_dns.cpp).
 esp_err_t static_fallback_handler(httpd_req_t *req, httpd_err_code_t error) {
     (void) error;
+    bool viaAp = request_via_ap(req);
+    if (viaAp && host_is_foreign(req)) {
+        return send_captive_redirect(req);
+    }
+
     char uriPath[64];
     std::strncpy(uriPath, req->uri, sizeof(uriPath) - 1);
     uriPath[sizeof(uriPath) - 1] = '\0';
@@ -125,6 +222,14 @@ esp_err_t static_fallback_handler(httpd_req_t *req, httpd_err_code_t error) {
         if (std::strcmp(uriPath, f.uri) == 0) {
             return serve_static_file(req, f);
         }
+    }
+    char fsPath[80];
+    StaticFile byExtension;
+    if (resolve_by_extension(uriPath, fsPath, sizeof(fsPath), &byExtension)) {
+        return serve_static_file(req, byExtension);
+    }
+    if (viaAp) {
+        return send_captive_redirect(req);
     }
     httpd_resp_send_404(req);
     return ESP_OK;
@@ -382,15 +487,7 @@ esp_err_t handle_set(httpd_req_t *req) {
         settings.otaPassword[sizeof(settings.otaPassword) - 1] = '\0';
         dirty = true;
     }
-    if (get_query_str(req, "gameMode", buf, sizeof(buf))) {
-        if (std::strcmp(buf, "none") == 0) settings.gameMode = GAME_MODE_NONE;
-        else if (std::strcmp(buf, "monster_hunt") == 0) settings.gameMode = GAME_MODE_MONSTER_HUNT;
-        dirty = true;
-    }
-    if (get_query_float(req, "fireballSpeedMps", &fval)) { settings.fireballSpeedMps = std::clamp(fval, 0.01f, 10.0f); dirty = true; }
-    if (get_query_float(req, "monsterSpeedMps", &fval)) { settings.monsterSpeedMps = std::clamp(fval, 0.01f, 10.0f); dirty = true; }
-    if (get_query_int(req, "monsterCount", &ival)) { settings.monsterCount = std::clamp(ival, 0, 10); dirty = true; }
-    if (get_query_float(req, "monsterLegDistanceM", &fval)) { settings.monsterLegDistanceM = std::clamp(fval, 0.05f, 20.0f); dirty = true; }
+    // Game/app settings no longer live here -- see app_data.hpp (/appdata/*).
     if (dirty) {
         saveSettings();
     }
@@ -424,9 +521,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         "\"lastHangCore0Checkpoint\":\"%s\",\"lastHangCore1Checkpoint\":\"%s\","
         "\"lastHangWsMessage\":\"%s\",\"lastHangCore1Ticks\":%lu,"
         "\"lastHangConnCount\":%d,\"lastHangWsConnCount\":%d,"
-        "\"altSsid\":\"%s\",\"altPassword\":\"%s\","
-        "\"otaUsername\":\"%s\",\"otaPassword\":\"%s\","
-        "\"gameMode\":%d,\"fireballSpeedMps\":%.3f,\"monsterSpeedMps\":%.3f,\"monsterCount\":%d,\"monsterLegDistanceM\":%.3f}",
+        "\"otaUsername\":\"%s\",\"otaPassword\":\"%s\"}",
         settings.loggingEnabled ? "true" : "false", settings.debugWeb ? "true" : "false",
         settings.dataLogRate, settings.mode, settings.logType, settings.logUnit,
         settings.kp, settings.ki, settings.kd, settings.differentiatorCutoffHz,
@@ -452,9 +547,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         breadcrumb_core1_checkpoint_name(bc.core1Checkpoint),
         bc.lastWsMessageType, (unsigned long) bc.core1TickCountAtLastMark,
         bc.core0TotalConns, bc.core0WsConns,
-        settings.altSsid, settings.altPassword,
-        settings.otaUsername, settings.otaPassword,
-        settings.gameMode, settings.fireballSpeedMps, settings.monsterSpeedMps, settings.monsterCount, settings.monsterLegDistanceM);
+        settings.otaUsername, settings.otaPassword);
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json);
@@ -504,38 +597,207 @@ esp_err_t handle_pose(httpd_req_t *req) {
     return ESP_OK;
 }
 
-esp_err_t handle_wifi_post(httpd_req_t *req) {
-    char body[300];
+// -- /wifi/* : saved networks + setup hotspot (see wifi_connect.hpp) --------
+//
+// Passwords go in (POST /wifi/add) but never come back out -- /wifi/status
+// only ever lists SSIDs.
+
+esp_err_t send_json(httpd_req_t *req, cJSON *root) {
+    char *text = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, text ? text : "{}");
+    cJSON_free(text);
+    return ESP_OK;
+}
+
+esp_err_t send_wifi_result(httpd_req_t *req, bool ok, const char *message) {
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "ok", ok);
+    cJSON_AddStringToObject(root, "message", message);
+    return send_json(req, root);
+}
+
+// Parses a small JSON POST body and returns its "ssid" (and optionally
+// "password") strings. Caller must cJSON_Delete(*rootOut).
+bool parse_wifi_body(httpd_req_t *req, cJSON **rootOut, const char **ssid, const char **password) {
+    char body[512];
+    *rootOut = nullptr;
+    if (read_post_body(req, body, sizeof(body)) < 0) return false;
+    cJSON *root = cJSON_Parse(body);
+    *rootOut = root;
+    cJSON *s = root ? cJSON_GetObjectItemCaseSensitive(root, "ssid") : nullptr;
+    if (!cJSON_IsString(s) || s->valuestring[0] == '\0') return false;
+    *ssid = s->valuestring;
+    if (password != nullptr) {
+        cJSON *p = cJSON_GetObjectItemCaseSensitive(root, "password");
+        *password = cJSON_IsString(p) ? p->valuestring : "";
+    }
+    return true;
+}
+
+esp_err_t handle_wifi_status(httpd_req_t *req) {
+    WifiStatus st;
+    wifi_get_status(&st);
+    static WifiScanEntry scan[32]; // httpd is a single task -- static keeps ~1.3 KB off its stack
+    size_t scanCount = wifi_get_scan_results(scan, 32);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "connected", st.connected);
+    cJSON_AddStringToObject(root, "ssid", st.ssid);
+    cJSON_AddStringToObject(root, "ip", st.ip);
+    cJSON_AddNumberToObject(root, "rssi", st.rssi);
+    cJSON_AddBoolToObject(root, "on5GHz", st.connectedOn5Ghz);
+    cJSON_AddBoolToObject(root, "connecting", st.connecting);
+    cJSON_AddStringToObject(root, "connectingSsid", st.connectingSsid);
+    cJSON_AddBoolToObject(root, "apActive", st.apActive);
+    cJSON_AddStringToObject(root, "apSsid", wifi_ap_get_ssid());
+    cJSON_AddNumberToObject(root, "apClients", st.apClients);
+    cJSON_AddBoolToObject(root, "viaAp", request_via_ap(req));
+    cJSON_AddBoolToObject(root, "scanning", st.scanning);
+    cJSON_AddNumberToObject(root, "scanSeq", st.scanSeq);
+    cJSON_AddNumberToObject(root, "maxSaved", WIFI_NETWORKS_MAX);
+    cJSON_AddBoolToObject(root, "prefer5g", wifi_get_prefer_5ghz());
+    cJSON_AddStringToObject(root, "debug", wifi_debug_info());
+
+    bool camLinked = !uart_link_peer_is_stale();
+    cJSON_AddBoolToObject(root, "camLinked", camLinked);
+    cJSON_AddStringToObject(root, "camSsid", camLinked ? uart_link_get_peer_ssid() : "");
+    cJSON_AddStringToObject(root, "camIp", camLinked ? uart_link_get_peer_ip() : "0.0.0.0");
+    cJSON_AddBoolToObject(root, "camSameLan", camLinked && wifi_ip_in_our_subnet(uart_link_get_peer_ip()));
+    CamScanState camScan = uart_link_cam_scan_state();
+    cJSON_AddStringToObject(root, "camScan", camScan == CamScanState::Scanning ? "scanning" : camScan == CamScanState::NoAnswer ? "noanswer" : "idle");
+
+    cJSON *saved = cJSON_AddArrayToObject(root, "saved");
+    size_t savedCount = wifi_networks_count();
+    for (size_t i = 0; i < savedCount; i++) {
+        WifiCredential c;
+        if (!wifi_networks_get(i, &c)) break;
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "ssid", c.ssid);
+        cJSON_AddBoolToObject(item, "open", c.password[0] == '\0');
+        cJSON_AddItemToArray(saved, item);
+    }
+
+    cJSON *nearby = cJSON_AddArrayToObject(root, "nearby");
+    for (size_t i = 0; i < scanCount; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "ssid", scan[i].ssid);
+        cJSON_AddNumberToObject(item, "rssi", scan[i].rssi);
+        cJSON_AddBoolToObject(item, "secure", scan[i].secure);
+        cJSON_AddBoolToObject(item, "has24", scan[i].has24);
+        cJSON_AddBoolToObject(item, "has5", scan[i].has5);
+        cJSON_AddNumberToObject(item, "channel", scan[i].channel);
+        cJSON_AddBoolToObject(item, "robotHears", scan[i].robotHears);
+        if (scan[i].camRssi) cJSON_AddNumberToObject(item, "camRssi", scan[i].camRssi);
+        cJSON_AddItemToArray(nearby, item);
+    }
+    return send_json(req, root);
+}
+
+esp_err_t handle_wifi_scan(httpd_req_t *req) {
+    // ?source=camera: have the camera scan instead, with its own antenna.
+    char source[12] = "";
+    if (get_query_str(req, "source", source, sizeof(source)) && std::strcmp(source, "camera") == 0) {
+        bool ok = uart_link_request_cam_scan();
+        return send_wifi_result(req, ok, ok ? "Camera scanning..." : "The camera isn't linked to the robot.");
+    }
+    // ?mode=passive|long: diagnostic scan variants (see wifi_request_debug_scan()).
+    char mode[12] = "";
+    int channel = 0;
+    int oled = -1;
+    if (get_query_int(req, "oled", &oled)) oled_set_paused(oled == 0); // diagnostics: ?oled=0 pauses the display's I2C traffic
+    get_query_int(req, "channel", &channel);
+    if (get_query_str(req, "mode", mode, sizeof(mode)) || channel > 0) {
+        if (channel <= 0) channel = 0;
+        int m = std::strcmp(mode, "passive") == 0 ? 1 : std::strcmp(mode, "long") == 0 ? 2 : std::strcmp(mode, "2g") == 0 ? 3 : 0;
+        wifi_request_debug_scan(m, channel);
+    } else {
+        wifi_request_scan();
+    }
+    return send_wifi_result(req, true, "Scanning...");
+}
+
+// POST /wifi/prefs {"prefer5g": bool}
+esp_err_t handle_wifi_prefs(httpd_req_t *req) {
+    char body[64];
     if (read_post_body(req, body, sizeof(body)) < 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad request body");
         return ESP_OK;
     }
-
     cJSON *root = cJSON_Parse(body);
-    cJSON *ssidItem = root ? cJSON_GetObjectItemCaseSensitive(root, "ssid") : nullptr;
-    cJSON *passItem = root ? cJSON_GetObjectItemCaseSensitive(root, "password") : nullptr;
-    if (!cJSON_IsString(ssidItem) || !cJSON_IsString(passItem)) {
+    cJSON *prefer5 = root ? cJSON_GetObjectItemCaseSensitive(root, "prefer5g") : nullptr;
+    bool ok = cJSON_IsBool(prefer5);
+    bool on = ok && cJSON_IsTrue(prefer5);
+    if (ok) wifi_set_prefer_5ghz(on);
+    cJSON_Delete(root);
+    return send_wifi_result(req, ok, !ok ? "Expected {\"prefer5g\": true|false}."
+                                   : on ? "Preferring 5 GHz -- rechecking networks."
+                                        : "Preferring 2.4 GHz-capable networks (camera-friendly).");
+}
+
+esp_err_t handle_wifi_add(httpd_req_t *req) {
+    cJSON *root;
+    const char *ssid;
+    const char *password;
+    if (!parse_wifi_body(req, &root, &ssid, &password)) {
         cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ssid/password");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ssid");
         return ESP_OK;
     }
-
-    std::strncpy(settings.altSsid, ssidItem->valuestring, sizeof(settings.altSsid) - 1);
-    settings.altSsid[sizeof(settings.altSsid) - 1] = '\0';
-    std::strncpy(settings.altPassword, passItem->valuestring, sizeof(settings.altPassword) - 1);
-    settings.altPassword[sizeof(settings.altPassword) - 1] = '\0';
+    size_t pwLen = std::strlen(password);
+    if (pwLen != 0 && (pwLen < 8 || pwLen > 64)) {
+        cJSON_Delete(root);
+        return send_wifi_result(req, false, "A WPA2 password is 8-63 characters (or empty for an open network).");
+    }
+    if (!wifi_networks_add(ssid, password)) {
+        cJSON_Delete(root);
+        return send_wifi_result(req, false, "Couldn't save: SSID too long, or the list is full.");
+    }
+    ESP_LOGI(TAG, "Saved WiFi network \"%s\"", ssid);
+    // Offline (e.g. setting up over the hotspot): try it straight away, even
+    // if it isn't in the last scan (hidden network). Already online: just
+    // remember it for next time rather than yanking the connection this
+    // very page is loaded over.
+    if (wifi_is_connected()) {
+        wifi_networks_changed();
+    } else {
+        wifi_request_connect(ssid);
+    }
     cJSON_Delete(root);
-    saveSettings();
+    return send_wifi_result(req, true, wifi_is_connected() ? "Saved." : "Saved -- connecting...");
+}
 
-    ESP_LOGI(TAG, "Received WiFi settings: SSID=%s", settings.altSsid);
-    httpd_resp_set_type(req, "text/plain");
-    httpd_resp_sendstr(req, "OK, attempting to connect");
+esp_err_t handle_wifi_remove(httpd_req_t *req) {
+    cJSON *root;
+    const char *ssid;
+    if (!parse_wifi_body(req, &root, &ssid, nullptr)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ssid");
+        return ESP_OK;
+    }
+    bool ok = wifi_networks_remove(ssid);
+    if (ok) {
+        ESP_LOGI(TAG, "Forgot WiFi network \"%s\"", ssid);
+        wifi_networks_changed();
+    }
+    cJSON_Delete(root);
+    return send_wifi_result(req, ok, ok ? "Forgotten." : "Not a saved network.");
+}
 
-    // Points at the now-persisted settings.altSsid/altPassword, matching the
-    // Pico version's comment: reconnect must reference stable storage, not
-    // this handler's own stack-local body buffer.
-    wifi_reconnect_with(settings.altSsid, settings.altPassword);
-    return ESP_OK;
+esp_err_t handle_wifi_connect(httpd_req_t *req) {
+    cJSON *root;
+    const char *ssid;
+    if (!parse_wifi_body(req, &root, &ssid, nullptr)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing ssid");
+        return ESP_OK;
+    }
+    bool ok = wifi_networks_find(ssid, nullptr);
+    if (ok) wifi_request_connect(ssid);
+    cJSON_Delete(root);
+    return send_wifi_result(req, ok, ok ? "Switching networks..." : "Not a saved network.");
 }
 
 esp_err_t handle_pose_reset_post(httpd_req_t *req) {
@@ -591,13 +853,45 @@ esp_err_t handle_waypoints_post(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// GET/POST /appdata/settings and /appdata/scores: the Games & apps page's
+// documents (see app_data.hpp). user_ctx carries the document name.
+esp_err_t handle_app_data_get(httpd_req_t *req) {
+    static char json[APP_DATA_JSON_MAX_LEN];
+    app_data_load((const char *) req->user_ctx, json, sizeof(json));
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, json);
+    return ESP_OK;
+}
+
+esp_err_t handle_app_data_post(httpd_req_t *req) {
+    static char body[APP_DATA_JSON_MAX_LEN];
+    int len = read_post_body(req, body, sizeof(body));
+    // Parse just to reject garbage -- the schema itself is the JS's business.
+    cJSON *parsed = len > 0 ? cJSON_Parse(body) : nullptr;
+    bool valid = cJSON_IsObject(parsed);
+    cJSON_Delete(parsed);
+    if (!valid || !app_data_save((const char *) req->user_ctx, body, (size_t) len)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Not a JSON object, too large, or failed to save");
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
 // -- registration ---------------------------------------------------------
 
 esp_err_t handle_set_wrapper(httpd_req_t *req) { return handle_set(req); }
 esp_err_t handle_params_wrapper(httpd_req_t *req) { return handle_params(req); }
 esp_err_t handle_cam_diag_wrapper(httpd_req_t *req) { return handle_cam_diag(req); }
 esp_err_t handle_pose_wrapper(httpd_req_t *req) { return handle_pose(req); }
-esp_err_t handle_wifi_post_wrapper(httpd_req_t *req) { return handle_wifi_post(req); }
+esp_err_t handle_wifi_status_wrapper(httpd_req_t *req) { return handle_wifi_status(req); }
+esp_err_t handle_wifi_scan_wrapper(httpd_req_t *req) { return handle_wifi_scan(req); }
+esp_err_t handle_wifi_add_wrapper(httpd_req_t *req) { return handle_wifi_add(req); }
+esp_err_t handle_wifi_remove_wrapper(httpd_req_t *req) { return handle_wifi_remove(req); }
+esp_err_t handle_wifi_connect_wrapper(httpd_req_t *req) { return handle_wifi_connect(req); }
+esp_err_t handle_wifi_prefs_wrapper(httpd_req_t *req) { return handle_wifi_prefs(req); }
 esp_err_t handle_pose_reset_post_wrapper(httpd_req_t *req) { return handle_pose_reset_post(req); }
 esp_err_t handle_waypoints_get_wrapper(httpd_req_t *req) { return handle_waypoints_get(req); }
 esp_err_t handle_waypoints_post_wrapper(httpd_req_t *req) { return handle_waypoints_post(req); }
@@ -609,7 +903,7 @@ void web_server_init() {
     config.server_port = 80;
     config.stack_size = 8192;
     config.max_open_sockets = 12; // the UI opens ~6 conns per page navigation
-    config.max_uri_handlers = 20; // ~7 here + /ws once ws_broadcast.cpp registers it
+    config.max_uri_handlers = 32; // ~20 here + /ws (ws_broadcast.cpp) + OTA/model routes (ota.cpp)
     config.lru_purge_enable = true; // reconnect-storm resilience
     config.send_wait_timeout = 2; // bound the worst case if a peer stalls
     config.recv_wait_timeout = 5; // OTA upload chunks need it, once milestone G exists
@@ -636,8 +930,16 @@ void web_server_init() {
                               .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t poseUri = {.uri = "/pose", .method = HTTP_GET, .handler = handle_pose_wrapper, .user_ctx = nullptr,
                            .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
-    httpd_uri_t wifiUri = {.uri = "/wifi", .method = HTTP_POST, .handler = handle_wifi_post_wrapper, .user_ctx = nullptr,
-                           .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t wifiStatusUri = {.uri = "/wifi/status", .method = HTTP_GET, .handler = handle_wifi_status_wrapper, .user_ctx = nullptr,
+                                 .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t wifiScanUri = {.uri = "/wifi/scan", .method = HTTP_POST, .handler = handle_wifi_scan_wrapper, .user_ctx = nullptr,
+                               .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t wifiAddUri = {.uri = "/wifi/add", .method = HTTP_POST, .handler = handle_wifi_add_wrapper, .user_ctx = nullptr,
+                              .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t wifiRemoveUri = {.uri = "/wifi/remove", .method = HTTP_POST, .handler = handle_wifi_remove_wrapper, .user_ctx = nullptr,
+                                 .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t wifiConnectUri = {.uri = "/wifi/connect", .method = HTTP_POST, .handler = handle_wifi_connect_wrapper, .user_ctx = nullptr,
+                                  .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t poseResetUri = {.uri = "/pose_reset", .method = HTTP_POST, .handler = handle_pose_reset_post_wrapper, .user_ctx = nullptr,
                                 .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t waypointsGetUri = {.uri = "/waypoints", .method = HTTP_GET, .handler = handle_waypoints_get_wrapper, .user_ctx = nullptr,
@@ -649,10 +951,32 @@ void web_server_init() {
     httpd_register_uri_handler(g_server, &paramsUri);
     httpd_register_uri_handler(g_server, &camDiagUri);
     httpd_register_uri_handler(g_server, &poseUri);
-    httpd_register_uri_handler(g_server, &wifiUri);
+    httpd_register_uri_handler(g_server, &wifiStatusUri);
+    httpd_register_uri_handler(g_server, &wifiScanUri);
+    httpd_register_uri_handler(g_server, &wifiAddUri);
+    httpd_register_uri_handler(g_server, &wifiRemoveUri);
+    httpd_register_uri_handler(g_server, &wifiConnectUri);
+    httpd_uri_t wifiPrefsUri = wifiConnectUri;
+    wifiPrefsUri.uri = "/wifi/prefs";
+    wifiPrefsUri.handler = handle_wifi_prefs_wrapper;
+    httpd_register_uri_handler(g_server, &wifiPrefsUri);
     httpd_register_uri_handler(g_server, &poseResetUri);
     httpd_register_uri_handler(g_server, &waypointsGetUri);
     httpd_register_uri_handler(g_server, &waypointsPostUri);
+    static const char *APP_DATA_DOCS[] = {"settings", "scores"};
+    static char appDataUris[2][32];
+    for (int i = 0; i < 2; i++) {
+        std::snprintf(appDataUris[i], sizeof(appDataUris[i]), "/appdata/%s", APP_DATA_DOCS[i]);
+        httpd_uri_t getUri = {.uri = appDataUris[i], .method = HTTP_GET, .handler = handle_app_data_get,
+                              .user_ctx = (void *) APP_DATA_DOCS[i], .is_websocket = false,
+                              .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+        httpd_uri_t postUri = getUri;
+        postUri.method = HTTP_POST;
+        postUri.handler = handle_app_data_post;
+        httpd_register_uri_handler(g_server, &getUri);
+        httpd_register_uri_handler(g_server, &postUri);
+    }
+
     httpd_register_err_handler(g_server, HTTPD_404_NOT_FOUND, static_fallback_handler);
 
     ESP_LOGI(TAG, "httpd started on port %d", config.server_port);

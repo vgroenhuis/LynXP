@@ -111,16 +111,17 @@ void applyDefaultSettings() {
     settings.cameraHeightMm = 100.0f; // measured on this robot's actual camera mount
     settings.cameraTiltDeg = 0.0f;
     settings.cameraVerticalFovDeg = 65.0f; // measured on this robot's actual camera -- notably wider than a typical ~42deg default
-    settings.altSsid[0] = '\0';
-    settings.altPassword[0] = '\0';
+    settings.legacyAltSsid[0] = '\0';
+    settings.legacyAltPassword[0] = '\0';
     std::strncpy(settings.otaUsername, "admin", sizeof(settings.otaUsername) - 1);
     settings.otaUsername[sizeof(settings.otaUsername) - 1] = '\0';
     settings.otaPassword[0] = '\0'; // empty = auth disabled until the user sets one
-    settings.gameMode = GAME_MODE_NONE;
-    settings.fireballSpeedMps = 0.5f;
-    settings.monsterSpeedMps = 0.1f;
-    settings.monsterCount = 2;
-    settings.monsterLegDistanceM = 1.0f;
+    // Unused (see Settings::legacyGameMode) -- zeroed so the blob is deterministic.
+    settings.legacyGameMode = 0;
+    settings.legacyFireballSpeedMps = 0.0f;
+    settings.legacyMonsterSpeedMps = 0.0f;
+    settings.legacyMonsterCount = 0;
+    settings.legacyMonsterLegDistanceM = 0.0f;
 }
 
 bool saveSettings() {

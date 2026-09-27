@@ -13,3 +13,7 @@
 // wifi_connect.hpp's state. Call once from app_main(), after
 // wifi_connect_start() so an IP can already be known for the first frame.
 void oled_status_start();
+
+// Diagnostics: stop/resume all of this task's I2C traffic (display + its
+// INA260 reads), e.g. to test whether the bus disturbs the radio.
+void oled_set_paused(bool paused);

@@ -65,8 +65,9 @@ CONFIG_HTTPD_MAX_URI_LEN=512
 CONFIG_HTTPD_ERR_RESP_NO_DELAY=y
 # httpd hard-checks max_open_sockets + 3 <= LWIP_MAX_SOCKETS at start. 12
 # open sockets are requested (web_server.cpp) because the UI opens ~6
-# connections per page navigation.
-CONFIG_LWIP_MAX_SOCKETS=16
+# connections per page navigation. The rest: ping_diag's ICMP socket and the
+# setup hotspot's captive DNS responder (captive_dns.cpp), plus headroom.
+CONFIG_LWIP_MAX_SOCKETS=20
 
 # --- OLED status display ---
 # SSD1306 128x64 on I2C, GPIO2(SDA)/GPIO3(SCL) -- bench-verified pin map,
@@ -78,4 +79,7 @@ CONFIG_SDA_GPIO=2
 CONFIG_SCL_GPIO=3
 CONFIG_RESET_GPIO=-1
 CONFIG_I2C_PORT_0=y
-CONFIG_OFFSETX=2
+# 0, not 2: this is a true 128-column SSD1306. An offset of 2 is for 132-column
+# SH1106 panels -- here it shifted every row right and wrapped the last two
+# columns around to the left edge.
+CONFIG_OFFSETX=0

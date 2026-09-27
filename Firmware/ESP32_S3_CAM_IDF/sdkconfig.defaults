@@ -7,6 +7,13 @@ CONFIG_SPIRAM_SPEED_80M=y
 
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 
+# OTA: two app slots (partitions.csv) + rollback -- a freshly OTA'd image
+# boots "pending verify" and the bootloader reverts to the previous one on
+# the next reboot unless it proves itself (joins WiFi) first.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # app_main() does WiFi scan/connect + camera init + logging synchronously on the
 # main task before starting anything else - default 3584B stack is too tight for
 # that plus the esp_wifi/esp_camera call chains.

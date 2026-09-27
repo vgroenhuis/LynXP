@@ -812,9 +812,28 @@ function setDiagField(id, text, warn) {
   el.classList.toggle("diag-warn", !!warn);
 }
 
+// The camera's own address (from /camdiag), for talking to it directly --
+// its firmware info and OTA endpoint live on the camera, not the robot.
+let camDirectIp = null;
+let camFirmwareFetchedFor = null;
+
+function updateCamFirmwareInfo(ip) {
+  if (!ip || ip === camFirmwareFetchedFor) return;
+  camFirmwareFetchedFor = ip;
+  fetch(`http://${ip}/status`)
+    .then((r) => r.json())
+    .then((s) => setDiagField("s3camFirmware", s.fwBuilt ? `${s.fwBuilt} (${s.otaSlot})` : "older (no OTA -- update over USB once)", !s.fwBuilt))
+    .catch(() => {
+      camFirmwareFetchedFor = null; // retry on the next poll
+      setDiagField("s3camFirmware", "-", false);
+    });
+}
+
 function updateCamDiagDisplay(d) {
   const camReachable = !d.stale && d.ip && d.ip !== "0.0.0.0";
   setAdminLink("s3camAdminLink", camReachable ? d.ip : "");
+  camDirectIp = camReachable ? d.ip : null;
+  if (camReachable) updateCamFirmwareInfo(d.ip);
 
   setDiagField("s3camResetReason", d.resetReason || "-", CAM_RESET_REASON_WARN.has(d.resetReason));
   setDiagField("s3camReboots", String(d.rebootCount), false);
@@ -1843,15 +1862,6 @@ function loadParams() {
       document.getElementById("cameraTiltDeg").value = data.cameraTiltDeg;
       document.getElementById("cameraVerticalFovDeg").value = data.cameraVerticalFovDeg;
 
-      document.getElementById("gameMode").value = data.gameMode === 1 ? "monster_hunt" : "none";
-      document.getElementById("fireballSpeedMps").value = data.fireballSpeedMps;
-      document.getElementById("monsterSpeedMps").value = data.monsterSpeedMps;
-      document.getElementById("monsterCount").value = data.monsterCount;
-      document.getElementById("monsterLegDistanceM").value = data.monsterLegDistanceM;
-
-      document.getElementById("ssid").value = data.altSsid || "";
-      document.getElementById("password").value = data.altPassword || "";
-
       drawMap();
     })
     .catch(console.error);
@@ -2355,7 +2365,7 @@ window.addEventListener("DOMContentLoaded", () => {
   restorePersistentCheckbox("camShowMinorGrid"); // read by cam.js on the Camera page, not used here
   restorePersistentCheckbox("camShowWaypointsOverlay"); // read by cam.js on the Camera page, not used here
   restorePersistentNumberInput("camGridOpacity", 90); // read by cam.js on the Camera page, not used here
-  document.getElementById("camGridColor").value = localStorage.getItem("camGridColor") || "#28ff78";
+  document.getElementById("camGridColor").value = localStorage.getItem("camGridColor") || "#c0c0c0"; // keep in step with cam.js's CAM_GRID_DEFAULT_COLOR
   document.getElementById("camGridColor").addEventListener("change", (e) => {
     localStorage.setItem("camGridColor", e.target.value); // read by cam.js on the Camera page, not used here
   });
@@ -2387,11 +2397,6 @@ window.addEventListener("DOMContentLoaded", () => {
     document.getElementById(name).addEventListener("change", (e) => setParam(name, e.target.value));
   });
 
-  document.getElementById("gameMode").addEventListener("change", (e) => setParam("gameMode", e.target.value));
-
-  ["fireballSpeedMps", "monsterSpeedMps", "monsterCount", "monsterLegDistanceM"].forEach((name) => {
-    document.getElementById(name).addEventListener("change", (e) => setParam(name, e.target.value));
-  });
 
   // Servo angle: a live command (like the joysticks), not a persisted
   // setting - sent over the WS, not through setParam()/flash. Throttled
@@ -2569,33 +2574,18 @@ window.addEventListener("DOMContentLoaded", () => {
     }, 50);
   });
 
-  document.getElementById("wifiConnectBtn").addEventListener("click", () => {
-    const ssid = document.getElementById("ssid").value;
-    const password = document.getElementById("password").value;
-    document.getElementById("wifi-status").textContent = "Sending, reconnecting...";
-    fetch("/wifi", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ssid, password }),
-    })
-      .then((r) => r.text())
-      .then((data) => {
-        document.getElementById("wifi-status").textContent = data;
-      })
-      .catch(() => {
-        // The board reconnects to the new network right after responding,
-        // which usually drops this very request before the browser reads
-        // the reply - that's expected, not necessarily a failure.
-        document.getElementById("wifi-status").textContent =
-          "Request sent - the board is switching networks, it may become unreachable at this address.";
-      });
-  });
+  // Saved Wi-Fi networks (wifi.js, shared with the standalone /wifi setup
+  // page). Only polls /wifi/status while the panel is actually open.
+  const wifiPanel = document.getElementById("panel-wifi");
+  const wifiManager = initWifiManager(document.getElementById("wifiManagerRoot"));
+  const syncWifiPolling = () => (wifiPanel.open ? wifiManager.start() : wifiManager.stop());
+  wifiPanel.addEventListener("toggle", syncWifiPolling);
+  syncWifiPolling();
 
   // Firmware/filesystem OTA: raw POST body (not multipart), matching the
   // firmware's read_post_body()/esp_ota_write()/esp_partition_write() side.
   // Both endpoints reboot the board on success, so a network error on the
-  // response itself is the expected/successful outcome, same as the
-  // /wifi handler above.
+  // response itself is the expected/successful outcome.
   //
   // otaHeaders(): builds the Authorization: Basic header from the current
   // input fields (not the last-saved setting) so a credential just typed
@@ -2622,6 +2612,33 @@ window.addEventListener("DOMContentLoaded", () => {
       })
       .catch(() => {
         status.textContent = "Upload sent - the board is rebooting into the new firmware.";
+      });
+  });
+
+  // Camera OTA: straight from this browser to the camera's own /update. Sent
+  // as text/plain so the cross-origin POST needs no CORS preflight (the
+  // camera accepts any Content-Type and answers with Access-Control-Allow-Origin).
+  document.getElementById("uploadCamFwBtn").addEventListener("click", () => {
+    const file = document.getElementById("camFwFile").files[0];
+    const status = document.getElementById("camOtaStatus");
+    if (!file) {
+      status.textContent = "Choose the camera's .bin file first (build/esp32s3_cam_stream.bin).";
+      return;
+    }
+    if (!camDirectIp) {
+      status.textContent = "The camera isn't reachable on the network right now.";
+      return;
+    }
+    const ip = camDirectIp;
+    status.textContent = `Uploading ${file.name} (${Math.round(file.size / 1024)} KB) to the camera at ${ip}...`;
+    fetch(`http://${ip}/update`, { method: "POST", body: file, headers: { "Content-Type": "text/plain" } })
+      .then((r) => r.text().then((t) => ({ ok: r.ok, t })))
+      .then(({ ok, t }) => {
+        status.textContent = ok ? `${t} It keeps the new firmware once it's back on WiFi (about 10 s).` : `Camera refused the update: ${t}`;
+        camFirmwareFetchedFor = null; // re-read its version once it's back
+      })
+      .catch(() => {
+        status.textContent = "Upload failed -- the camera may be running firmware without OTA support (update it over USB once).";
       });
   });
 

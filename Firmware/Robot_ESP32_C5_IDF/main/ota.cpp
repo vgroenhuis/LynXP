@@ -13,6 +13,7 @@
 #include "esp_littlefs.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_phy_init.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -325,6 +326,26 @@ esp_err_t handle_update_fs_post(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// POST /debug/phycal: erase the radio's cached RF calibration and reboot,
+// forcing a full calibration. A last-resort remedy (per ESP-IDF's own docs
+// for esp_phy_erase_cal_data_in_nvs) when some channels seem deaf.
+esp_err_t handle_phycal_post(httpd_req_t *req) {
+    if (!ota_check_basic_auth(req)) {
+        send_unauthorized(req);
+        return ESP_OK;
+    }
+    esp_err_t err = esp_phy_erase_cal_data_in_nvs();
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(err));
+        return ESP_OK;
+    }
+    httpd_resp_sendstr(req, "RF calibration erased, rebooting for a full calibration...");
+    ESP_LOGW(TAG, "RF calibration data erased -- rebooting");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
 void ota_validate_task(void *arg) {
     (void) arg;
     while (true) {
@@ -357,9 +378,35 @@ void ota_register_routes() {
                                .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_register_uri_handler(server, &updateUri);
     httpd_register_uri_handler(server, &updateFsUri);
+    httpd_uri_t phycalUri = updateUri;
+    phycalUri.uri = "/debug/phycal";
+    phycalUri.handler = handle_phycal_post;
+    httpd_register_uri_handler(server, &phycalUri);
     ESP_LOGI(TAG, "/update and /update-fs registered");
 }
 
 void ota_start_validation() {
     xTaskCreate(ota_validate_task, "ota_validate", 3072, nullptr, 2, nullptr);
+}
+
+bool ota_request_authorized(httpd_req_t *req) {
+    if (ota_check_basic_auth(req)) return true;
+    send_unauthorized(req);
+    return false;
+}
+
+void ota_pause_robot() {
+    stopAllMotion();
+    motors_coast_all();
+    disable_servos();
+    TaskHandle_t ctrlTask = control_task_get_handle();
+    esp_task_wdt_delete(ctrlTask);
+    vTaskSuspend(ctrlTask);
+}
+
+void ota_resume_robot() {
+    TaskHandle_t ctrlTask = control_task_get_handle();
+    vTaskResume(ctrlTask);
+    esp_task_wdt_add(ctrlTask); // after resuming -- see handle_update_fs_post()'s failure path
+    restore_servos();
 }

@@ -6,6 +6,8 @@
 #include "motors.hpp"
 #include "settings.hpp"
 #include "waypoints.hpp"
+#include "wifi_connect.hpp"
+#include "wifi_networks.hpp"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,6 +25,75 @@ namespace {
 
 const char *TAG = "console";
 
+// Next whitespace-separated token from *p into out; "double quotes" keep
+// spaces (SSIDs may contain them). False if there's no token left.
+bool next_token(const char **p, char *out, size_t outLen) {
+    const char *s = *p;
+    while (*s == ' ') s++;
+    if (*s == '\0') return false;
+    size_t n = 0;
+    if (*s == '"') {
+        s++;
+        while (*s != '\0' && *s != '"') {
+            if (n + 1 < outLen) out[n++] = *s;
+            s++;
+        }
+        if (*s == '"') s++;
+    } else {
+        while (*s != '\0' && *s != ' ') {
+            if (n + 1 < outLen) out[n++] = *s;
+            s++;
+        }
+    }
+    out[n] = '\0';
+    *p = s;
+    return true;
+}
+
+// "wifi ..." -- manage saved networks from the serial console, e.g. to get a
+// robot with no phone handy (or no working OLED for the hotspot password)
+// online. Note the console reads input on the UART0 pins, not the native USB
+// port the logs also appear on.
+void handle_wifi_command(const char *args) {
+    char verb[12], ssid[34], password[66];
+    if (!next_token(&args, verb, sizeof(verb))) verb[0] = '\0';
+
+    if (std::strcmp(verb, "list") == 0 || verb[0] == '\0') {
+        WifiStatus st;
+        wifi_get_status(&st);
+        printf("connected=%d ssid=\"%s\" ip=%s rssi=%d | hotspot %s \"%s\" (open) | prefer 5 GHz %s\n", st.connected,
+               st.ssid, st.ip, st.rssi, st.apActive ? "ON" : "off", wifi_ap_get_ssid(), wifi_get_prefer_5ghz() ? "on" : "off");
+        size_t n = wifi_networks_count();
+        for (size_t i = 0; i < n; i++) {
+            WifiCredential c;
+            if (wifi_networks_get(i, &c)) printf("  saved: \"%s\"%s\n", c.ssid, c.password[0] ? "" : " (open)");
+        }
+        if (n == 0) printf("  no saved networks\n");
+    } else if (std::strcmp(verb, "add") == 0 && next_token(&args, ssid, sizeof(ssid))) {
+        if (!next_token(&args, password, sizeof(password))) password[0] = '\0';
+        bool ok = wifi_networks_add(ssid, password);
+        printf("wifi add \"%s\" -> %s\n", ssid, ok ? "saved" : "FAILED (too long / list full)");
+        if (ok && !wifi_is_connected()) wifi_request_connect(ssid);
+    } else if (std::strcmp(verb, "forget") == 0 && next_token(&args, ssid, sizeof(ssid))) {
+        bool ok = wifi_networks_remove(ssid);
+        printf("wifi forget \"%s\" -> %s\n", ssid, ok ? "forgotten" : "not saved");
+        if (ok) wifi_networks_changed();
+    } else if (std::strcmp(verb, "scan") == 0) {
+        char mode[12] = "";
+        next_token(&args, mode, sizeof(mode));
+        int m = std::strcmp(mode, "passive") == 0 ? 1 : std::strcmp(mode, "long") == 0 ? 2 : 0;
+        wifi_request_debug_scan(m);
+        printf("wifi scan (%s) requested -- results follow in the log\n", m == 1 ? "passive" : m == 2 ? "long" : "normal");
+    } else if (std::strcmp(verb, "connect") == 0 && next_token(&args, ssid, sizeof(ssid))) {
+        bool ok = wifi_networks_find(ssid, nullptr);
+        if (ok) wifi_request_connect(ssid);
+        printf("wifi connect \"%s\" -> %s\n", ssid, ok ? "switching" : "not saved");
+    } else {
+        printf("usage: wifi list | wifi add <ssid> [password] | wifi forget <ssid> | wifi connect <ssid>"
+               "  (quote an SSID with spaces)\n");
+    }
+}
+
 void handle_line(const char *line) {
     int mode_val;
     float x, y;
@@ -39,7 +110,10 @@ void handle_line(const char *line) {
     // controlModesTick() runs every tick, any direct motorPower[] write gets
     // overwritten within 1ms by whichever mode is active. "j"/"mode"/etc.
     // below all go through the real control_modes.cpp state instead.
-    if (std::sscanf(line, "mode %d", &mode_val) == 1) {
+    if (std::strcmp(line, "wifi") == 0 || std::strncmp(line, "wifi ", 5) == 0) {
+        handle_wifi_command(line + 4);
+
+    } else if (std::sscanf(line, "mode %d", &mode_val) == 1) {
         settings.mode = mode_val;
         printf("mode=%d\n", settings.mode);
 
@@ -154,12 +228,13 @@ void print_help() {
     printf("commands: mode <n> | j <x> <y> | lab1 forward|backward | lab2setpoint <d> | "
            "lab2turn left|right | goto <x> <y> | reset_encoders | reset_pose | "
            "logging on|off | pose | mp | stop | servo <us> | enc | ticks | "
-           "settings show|save|load|default|set kp <v> | wp save|load\n");
+           "settings show|save|load|default|set kp <v> | wp save|load | "
+           "wifi list|add <ssid> [pw]|forget <ssid>|connect <ssid>\n");
 }
 
 void console_task(void *arg) {
     (void) arg;
-    char line[128];
+    char line[192]; // room for "wifi add <32-char ssid> <64-char key>"
 
     printf("LynXP ESP32-C5: bench console ready.\n");
     print_help();

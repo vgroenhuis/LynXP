@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LynXP Wi-Fi setup</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="wifi-page">
+  <nav class="top-nav">
+    <a href="/" class="nav-link">Main</a>
+    <a href="/cam" class="nav-link">First-person view</a>
+    <a href="/games" class="nav-link">Games &amp; apps</a>
+    <a href="/wifi" class="nav-link active">Wi-Fi</a>
+  </nav>
+  <div class="panel wifi-card">
+    <div class="panel-body">
+      <h3>LynXP Wi-Fi setup</h3>
+      <p class="wifi-dim">Pick a network below (or type its name), enter the password and press Save.
+        LynXP remembers every network you add and joins whichever one is in range. The camera
+        follows automatically, as long as the network has 2.4&nbsp;GHz.</p>
+      <div id="wifiManagerRoot"></div>
+    </div>
+  </div>
+  <script src="wifi.js"></script>
+  <script>
+    initWifiManager(document.getElementById("wifiManagerRoot")).start();
+  </script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LynXP games &amp; apps</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="games-page">
+  <nav class="top-nav">
+    <a href="/" class="nav-link">Main</a>
+    <a href="/cam" class="nav-link">First-person view</a>
+    <a href="/games" class="nav-link active">Games &amp; apps</a>
+    <a href="/wifi" class="nav-link">Wi-Fi</a>
+  </nav>
+
+  <main class="games-main">
+    <section class="games-hero">
+      <div>
+        <h2>Games &amp; apps</h2>
+        <p class="games-dim">Pick what runs on the first-person view. Settings and high scores are stored on the robot, so every phone and laptop sees the same ones.</p>
+      </div>
+      <div class="games-hero-actions">
+        <label class="games-player">Your name
+          <input type="text" id="playerName" maxlength="12" autocomplete="nickname">
+        </label>
+        <a href="/cam" class="games-play-btn" id="playBtn">&#9654; Play</a>
+      </div>
+    </section>
+
+    <section>
+      <div class="games-grid" id="catalog"></div>
+    </section>
+
+    <section class="panel games-card-wide" id="settingsPanel">
+      <div class="panel-body">
+        <div class="games-settings-head">
+          <h3 id="settingsTitle"></h3>
+          <span class="games-saved" id="savedNote"></span>
+        </div>
+        <p class="games-dim" id="settingsBlurb"></p>
+        <div class="games-form" id="settingsForm"></div>
+      </div>
+    </section>
+
+    <section class="panel games-card-wide" id="modelPanel">
+      <div class="panel-body">
+        <h3>Object detection model</h3>
+        <p class="games-dim">Object detection and Scavenger Hunt run YOLOv8n in this browser. The model (~7&nbsp;MB) is stored
+          on the robot; the ONNX runtime (~11&nbsp;MB) is downloaded from jsDelivr the first time, so the device needs internet access once. Both are cached afterwards.</p>
+        <div id="modelStatus" class="games-model-status">Checking...</div>
+        <div class="games-row">
+          <label class="games-file">Install / replace model (.onnx)
+            <input type="file" id="modelFile" accept=".onnx">
+          </label>
+          <button type="button" class="games-btn" id="benchBtn">Speed test on this device</button>
+        </div>
+        <progress id="modelProgress" max="1" value="0" hidden></progress>
+        <p class="games-dim" id="modelMsg"></p>
+        <p class="games-dim games-small">Build the model with <code>tools/export_yolo_model.py</code> in the robot firmware folder. Installing pauses the robot for about a minute while it writes to flash.</p>
+      </div>
+    </section>
+
+    <section class="panel games-card-wide">
+      <div class="panel-body">
+        <h3>Hall of fame</h3>
+        <div class="games-boards" id="boards"></div>
+      </div>
+    </section>
+
+    <section class="panel games-card-wide">
+      <div class="panel-body">
+        <h3>General</h3>
+        <div class="games-form" id="generalForm"></div>
+        <h4>Controls on the first-person view</h4>
+        <table class="games-keys">
+          <tr><td>W A S D</td><td>drive / strafe</td><td>Space or click</td><td>fire / action (hold for auto)</td></tr>
+          <tr><td>&larr; &rarr; or Q E</td><td>turn the camera</td><td>1 2 3 / Tab</td><td>weapons</td></tr>
+          <tr><td>&uarr; &darr;</td><td>tilt the camera</td><td>Shift</td><td>half speed</td></tr>
+        </table>
+        <p class="games-dim games-small">On a phone: left thumb drives, right thumb looks, and the button bottom-right fires.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="lynx_common.js"></script>
+  <script src="detect.js"></script>
+  <script src="games.js"></script>
+</body>
+</html>

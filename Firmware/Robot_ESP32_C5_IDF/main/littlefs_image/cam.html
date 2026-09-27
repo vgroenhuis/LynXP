@@ -19,9 +19,13 @@
         <a href="/" class="cam-overlay-btn">Main</a>
         <button id="camFullscreenBtn" class="cam-overlay-btn">Fullscreen</button>
         <a id="camSettingsLink" href="#" target="_blank" rel="noopener" class="cam-overlay-btn" style="display:none">Cam settings</a>
+        <label class="cam-mode-label">Game / app
+          <select id="camModeSelect" class="cam-mode-select"></select>
+        </label>
+        <a href="/games" class="cam-overlay-btn">Games &amp; apps settings</a>
       </div>
     </details>
-    <button id="camFireballBtn" class="cam-overlay-btn cam-fireball-btn" style="display:none">🔥 Fireball</button>
+    <button id="camFireballBtn" class="cam-overlay-btn cam-fireball-btn" style="display:none">🔥 Fire</button>
     <details class="cam-menu-panel cam-menu-panel-right" id="camOverlaysPanel" open>
       <summary>Overlays</summary>
       <div class="cam-menu-panel-body">
@@ -51,6 +55,13 @@
       <div id="camRightJoystickKnob" class="cam-floating-joystick-knob"></div>
     </div>
   </div>
+  <script src="lynx_common.js"></script>
+  <script src="controls.js"></script>
+  <script src="ar.js"></script>
+  <script src="game_demons.js"></script>
+  <script src="game_coins.js"></script>
+  <script src="game_race.js"></script>
+  <script src="detect.js"></script>
   <script src="cam.js"></script>
 </body>
 </html>

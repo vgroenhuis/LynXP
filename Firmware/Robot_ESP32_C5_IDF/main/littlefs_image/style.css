@@ -877,3 +877,512 @@ button {
   color: #666;
   min-height: 1.1em;
 }
+
+/* --- Wi-Fi networks manager (wifi.js): Main page panel + /wifi setup page --- */
+
+.wifi-page .wifi-card {
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+}
+
+.wifi-page .wifi-card h3 {
+  margin: 12px 0 6px 0;
+}
+
+.wifi-mgr {
+  font-size: 0.9rem;
+}
+
+.wifi-mgr [hidden] {
+  display: none;
+}
+
+.wifi-status {
+  margin-top: 4px;
+}
+
+.wifi-cam {
+  color: #555;
+}
+
+.wifi-success {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #e3f5e3;
+  border: 1px solid #7bbf7b;
+}
+
+.wifi-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wifi-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid #e2e2e2;
+}
+
+.wifi-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.wifi-ssid {
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+
+.wifi-tag {
+  font-size: 0.8rem;
+  color: #555;
+  white-space: nowrap;
+}
+
+.wifi-tag-ok {
+  color: #1a7f1a;
+  font-weight: bold;
+}
+
+.wifi-tag-warn {
+  color: #b35900;
+}
+
+.wifi-tag-dim,
+.wifi-dim {
+  color: #888;
+}
+
+.wifi-pickable {
+  cursor: pointer;
+}
+
+.wifi-pickable:hover {
+  background: #eef3fb;
+}
+
+.wifi-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.wifi-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* The page-wide button style is sized for joystick-adjacent touch targets;
+   list actions here need to sit inline. */
+.wifi-btn {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+
+.wifi-btn-primary {
+  padding: 8px 16px;
+  font-size: 1rem;
+}
+
+.wifi-btn-danger {
+  color: #a00;
+}
+
+.wifi-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.wifi-form input[type="text"],
+.wifi-form input[type="password"] {
+  padding: 8px;
+  font-size: 1rem;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+}
+
+.wifi-form .wifi-btn-primary {
+  align-self: flex-start;
+}
+
+.wifi-show-pw {
+  font-size: 0.85rem;
+}
+
+.wifi-msg {
+  min-height: 1.2em;
+  margin: 6px 0 0 0;
+}
+
+.wifi-error {
+  color: #c00;
+}
+
+.wifi-country {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+  font-size: 0.85rem;
+}
+
+.wifi-country select {
+  width: auto;
+  padding: 3px;
+}
+
+/* --- First-person view: games/apps additions (cam.html, ar.js) --- */
+
+.cam-mode-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #fff;
+  font-size: 0.8rem;
+  padding: 4px 6px 0 6px;
+}
+
+.cam-mode-select {
+  font-size: 0.9rem;
+  padding: 4px;
+}
+
+.game-canvas {
+  z-index: 5;
+}
+
+.game-touch-ui {
+  position: absolute;
+  right: 10px;
+  bottom: 60px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.game-touch-ui:empty {
+  display: none;
+}
+
+/* --- Games & apps page (games.html) --- */
+
+.games-main {
+  width: 100%;
+  max-width: 1000px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.games-hero {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.games-hero h2 {
+  margin: 8px 0 4px 0;
+}
+
+.games-hero-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.games-player {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  gap: 2px;
+}
+
+.games-player input {
+  padding: 6px;
+  font-size: 1rem;
+  width: 150px;
+}
+
+.games-play-btn {
+  display: inline-block;
+  padding: 10px 20px;
+  background: #1a7f1a;
+  color: #fff;
+  font-weight: bold;
+  border-radius: 6px;
+  text-decoration: none;
+}
+
+.games-play-btn:hover {
+  background: #146414;
+}
+
+.games-dim {
+  color: #666;
+}
+
+.games-small {
+  font-size: 0.8rem;
+}
+
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.games-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.games-card:hover {
+  border-color: #888;
+}
+
+.games-card-editing {
+  border-color: #3a6fd8;
+}
+
+.games-card-active {
+  border-color: #1a7f1a;
+  background: #f1fbf1;
+}
+
+.games-card-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.games-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.games-card-title {
+  font-weight: bold;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.games-card-blurb {
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.games-card-actions {
+  margin-top: auto;
+}
+
+.games-tag {
+  font-size: 0.7rem;
+  font-weight: normal;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #e6e6e6;
+  color: #444;
+}
+
+.games-tag-ai {
+  background: #e2ecff;
+  color: #2a4fa0;
+}
+
+/* The page-wide button style is sized for touch driving; these sit inline. */
+.games-btn {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+}
+
+.games-btn-on {
+  background: #1a7f1a;
+  color: #fff;
+  border: 1px solid #146414;
+}
+
+.games-btn-quiet {
+  font-size: 0.8rem;
+  padding: 3px 8px;
+}
+
+.games-card-wide {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.games-settings-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.games-settings-head h3 {
+  margin: 12px 0 0 0;
+}
+
+.games-saved {
+  font-size: 0.85rem;
+  color: #1a7f1a;
+}
+
+.games-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 16px;
+  align-items: end;
+}
+
+.games-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.9rem;
+}
+
+.games-field input[type="number"],
+.games-field select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px;
+}
+
+.games-field-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.games-field-wide {
+  grid-column: 1 / -1;
+}
+
+.games-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.games-chip {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  border-radius: 12px;
+  border: 1px solid #bbb;
+  background: #f4f4f4;
+}
+
+.games-chip-on {
+  background: #d6f5d6;
+  border-color: #1a7f1a;
+}
+
+.games-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.games-file {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  gap: 3px;
+}
+
+.games-model-status {
+  font-weight: bold;
+}
+
+.games-ok {
+  color: #1a7f1a;
+}
+
+.games-warn {
+  color: #b35900;
+}
+
+.games-boards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.games-board-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.games-score-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.games-score-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid #eee;
+}
+
+.games-score {
+  font-weight: bold;
+  text-align: right;
+}
+
+.games-keys {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.games-keys td {
+  padding: 3px 10px 3px 0;
+}
+
+.games-keys td:nth-child(odd) {
+  font-family: ui-monospace, Consolas, monospace;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.games-page progress {
+  width: 100%;
+}

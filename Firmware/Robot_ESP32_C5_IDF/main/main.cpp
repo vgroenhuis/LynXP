@@ -16,6 +16,7 @@
 #include "uart_link.hpp"
 #include "ping_diag.hpp"
 #include "ota.hpp"
+#include "model_store.hpp"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -77,6 +78,7 @@ extern "C" void app_main(void) {
     web_server_init();
     ws_broadcast_start();
     ota_register_routes();
+    model_store_register_routes();
 
     // Both tasks now exist -- subscribe them to the task watchdog and start
     // measuring their tick timing/stack usage.

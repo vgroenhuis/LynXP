@@ -157,16 +157,6 @@ window.addEventListener("DOMContentLoaded", () => {
   const calibPromise = fetch("/params")
     .then((r) => r.json())
     .then((data) => {
-      // Game settings (see the Main page's "Game settings" panel) -- piggy-
-      // backed onto this same fetch rather than a second round-trip, same
-      // reasoning as the floor-grid calibration below.
-      if (typeof data.gameMode === "number") gameMode = data.gameMode === 1 ? "monster_hunt" : "none";
-      if (typeof data.fireballSpeedMps === "number") fireballSpeedMps = data.fireballSpeedMps;
-      if (typeof data.monsterSpeedMps === "number") monsterSpeedMps = data.monsterSpeedMps;
-      if (typeof data.monsterCount === "number") monsterCount = data.monsterCount;
-      if (typeof data.monsterLegDistanceM === "number") monsterLegDistanceM = data.monsterLegDistanceM;
-      fireballLifetimeMs = ((FIREBALL_MAX_RANGE_M - FIREBALL_START_DISTANCE_M) / fireballSpeedMps) * 1000;
-
       return {
         heightM: data.cameraHeightMm / 1000,
         tiltRad: (data.cameraTiltDeg * Math.PI) / 180,
@@ -203,24 +193,123 @@ window.addEventListener("DOMContentLoaded", () => {
     setupCamTouchControls();
   }
 
-  document.getElementById("camFireballBtn").addEventListener("click", () => {
-    calibPromise.then((calib) => {
-      if (calib && gameMode === "monster_hunt") spawnFireball(calib);
-    });
+  // Detection needs to read pixels back from the stream, which a
+  // cross-origin <img> only allows in crossorigin mode (the camera sends the
+  // matching CORS header). Off by default so an older camera firmware
+  // without that header still shows a picture.
+  Lynx.cam = {
+    enableCors() {
+      if (img.crossOrigin === "anonymous") return;
+      img.crossOrigin = "anonymous";
+      if (currentCamIp) connectStream(currentCamIp);
+    },
+  };
+
+  // -- Games & apps (see games.html / lynx_common.js) ---------------------------
+  Lynx.enableKeyboardControls();
+
+  // The action button: press = one fire/action, hold = automatic fire.
+  const actionBtn = document.getElementById("camFireballBtn");
+  const releaseAction = () => (Lynx.input.fireHeld = false);
+  actionBtn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    Lynx.sfx.unlock();
+    Lynx.input.fireHeld = true;
+    Lynx.fireAction();
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => actionBtn.addEventListener(ev, releaseAction));
+
+  // Mouse users: clicking the picture fires too (while a game is running).
+  document.querySelector(".cam-fullscreen").addEventListener("mousedown", (e) => {
+    if (gameMode === "none") return;
+    if (e.button !== 0 || e.target.closest(".cam-menu-panel, .cam-overlay-btn, .game-touch-ui")) return;
+    Lynx.sfx.unlock();
+    Lynx.input.fireHeld = true;
+    Lynx.fireAction();
+  });
+  window.addEventListener("mouseup", releaseAction);
+
+  let currentAr = null; // the running game_*.js game's AR engine, for teardown
+
+  function stopActive() {
+    Lynx.clearActions();
+    Lynx.input.fireHeld = false;
+    if (currentAr) currentAr.destroy();
+    currentAr = null;
+    Lynx.activeGame = null;
+    if (gameMode === "monster_hunt") {
+      activeFireballs = [];
+      monsters = [];
+      monsterUpdateLastMs = null;
+    }
+    gameMode = "none";
+    actionBtn.style.display = "none";
+  }
+
+  // Starts app.active. Also used to switch games in-page (no reload), which
+  // keeps the browser in fullscreen -- a reloaded page can't re-enter it
+  // without another tap.
+  function startActive(calib, app) {
+    stopActive();
+    if (!calib || app.active === "none") return;
+
+    // Declutter: a game wants the view, not the menus (still one tap away).
+    document.querySelectorAll(".cam-menu-panel").forEach((panel) => (panel.open = false));
+
+    if (app.active === "monster_hunt") {
+      const m = app.monster_hunt;
+      fireballSpeedMps = m.fireballSpeedMps;
+      monsterSpeedMps = m.monsterSpeedMps;
+      monsterCount = m.monsterCount;
+      monsterLegDistanceM = m.monsterLegDistanceM;
+      fireballLifetimeMs = ((FIREBALL_MAX_RANGE_M - FIREBALL_START_DISTANCE_M) / fireballSpeedMps) * 1000;
+      gameMode = "monster_hunt";
+      actionBtn.textContent = "\u{1F525} Fireball";
+      actionBtn.style.display = "block";
+      Lynx.onAction("fire", () => spawnFireball(calib));
+      // Monsters are ambient -- they wander whether or not anyone's fired
+      // yet -- so this starts right away, not on the first button press.
+      ensureFireballOverlayInitialized(calib);
+      return;
+    }
+
+    const startGame = Lynx.games[app.active];
+    if (!startGame) return;
+    gameMode = app.active;
+    currentAr = Lynx.createAr(calib);
+    const game = startGame(currentAr, app[app.active], app) || {};
+    Lynx.activeGame = game; // e.g. Lynx.activeGame.snapshot() from the console
+    if (game.actionLabel) {
+      actionBtn.textContent = game.actionLabel;
+      actionBtn.style.display = "block";
+    }
+  }
+
+  Promise.all([calibPromise, Lynx.loadAppSettings()]).then(([calib, app]) => {
+    Lynx.sfx.volume = app.general.volume;
+    setupModeSelect(calib, app);
+    startActive(calib, app);
   });
 
-  // The whole fireball/monster system -- button included -- only exists
-  // when "Monster hunt" is selected on the Main page's "Game settings"
-  // panel; GAME_MODE_NONE (the default) hides the button and skips even
-  // starting the ambient monster wander/pose-polling below.
-  calibPromise.then((calib) => {
-    if (!calib) return;
-    document.getElementById("camFireballBtn").style.display = gameMode === "monster_hunt" ? "block" : "none";
-    // Monsters are ambient -- they wander the scene whether or not anyone's
-    // ever fired a fireball -- so this starts as soon as calibration is in,
-    // not lazily on first button press like the toggleable overlays above.
-    if (gameMode === "monster_hunt") ensureFireballOverlayInitialized(calib);
-  });
+  // Quick switch between games/apps from the Menu panel: saved robot-side
+  // like everything on the Games & apps page, and swapped in place.
+  function setupModeSelect(calib, app) {
+    const select = document.getElementById("camModeSelect");
+    Lynx.CATALOG.forEach((e) => {
+      const opt = document.createElement("option");
+      opt.value = e.id;
+      opt.textContent = `${e.icon} ${e.name}`;
+      select.appendChild(opt);
+    });
+    select.value = app.active;
+    select.addEventListener("change", () => {
+      app.active = select.value;
+      startActive(calib, app);
+      select.blur(); // so Space/arrow keys go to the game, not the dropdown
+      Lynx.saveAppSettings(app)
+        .catch(() => (document.getElementById("cam-status").textContent = "Couldn't save the game choice -- is the robot reachable?"));
+    });
+  }
 });
 
 // --- Fireball + monsters: a purely cosmetic AR mini-game layered onto the
@@ -234,12 +323,11 @@ window.addEventListener("DOMContentLoaded", () => {
 // LAUNCH DIRECTION -- the camera's pan+tilt aim at that instant -- since a
 // real projectile doesn't change course just because the shooter moves or
 // looks elsewhere after it's already away.
-// gameMode/fireballSpeedMps/monsterSpeedMps/monsterCount/monsterLegDistanceM
-// are configurable from the Main page's "Game settings" panel (persisted
-// robot-side, like every other setting) rather than hardcoded -- loaded
-// from /params below, with these as fallback defaults if that fetch fails.
-// The rest stay internal tuning constants, not exposed as settings.
-let gameMode = "none"; // "none" | "monster_hunt" -- gates the whole fireball/monster system, see DOMContentLoaded above
+// fireballSpeedMps/monsterSpeedMps/monsterCount/monsterLegDistanceM are
+// configurable on the Games & apps page (stored robot-side in the
+// /appdata/settings document) -- set in DOMContentLoaded above, with these
+// as fallback defaults. The rest stay internal tuning constants.
+let gameMode = "none"; // "none", "monster_hunt" (below), or the id of a running game_*.js / detect.js game
 let fireballSpeedMps = 0.5;
 const FIREBALL_RADIUS_M = 0.08;
 const FIREBALL_START_DISTANCE_M = 0.2; // launched a short distance out, not exactly at the camera (a projection singularity)
@@ -485,6 +573,11 @@ function ensureFireballOverlayInitialized(calib) {
 
   function draw(pose) {
     fireballLastPose = pose;
+    if (gameMode !== "monster_hunt") {
+      // Switched to another game in-page: stay subscribed but idle.
+      if (canvas.width) canvas.width = 0;
+      return;
+    }
     const now = performance.now();
     activeFireballs = activeFireballs.filter((fb) => now - fb.spawnedAtMs < fireballLifetimeMs);
 
@@ -642,9 +735,14 @@ function lerpPose(a, b, t) {
   };
 }
 
+// Returns an unsubscribe function (used when a game is switched in-page).
 function subscribeToPose(callback) {
   poseSubscribers.push(callback);
-  if (posePollStarted) return;
+  const unsubscribe = () => {
+    const i = poseSubscribers.indexOf(callback);
+    if (i >= 0) poseSubscribers.splice(i, 1);
+  };
+  if (posePollStarted) return unsubscribe;
   posePollStarted = true;
 
   // The network side stays at its normal ~6-7Hz cadence -- deliberately
@@ -683,11 +781,12 @@ function subscribeToPose(callback) {
     if (nextPose) {
       const t = Math.min((performance.now() - nextPoseReceivedAtMs) / POSE_POLL_INTERVAL_MS, 1);
       const pose = prevPose ? lerpPose(prevPose, nextPose, t) : nextPose;
-      poseSubscribers.forEach((cb) => cb(pose));
+      poseSubscribers.slice().forEach((cb) => cb(pose));
     }
     requestAnimationFrame(animate);
   }
   requestAnimationFrame(animate);
+  return unsubscribe;
 }
 
 // A deliberately simplified, non-interactive "you are here" glance - not
@@ -765,7 +864,7 @@ function initMapOverlay() {
   function drawWaypoints(pose) {
     loadWaypointsForOverlay().forEach((wp) => {
       const { px, py } = worldToCanvas(wp.x, wp.y, pose);
-      const color = wp.isHome ? "#2c9aff" : "#ffcc00";
+      const color = WAYPOINT_COLOR;
       const dx = px - mapCx;
       const dy = py - mapCy;
       const dist = Math.hypot(dx, dy);
@@ -851,6 +950,14 @@ function initMapOverlay() {
   });
 }
 
+// Waypoint markers (camera-view beacons, pins, edge arrows, mini-map):
+// GTA-style magenta, which stands out against almost any real floor.
+const WAYPOINT_COLOR = "#e83fb8";
+
+// Neutral gray reads on most floors without shouting over the picture;
+// changeable on the Main page ("Camera page settings").
+const CAM_GRID_DEFAULT_COLOR = "#c0c0c0";
+
 function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
   if (!m) return { r: 40, g: 255, b: 120 };
@@ -906,37 +1013,47 @@ function initFloorGrid(calib) {
   canvas.style.display = "block";
   const ctx = canvas.getContext("2d");
 
-  // Visible window, in camera/robot-relative meters (x = right, y =
-  // forward) - world grid lines get clipped to this box before projecting.
-  // The near edge is a small positive distance, not exactly 0: forward=0 is
-  // the point directly beside the camera (zero depth along the optical
-  // axis), a genuine projection singularity (zc=0) whenever tilt is 0 -
-  // clipping a line's endpoint to exactly that boundary made project()
-  // reject the whole line, which is what was making some lines near the
-  // center of the frame vanish.
+  // Grid lines are clipped to a camera-relative box (x = right, y = forward)
+  // before projecting. The near edge is a small positive distance, not
+  // exactly 0: forward=0 is the point directly beside the camera (zero depth
+  // along the optical axis), a genuine projection singularity (zc=0) whenever
+  // tilt is 0 -- clipping a line's endpoint to exactly that boundary made
+  // project() reject the whole line. The box's width follows the camera's
+  // actual horizontal field of view (see draw()), so the grid covers the
+  // whole picture instead of a fixed strip that showed up as a trapezoid;
+  // its depth is per tier (TIERS.maxDistM), with lines fading out toward it.
   const VIEW_MIN_DISTANCE_M = 0.05;
-  const VIEW_MAX_DISTANCE_M = 2.0;
-  const VIEW_HALF_WIDTH_M = 0.6;
 
   // Color/opacity/minor-tier-visibility are display preferences (set on
   // the Main page, "Camera page settings"), read once here like the other
   // opt-in overlay settings - not robot calibration, so localStorage
   // rather than a firmware setting. Every floor is a different color, so
   // there's no single "right" default that reads well everywhere.
-  const gridRgb = hexToRgb(localStorage.getItem("camGridColor") || "#28ff78");
+  const gridRgb = hexToRgb(localStorage.getItem("camGridColor") || CAM_GRID_DEFAULT_COLOR);
   const gridOpacityPct = parseFloat(localStorage.getItem("camGridOpacity"));
   const majorOpacity = Number.isFinite(gridOpacityPct) ? gridOpacityPct / 100 : 0.9;
   const rgba = (opacity) => `rgba(${gridRgb.r}, ${gridRgb.g}, ${gridRgb.b}, ${opacity})`;
 
+  // Each tier reaches only as far as its lines stay at least this many
+  // pixels apart on screen (see draw()): fine lines near the robot, coarse
+  // ones further out, instead of all of them piling up at the horizon.
+  const MIN_LINE_SPACING_PX = 5;
+  const MAX_GRID_DISTANCE_M = 8;
   const TIERS = [];
   if (localStorage.getItem("camShowMinorGrid") !== "false") {
     // Minor/medium opacity stay proportional to whatever major opacity the
     // user picked, preserving the same minor < medium < major hierarchy at
     // any overall brightness rather than a fixed absolute value.
-    TIERS.push({ interval: 0.1, strokeStyle: rgba(majorOpacity * (0.35 / 0.9)), lineWidth: 1 });
+    TIERS.push({ interval: 0.1, opacity: majorOpacity * (0.35 / 0.9), lineWidth: 1 });
   }
-  TIERS.push({ interval: 0.5, strokeStyle: rgba(majorOpacity * (0.6 / 0.9)), lineWidth: 1 });
-  TIERS.push({ interval: 1.0, strokeStyle: rgba(majorOpacity), lineWidth: 2 });
+  TIERS.push({ interval: 0.5, opacity: majorOpacity * (0.6 / 0.9), lineWidth: 1 });
+  TIERS.push({ interval: 1.0, opacity: majorOpacity, lineWidth: 2 });
+
+  // 1 up close, easing to 0 over the last 40% of a tier's reach.
+  const fadeAt = (forwardM, maxDistM) => {
+    const t = Math.min(1, Math.max(0, (forwardM - 0.6 * maxDistM) / (0.4 * maxDistM)));
+    return 1 - t * t * (3 - 2 * t);
+  };
 
   let lastPose = { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 };
   // Set from lastPose.tiltAngleDeg at the top of every draw() -- project()
@@ -995,7 +1112,7 @@ function initFloorGrid(calib) {
         if (r < t1) t1 = r;
       }
     }
-    return { x0: x0 + t0 * dx, y0: y0 + t0 * dy, x1: x0 + t1 * dx, y1: y0 + t1 * dy };
+    return { x0: x0 + t0 * dx, y0: y0 + t0 * dy, x1: x0 + t1 * dx, y1: y0 + t1 * dy, t0, t1 };
   }
 
   function project(x, y) {
@@ -1008,6 +1125,7 @@ function initFloorGrid(calib) {
     return {
       u: imgW / 2 + (f * x) / zc,
       v: imgH / 2 + (f * yc) / zc,
+      zc,
     };
   }
 
@@ -1050,39 +1168,102 @@ function initFloorGrid(calib) {
     const offsetY = (containerH - imgH * scale) / 2;
     const toCanvas = (u, v) => ({ x: offsetX + u * scale, y: offsetY + v * scale });
 
-    const drawRelativeLine = (right0, forward0, right1, forward1) => {
-      const clipped = clipToBox(right0, forward0, right1, forward1, -VIEW_HALF_WIDTH_M, VIEW_HALF_WIDTH_M, VIEW_MIN_DISTANCE_M, VIEW_MAX_DISTANCE_M);
-      if (!clipped) return;
-      const p1 = project(clipped.x0, clipped.y0);
-      const p2 = project(clipped.x1, clipped.y1);
-      if (!p1 || !p2) return;
-      const c1 = toCanvas(p1.u, p1.v);
-      const c2 = toCanvas(p2.u, p2.v);
-      ctx.beginPath();
-      ctx.moveTo(c1.x, c1.y);
-      ctx.lineTo(c2.x, c2.y);
-      ctx.stroke();
-    };
+    // The grid covers the whole page viewport, carrying on past the
+    // picture's own edges into the letterbox bars (so it lines up with
+    // waypoint beacons drawn there). Its extent in image-pixel coordinates:
+    const uMin = -offsetX / scale - 4;
+    const uMax = (containerW - offsetX) / scale + 4;
+    const vMin = -offsetY / scale - 4;
+    const vMax = (containerH - offsetY) / scale + 4;
 
-    // World-frame bounding box that contains the visible camera-relative
-    // box, from its 4 corners - determines which world grid line indices
-    // are worth considering per tier.
-    const corners = [
-      relativeToWorld(-VIEW_HALF_WIDTH_M, VIEW_MIN_DISTANCE_M, pose),
-      relativeToWorld(VIEW_HALF_WIDTH_M, VIEW_MIN_DISTANCE_M, pose),
-      relativeToWorld(-VIEW_HALF_WIDTH_M, VIEW_MAX_DISTANCE_M, pose),
-      relativeToWorld(VIEW_HALF_WIDTH_M, VIEW_MAX_DISTANCE_M, pose),
-    ];
-    const worldXMin = Math.min(...corners.map((c) => c.x));
-    const worldXMax = Math.max(...corners.map((c) => c.x));
-    const worldYMin = Math.min(...corners.map((c) => c.y));
-    const worldYMax = Math.max(...corners.map((c) => c.y));
+    // Half the horizontal field of view of that viewport, in the same
+    // pinhole model. A floor point `forward` meters ahead is at most
+    // (forward + height) deep along the optical axis at any downward tilt,
+    // so that times tan(half-FOV) bounds how far sideways it can still be in
+    // view -- with a little margin so lines run cleanly off the edges.
+    const fImg = imgH / 2 / Math.tan(calib.vfovRad / 2);
+    const tanHalfHfov = Math.max(uMax - imgW / 2, imgW / 2 - uMin) / fImg;
+    const halfWidthAt = (forwardM) => (forwardM + calib.heightM) * tanHalfHfov * 1.15 + 0.1;
+    // With the camera tilted up past level, the nearest floor is behind the
+    // lens (project() rejects it) -- start the box where depth turns positive
+    // so lines get shortened there instead of dropped whole.
+    const cosT = Math.cos(effectiveTiltRad);
+    const nearM = cosT > 0
+      ? Math.max(VIEW_MIN_DISTANCE_M, (0.02 - calib.heightM * Math.sin(effectiveTiltRad)) / cosT)
+      : Infinity;
 
     // Layered minor -> medium -> major, each drawn on top of the last, same
     // idea as the Main map's drawGridTier().
-    TIERS.forEach(({ interval, strokeStyle, lineWidth }) => {
-      ctx.strokeStyle = strokeStyle;
+    // A floor line d meters ahead sits about f*height/d pixels below the
+    // horizon, so neighbouring lines `interval` apart are f*height*interval/d^2
+    // pixels apart -- solve for the d where that drops to MIN_LINE_SPACING_PX.
+    const fPx = fImg * scale;
+    const reachFor = (interval) =>
+      Math.min(MAX_GRID_DISTANCE_M, Math.sqrt((fPx * calib.heightM * interval) / MIN_LINE_SPACING_PX));
+
+    TIERS.forEach(({ interval, opacity, lineWidth }) => {
+      const maxDistM = reachFor(interval);
+      if (nearM >= maxDistM) return;
+      const halfWidthM = halfWidthAt(maxDistM);
       ctx.lineWidth = lineWidth;
+
+      const drawRelativeLine = (right0, forward0, right1, forward1) => {
+        const c = clipToBox(right0, forward0, right1, forward1, -halfWidthM, halfWidthM, nearM, maxDistM);
+        if (!c) return;
+        const p1 = project(c.x0, c.y0);
+        const p2 = project(c.x1, c.y1);
+        if (!p1 || !p2) return;
+        // Trim to the viewport (in image pixels, small margin) before
+        // stroking. Near the lens a floor line can project tens of thousands
+        // of pixels off-screen, and GPU canvas rasterizers are prone to
+        // dropping such strokes -- which is what made lines blink out while
+        // the view rotated. 1/depth is linear along the screen segment, so a
+        // screen fraction s maps back to t = s*z0 / (s*z0 + (1-s)*z1) along
+        // the floor segment.
+        const sc = clipToBox(p1.u, p1.v, p2.u, p2.v, uMin, uMax, vMin, vMax);
+        if (!sc) return;
+        const toT = (sv) => (sv * p1.zc) / (sv * p1.zc + (1 - sv) * p2.zc);
+        const ta = toT(sc.t0);
+        const tb = toT(sc.t1);
+        const pointAt = (t) => ({ right: c.x0 + t * (c.x1 - c.x0), forward: c.y0 + t * (c.y1 - c.y0) });
+        const fa = fadeAt(pointAt(ta).forward, maxDistM);
+        const fb = fadeAt(pointAt(tb).forward, maxDistM);
+        if (fa <= 0 && fb <= 0) return;
+        // Fade as a few solid pieces rather than a gradient (same GPU concern).
+        const pieces = Math.min(12, Math.max(1, Math.ceil(Math.abs(fa - fb) / 0.08)));
+        let prev = null;
+        for (let i = 0; i <= pieces; i++) {
+          const t = ta + ((tb - ta) * i) / pieces;
+          const pt = pointAt(t);
+          const pp = project(pt.right, pt.forward);
+          if (!pp) return;
+          const cur = { ...toCanvas(pp.u, pp.v), forward: pt.forward };
+          if (prev) {
+            const alpha = opacity * fadeAt((prev.forward + cur.forward) / 2, maxDistM);
+            if (alpha > 0.005) {
+              ctx.strokeStyle = rgba(alpha);
+              ctx.beginPath();
+              ctx.moveTo(prev.x, prev.y);
+              ctx.lineTo(cur.x, cur.y);
+              ctx.stroke();
+            }
+          }
+          prev = cur;
+        }
+      };
+
+      // World-frame bounding box of this tier's camera-relative box, from
+      // its 4 corners -- decides which world grid lines are worth trying.
+      const corners = [
+        relativeToWorld(-halfWidthM, nearM, pose),
+        relativeToWorld(halfWidthM, nearM, pose),
+        relativeToWorld(-halfWidthM, maxDistM, pose),
+        relativeToWorld(halfWidthM, maxDistM, pose),
+      ];
+      const worldXMin = Math.min(...corners.map((c) => c.x));
+      const worldXMax = Math.max(...corners.map((c) => c.x));
+      const worldYMin = Math.min(...corners.map((c) => c.y));
+      const worldYMax = Math.max(...corners.map((c) => c.y));
 
       const startX = Math.floor(worldXMin / interval) * interval;
       for (let wx = startX; wx <= worldXMax; wx += interval) {
@@ -1187,15 +1368,13 @@ function initWaypointOverlay(calib) {
 
   const EDGE_MARGIN_PX = 26; // kept clear along the canvas edge for the arrow + label
 
-  // Each waypoint (when clearly in view) renders as a standing cylinder
-  // marker on the floor rather than a flat pin -- roughly the footprint
-  // and reach of a real object you'd navigate the robot to. Purely a
-  // display convention; doesn't need to match anything physical.
+  // Each waypoint in view renders as a beacon: the silhouette of a standing
+  // cylinder on the floor (see drawBeacon()) rather than a flat pin --
+  // roughly the footprint of a real object you'd navigate the robot to.
+  // Purely a display convention; doesn't need to match anything physical.
   const CYLINDER_RADIUS_M = 0.10; // 10 cm radius (20 cm diameter)
   const CYLINDER_HEIGHT_M = 0.2; // 20 cm
-  const CYLINDER_SEGMENTS = 16; // ring polygon resolution -- smooth enough at this display scale
-  const GLOW_BLUR_PX = 32; // canvas shadow blur radius used for the marker's glow halo
-  const GLOW_HALO_BLUR_PX = 55; // extra-wide, faint pass drawn first for a stronger, layered glow
+  const GLOW_BLUR_PX = 32; // canvas shadow blur radius for the close-up pin marker's glow
 
   let lastPose = { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 };
   // Set from lastPose.tiltAngleDeg at the top of every draw() -- project()
@@ -1247,22 +1426,6 @@ function initWaypointOverlay(calib) {
     }));
   }
 
-  function computeRing(cx, cy, h) {
-    const pts = [];
-    for (let i = 0; i < CYLINDER_SEGMENTS; i++) {
-      const ang = (i / CYLINDER_SEGMENTS) * Math.PI * 2;
-      pts.push(project(cx + CYLINDER_RADIUS_M * Math.cos(ang), cy + CYLINDER_RADIUS_M * Math.sin(ang), h));
-    }
-    return pts;
-  }
-
-  const ringFullyInFront = (pts) => pts.every((p) => p.zc > 0.01);
-
-  function projectToCanvas(x, y, h, toCanvas) {
-    const p = project(x, y, h);
-    return toCanvas(p.u, p.v);
-  }
-
   function drawLabel(x, y, baseline, wp, distM) {
     const text = `${wp.name} (${distM.toFixed(1)}m)`;
     ctx.font = "bold 12px sans-serif";
@@ -1276,7 +1439,7 @@ function initWaypointOverlay(calib) {
   }
 
   function drawPin(c, wp, distM) {
-    const color = wp.isHome ? "#2c9aff" : "#ffcc00";
+    const color = WAYPOINT_COLOR;
     const r = 7;
     ctx.save();
     ctx.shadowColor = color;
@@ -1296,96 +1459,52 @@ function initWaypointOverlay(calib) {
     drawLabel(c.x, c.y - r - 4, "bottom", wp, distM);
   }
 
-  function ringPath(pts, toCanvas) {
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const s = toCanvas(p.u, p.v);
-      if (i === 0) ctx.moveTo(s.x, s.y);
-      else ctx.lineTo(s.x, s.y);
-    });
-    ctx.closePath();
+  // Beacon marker: the silhouette of a standing cylinder on the floor at
+  // the waypoint -- the quad between its two outline edges (the lines
+  // tangent to its base circle as seen from the camera), which is a plain
+  // rectangle whenever the camera is level. Filled with a vertical fade:
+  // 75% opaque at the floor, fully transparent at the top, like a beam of
+  // light. Returns the silhouette's canvas corners (for the on-screen test),
+  // or null when there's no clean silhouette -- camera over/inside the base,
+  // or part of it behind the lens.
+  function beaconQuad(rel, toCanvas) {
+    const tangents = computeTangentPoints(rel.right, rel.forward, CYLINDER_RADIUS_M);
+    if (!tangents) return null;
+    const corners = [];
+    for (const [t, h] of [[tangents[0], 0], [tangents[0], CYLINDER_HEIGHT_M], [tangents[1], CYLINDER_HEIGHT_M], [tangents[1], 0]]) {
+      const p = project(t.right, t.forward, h);
+      if (p.zc <= 0.01) return null;
+      corners.push(toCanvas(p.u, p.v));
+    }
+    return corners; // bottom-1, top-1, top-2, bottom-2
   }
 
-  // Standing-cylinder marker: a 30cm-diameter, 100cm-tall post rendered on
-  // the floor at the waypoint's position, used whenever its base is
-  // cleanly in view (see ringFullyInFront()'s callers below). Falls back
-  // to the flat pin marker when the robot is too close for a well-defined
-  // projection (e.g. sitting right on top of the waypoint after arriving),
-  // since the tangent-line/ring math degenerates as the camera nears or
-  // enters the base circle.
-  function drawCylinder(c, rel, wp, distM, toCanvas) {
-    const basePts = computeRing(rel.right, rel.forward, 0);
-    const topPts = computeRing(rel.right, rel.forward, CYLINDER_HEIGHT_M);
-    if (!ringFullyInFront(basePts) || !ringFullyInFront(topPts)) {
-      drawPin(c, wp, distM);
-      return;
-    }
-
-    const color = wp.isHome ? "#2c9aff" : "#ffcc00";
-    const tangents = computeTangentPoints(rel.right, rel.forward, CYLINDER_RADIUS_M);
-
-    // Extra-wide, faint halo pass first (just the top cap, since it's the
-    // largest/most central shape) -- layering a bigger, fainter blur under
-    // the normal-strength glow reads as noticeably more "lit up" than
-    // pushing a single shadowBlur value higher.
-    ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = GLOW_HALO_BLUR_PX;
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.5;
-    ringPath(topPts, toCanvas);
+  function drawBeacon(quad, wp, distM, view) {
+    const { r, g, b } = hexToRgb(WAYPOINT_COLOR);
+    const [b1, t1, t2, b2] = quad;
+    const bottom = { x: (b1.x + b2.x) / 2, y: (b1.y + b2.y) / 2 };
+    const top = { x: (t1.x + t2.x) / 2, y: (t1.y + t2.y) / 2 };
+    const grad = ctx.createLinearGradient(bottom.x, bottom.y, top.x, top.y);
+    grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.75)`);
+    grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(b1.x, b1.y);
+    ctx.lineTo(t1.x, t1.y);
+    ctx.lineTo(t2.x, t2.y);
+    ctx.lineTo(b2.x, b2.y);
+    ctx.closePath();
     ctx.fill();
-    ctx.restore();
 
-    // Scoped to just the shape drawing (not the label below) -- shadowBlur
-    // applied to text would blur it into illegibility rather than glow it.
-    ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = GLOW_BLUR_PX;
-    ctx.fillStyle = color;
-
-    // Side wall: the quad between the two silhouette edges, gives the
-    // cylinder a solid-looking body instead of just two floating caps.
-    if (tangents) {
-      const [t1, t2] = tangents;
-      const t1b = projectToCanvas(t1.right, t1.forward, 0, toCanvas);
-      const t1t = projectToCanvas(t1.right, t1.forward, CYLINDER_HEIGHT_M, toCanvas);
-      const t2b = projectToCanvas(t2.right, t2.forward, 0, toCanvas);
-      const t2t = projectToCanvas(t2.right, t2.forward, CYLINDER_HEIGHT_M, toCanvas);
-      ctx.globalAlpha = 0.5;
-      ctx.beginPath();
-      ctx.moveTo(t1b.x, t1b.y);
-      ctx.lineTo(t1t.x, t1t.y);
-      ctx.lineTo(t2t.x, t2t.y);
-      ctx.lineTo(t2b.x, t2b.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // Top cap: solid fill, gives the marker a clear "top" to read at a glance.
-    ringPath(topPts, toCanvas);
-    ctx.globalAlpha = 0.75;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Base outline only, in the marker's own color -- it's right on the
-    // floor and would otherwise just darken the ground under it.
-    ringPath(basePts, toCanvas);
-    ctx.globalAlpha = 0.4;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
-    ctx.restore();
-
-    const topCenter = projectToCanvas(rel.right, rel.forward, CYLINDER_HEIGHT_M, toCanvas);
-    drawLabel(topCenter.x, topCenter.y - 6, "bottom", wp, distM);
+    // Label above the beacon, kept on screen while the beacon is only
+    // partly in view.
+    const labelX = Math.min(Math.max(top.x, view.x + 60), view.x + view.w - 60);
+    const labelY = Math.min(Math.max(top.y - 4, view.y + 16), view.y + view.h - 4);
+    drawLabel(labelX, labelY, "bottom", wp, distM);
   }
 
   function drawEdgeArrow(x, y, angle, wp, distM, w, h) {
-    const color = wp.isHome ? "#2c9aff" : "#ffcc00";
+    const color = WAYPOINT_COLOR;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
@@ -1439,6 +1558,11 @@ function initWaypointOverlay(calib) {
     const cx = containerW / 2;
     const cy = containerH / 2;
 
+    // The whole page viewport, not just the letterboxed picture inside it:
+    // the projection carries on past the camera's own edges, so a beacon
+    // already shows over the bars beside the picture as it comes into view.
+    const view = { x: 0, y: 0, w: containerW, h: containerH };
+
     loadWaypointsForOverlay().forEach((wp) => {
       const rel = worldToRelative(wp.x, wp.y, pose);
       const distM = Math.hypot(rel.right, rel.forward);
@@ -1446,8 +1570,20 @@ function initWaypointOverlay(calib) {
       const inFront = p.zc > 0.01;
       const c = inFront ? toCanvas(p.u, p.v) : null;
 
-      if (c && c.x >= 0 && c.x <= containerW && c.y >= 0 && c.y <= containerH) {
-        drawCylinder(c, rel, wp, distM, toCanvas);
+      // Drawn as soon as any part of the beacon overlaps the viewport, not
+      // only once its center does -- it's wide enough that the center test
+      // left a clearly visible beacon missing near the edges.
+      const quad = beaconQuad(rel, toCanvas);
+      if (quad) {
+        const xs = quad.map((q) => q.x);
+        const ys = quad.map((q) => q.y);
+        if (Math.max(...xs) >= view.x && Math.min(...xs) <= view.x + view.w &&
+            Math.max(...ys) >= view.y && Math.min(...ys) <= view.y + view.h) {
+          drawBeacon(quad, wp, distM, view);
+          return;
+        }
+      } else if (c && c.x >= 0 && c.x <= containerW && c.y >= 0 && c.y <= containerH) {
+        drawPin(c, wp, distM); // right on top of it: no clean silhouette
         return;
       }
 
@@ -1510,69 +1646,11 @@ function setupCamTouchControls() {
   const SEND_INTERVAL_MS = 40; // ~25 Hz, matches the Main page's joysticks
   const HEARTBEAT_INTERVAL_MS = 200; // resends the current command while held still -- see the Main page's setupJoystick() for why
 
-  // -- WS connection: minimal reconnecting socket, send-only in practice.
-  // It still receives the normal "pose"/etc. broadcasts every connected
-  // client gets, which doubles as a free liveness signal (content unused --
-  // this page already has pose via HTTP polling) for the same staleness
-  // watchdog approach app.js uses for the Main page's connection.
-  let ws = null;
-  let wsLastMessageAtMs = 0;
-  let wsConnectStartedAtMs = 0;
-  let wsReconnectTimer = null;
-
-  function connectWs() {
-    ws = new WebSocket(`ws://${location.host}/ws`);
-    wsConnectStartedAtMs = Date.now();
-    ws.onopen = () => {
-      wsLastMessageAtMs = Date.now();
-    };
-    ws.onmessage = () => {
-      wsLastMessageAtMs = Date.now();
-    };
-    ws.onclose = () => {
-      clearTimeout(wsReconnectTimer);
-      wsReconnectTimer = setTimeout(connectWs, 250);
-    };
-    ws.onerror = () => {
-      try {
-        ws.close();
-      } catch (e) {
-        // ignore -- onclose above handles the retry regardless
-      }
-    };
-  }
-
-  function forceReconnect() {
-    clearTimeout(wsReconnectTimer);
-    if (ws) {
-      const dead = ws;
-      ws = null;
-      dead.onopen = dead.onclose = dead.onerror = dead.onmessage = null;
-      try {
-        dead.close();
-      } catch (e) {
-        // ignore -- discarding this socket regardless
-      }
-    }
-    connectWs();
-  }
-
-  connectWs();
-  setInterval(() => {
-    if (!ws) return;
-    const now = Date.now();
-    if (ws.readyState === WebSocket.CONNECTING && now - wsConnectStartedAtMs > 3000) {
-      forceReconnect();
-    } else if (ws.readyState === WebSocket.OPEN && now - wsLastMessageAtMs > 1000) {
-      forceReconnect();
-    }
-  }, 300);
-
+  // Shared with the keyboard controls -- one socket per page (controls.js).
   function sendWs(obj) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(obj));
-    }
+    Lynx.control.send(obj);
   }
+  Lynx.control.start();
 
   function localXY(touch, rect) {
     return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
@@ -1690,7 +1768,8 @@ function setupCamTouchControls() {
     // Let the menu panels (toggle + whatever buttons are inside them, now
     // or added later) and standalone overlay buttons (e.g. Fireball) handle
     // their own taps untouched -- don't claim a touch that landed on one.
-    if (e.target.closest(".cam-menu-panel, .cam-overlay-btn")) return;
+    if (e.target.closest(".cam-menu-panel, .cam-overlay-btn, .game-touch-ui")) return;
+    Lynx.sfx.unlock();
     // Matches the .cam-rotate-prompt media query exactly: while it's
     // showing (portrait, touch device), the joysticks stay disabled rather
     // than popping up half-usable underneath the prompt.
