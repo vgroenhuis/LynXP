@@ -23,6 +23,7 @@ committing to the layout.
 | Motor driver | TB6612FNG module | **TB6612FNG** chip on the PCB |
 | Servo and motor PWM | ESP32 LEDC | **PCA9685** 16-channel PWM driver (new) |
 | Extra GPIO | — | **MCP23017** 16-bit I/O expander (new) |
+| Analog inputs | — | **8-channel I²C ADC** for student add-on sensors (new, see §5.2) |
 | Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
 | OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED panel on the PCB** (see §5.1) |
@@ -190,6 +191,7 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 | OLED (SH1106/SSD1306-compatible) | 0x3C (0x3D via solder jumper) |
 | INA260 | 0x40 (A0, A1 to GND) |
 | PCA9685 | **0x41** (A0 to 3.3 V, A1–A5 to GND); its All-Call address 0x70 is also in use |
+| 8-channel ADC (§5.2) | 0x48 (address pins to GND) |
 | Board-ID EEPROM (§12.1) | 0x50 |
 
 - **Should**: one or two Qwiic/STEMMA QT (JST-SH 4-pin, 3.3 V) connectors plus a 2.54 mm I²C
@@ -222,6 +224,22 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
 - **Should**: as a fallback, a 4-pin 2.54 mm female header on the same I²C bus for an external
   OLED module, with solder jumpers for both common pin orders (GND-VCC-SCL-SDA and
   VCC-GND-SCL-SDA).
+
+### 5.2 8-channel ADC for analog sensors
+Lets students add analog sensors (potentiometers, light sensors, IR distance sensors, line
+sensors, etc.) without using ESP32 pins.
+- **Must**: an 8-channel I²C ADC on the shared bus, ≥ 10-bit, e.g. **ADS7828** (12-bit, 8
+  single-ended inputs, I²C 0x48–0x4B) or an equivalent available at JLCPCB/LCSC. Powered from 3.3 V;
+  input range 0–3.3 V (reference = 3.3 V supply, or internal reference if the chosen part has a
+  better one — document which).
+- **Must**: **8 sensor connectors**, one per channel: 3-pin 2.54 mm male headers in the order
+  **GND, 3.3 V, signal** (same style as the servo headers, so standard 3-wire sensor cables fit),
+  labelled **A0–A7**, each with label space for the sensor name.
+- Supply on these headers is 3.3 V so sensor outputs stay within the ADC range. **Should** offer
+  5 V per header group via solder jumper for 5 V sensors, together with a divider footprint on the
+  signal line (see below).
+- Input protection per channel: series resistor (~1 kΩ) and clamping to 3.3 V/GND, plus footprints
+  (unpopulated by default) for a pull-down/divider resistor and an RC filter capacitor.
 
 ---
 
@@ -390,7 +408,7 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 The following firmware changes follow from this board and are not part of the PCB design:
 PCA9685 driver for servos and motor PWM (and OE control), MCP23017 driver for motor direction,
-DIP switch/buttons/LEDs, motor updates over I²C (the 1 kHz control loop must budget for I²C
+DIP switch/buttons/LEDs, ADC driver for the analog inputs, motor updates over I²C (the 1 kHz control loop must budget for I²C
 writes or update the motors at a lower rate), PD voltage
 handling at 12 V instead of 9 V (motor PWM limits), board detection at startup (§12.1) with
 the breadboard or PCB pin map selected accordingly, and any pin reassignments.
