@@ -128,11 +128,13 @@ re-inserting the cable works; switching the load does not.
 
 ## 4. Main MCU: ESP32-C5-WROOM-1U
 
-- **Must** use ESP32-C5-WROOM-1U (external antenna, U.FL/IPEX). A variant **with PSRAM is required**
+- **Must** use ESP32-C5-**WROOM-1U**, the variant with an antenna connector (U.FL/IPEX) for an
+  external antenna. The WROOM-1 variant with PCB antenna is not acceptable. A variant **with PSRAM is required**
   (current devkit is N16R8); choose flash/PSRAM size to match the firmware partition table
   ([partitions.csv](../Firmware/Robot_ESP32_C5_IDF/partitions.csv)) *(verify availability)*.
 - **Must** route the U.FL cable to an external antenna mounting point away from motors, the metal
   frame and the powerbank; keep the module away from the buck converters and motor traces.
+  A 2.4/5 GHz dual-band external antenna with U.FL cable is part of the BOM.
 - **Must**: EN reset button, BOOT button on GPIO28, EN RC delay
   (10 kΩ / 1 µF), decoupling per module datasheet.
 - Reserved pins (from [board_pins.hpp](../Firmware/Robot_ESP32_C5_IDF/main/board_pins.hpp)):
