@@ -223,12 +223,10 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
   area and/or a 3D-printed bezel with M2/M2.5 holes; include the bezel in the STEP deliverable).
   Keep tall components and connectors away from the panel so it is not damaged or shadowed.
 - **Must**: a **potentiometer with turn knob directly right of the OLED**, used to select the screen
-  shown (e.g. main screen, QR code, Wi-Fi diagnostics, game statistics). PCB-mount rotary
+  shown. PCB-mount rotary
   potentiometer with shaft (e.g. 9 mm type, linear, 10 kΩ) and a knob large enough to turn by
   hand, between 3.3 V and GND, wiper to a native ESP32-C5 ADC pin with a 100 nF filter capacitor.
   The knob must be reachable with the robot assembled and not obstruct the view of the display.
-  Firmware divides the rotation into zones (with hysteresis), one per screen, so the knob
-  position always corresponds to the same screen.
 - **Should**: as a fallback, a 4-pin 2.54 mm female header on the same I²C bus for an external
   OLED module, with solder jumpers for both common pin orders (GND-VCC-SCL-SDA and
   VCC-GND-SCL-SDA).
