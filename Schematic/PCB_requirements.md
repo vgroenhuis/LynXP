@@ -235,11 +235,10 @@ sensors, etc.) without using ESP32 pins.
 - **Must**: **8 sensor connectors**, one per channel: 3-pin 2.54 mm male headers in the order
   **GND, 3.3 V, signal** (same style as the servo headers, so standard 3-wire sensor cables fit),
   labelled **A0–A7**, each with label space for the sensor name.
-- Supply on these headers is 3.3 V so sensor outputs stay within the ADC range. **Should** offer
-  5 V per header group via solder jumper for 5 V sensors, together with a divider footprint on the
-  signal line (see below).
+- Supply on these headers is 3.3 V only, so sensor outputs stay within the ADC range. No 5 V
+  option; users with 5 V-only sensors add their own level shifting.
 - Input protection per channel: series resistor (~1 kΩ) and clamping to 3.3 V/GND, plus footprints
-  (unpopulated by default) for a pull-down/divider resistor and an RC filter capacitor.
+  (unpopulated by default) for a pull-down resistor and an RC filter capacitor.
 
 ---
 
