@@ -11,6 +11,14 @@
 //               servo still (camera turns with the chassis).
 //       servo:  chassis still; pan servo steps +deg, holds 800 ms, back to
 //               where it was, holds 800 ms.
+//       turnto: pan servo held; 500 ms still, turn in place at `rate` until
+//               odometry says the chassis turned `deg` (either sign; up to
+//               720), 1500 ms still. For calibration: a full 360 deg turn is
+//               exact whatever the calibration, see tools/calibrate.py.
+//     log_ms=N logs every N ms instead of every 5 (for long runs).
+// GET /debug/servo?pan=<deg>&tilt=<deg> | ?release=1
+//     Holds the pan/tilt servos at the given angles (pan follow suspended)
+//     until released, or for at most 2 minutes.
 // GET /debug/panlog
 //     CSV of the last experiment: t_us, theta_rad, wheel vel L/R (rev/s),
 //     servo command (deg), phase; first line is "# control_rad=..,t0_us=..".
@@ -54,6 +62,7 @@ namespace {
 const char *TAG = "debug_pan";
 
 constexpr int SAMPLE_PERIOD_US = 5000; // 200 Hz
+constexpr int64_t SERVO_HOLD_MAX_US = 120LL * 1000 * 1000;
 constexpr int MAX_SAMPLES = 1200; // 6 s
 
 struct Sample {
@@ -73,6 +82,11 @@ volatile uint8_t currentPhase = 0;
 volatile bool logging = false;
 volatile bool running = false;
 esp_timer_handle_t sampleTimer = nullptr;
+int logEvery = 1; // log every Nth 5 ms tick
+int tickCounter = 0;
+volatile float turnedRad = 0.0f; // turnto: accumulated odometry turn
+volatile bool servoHeld = false;
+volatile int64_t servoHoldUntilUs = 0;
 
 struct Params {
     char kind[8];
@@ -83,7 +97,13 @@ struct Params {
 } params;
 
 void sample_cb(void *) {
+    if (servoHeld && esp_timer_get_time() > servoHoldUntilUs) {
+        servoHeld = false; // forgotten hold -- give the pan servo back to follow
+        g_panFollowSuspended = false;
+    }
     if (!logging || samples == nullptr) return;
+    if (++tickCounter < logEvery) return;
+    tickCounter = 0;
     int i = sampleCount;
     if (i >= MAX_SAMPLES) return;
     samples[i] = {(uint32_t) (esp_timer_get_time() - t0Us), poseThetaRad, (int16_t) (wheelVelRevPerSec[0] * 1000.0f),
@@ -135,6 +155,35 @@ void experiment_task(void *) {
         currentPhase = 4;
         hold_still(800);
         g_panFollowSuspended = false;
+    } else if (std::strcmp(params.kind, "turnto") == 0) {
+        g_panFollowSuspended = true;
+        hold_still(500);
+        currentPhase = 1;
+        float target = std::fabs(params.deg) * (float) M_PI / 180.0f;
+        float r = params.deg >= 0 ? params.rate : -params.rate;
+        float last = poseThetaRad;
+        turnedRad = 0.0f;
+        int64_t giveUp = esp_timer_get_time() + 20LL * 1000 * 1000;
+        while (std::fabs(turnedRad) < target && esp_timer_get_time() < giveUp) {
+            switchModeIfNeeded(TOUCHPAD_CONTROL);
+            V1[0] = -r;
+            V1[1] = r;
+            ws_broadcast_hold_drive_command();
+            vTaskDelay(pdMS_TO_TICKS(5));
+            float now = poseThetaRad;
+            turnedRad += wrapToPi(now - last);
+            last = now;
+        }
+        V1[0] = V1[1] = 0.0f;
+        currentPhase = 2;
+        int64_t settleEnd = esp_timer_get_time() + 1500 * 1000;
+        while (esp_timer_get_time() < settleEnd) { // keep integrating the stop overshoot
+            hold_still(5);
+            float now = poseThetaRad;
+            turnedRad += wrapToPi(now - last);
+            last = now;
+        }
+        if (!servoHeld) g_panFollowSuspended = false;
     } else { // servo
         g_panFollowSuspended = true;
         float start = currentServoAngleDeg;
@@ -190,8 +239,8 @@ esp_err_t handle_exp(httpd_req_t *req) {
     }
     char kind[8] = "rotate";
     query_str(req, "kind", kind, sizeof(kind));
-    if (std::strcmp(kind, "rotate") != 0 && std::strcmp(kind, "servo") != 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kind must be rotate or servo");
+    if (std::strcmp(kind, "rotate") != 0 && std::strcmp(kind, "servo") != 0 && std::strcmp(kind, "turnto") != 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kind must be rotate, servo or turnto");
         return ESP_OK;
     }
     std::strcpy(params.kind, kind);
@@ -199,7 +248,10 @@ esp_err_t handle_exp(httpd_req_t *req) {
     params.rate = std::fmin(std::fmax(query_float(req, "rate", 0.5f), 0.05f), 1.0f);
     params.ms = (int) std::fmin(std::fmax(query_float(req, "ms", 600.0f), 50.0f), 2000.0f);
     params.follow = query_float(req, "follow", 1.0f) != 0.0f;
-    params.deg = std::fmin(std::fmax(query_float(req, "deg", 40.0f), -80.0f), 80.0f);
+    float degLimit = std::strcmp(kind, "turnto") == 0 ? 720.0f : 80.0f;
+    params.deg = std::fmin(std::fmax(query_float(req, "deg", 40.0f), -degLimit), degLimit);
+    logEvery = (int) std::fmin(std::fmax(query_float(req, "log_ms", 5.0f) / 5.0f, 1.0f), 100.0f);
+    tickCounter = 0;
 
     running = true;
     if (xTaskCreate(experiment_task, "pan_exp", 4096, nullptr, 5, nullptr) != pdPASS) {
@@ -233,6 +285,26 @@ esp_err_t handle_log(httpd_req_t *req) {
     return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
+esp_err_t handle_servo(httpd_req_t *req) {
+    if (!ota_request_authorized(req)) return ESP_OK;
+    char v[8];
+    if (query_str(req, "release", v, sizeof(v))) {
+        servoHeld = false;
+        g_panFollowSuspended = false;
+    } else {
+        servoHeld = true;
+        servoHoldUntilUs = esp_timer_get_time() + SERVO_HOLD_MAX_US;
+        g_panFollowSuspended = true;
+        if (query_str(req, "pan", v, sizeof(v))) ws_broadcast_set_pan_angle(query_float(req, "pan", 0.0f));
+        if (query_str(req, "tilt", v, sizeof(v))) ws_broadcast_set_tilt_angle(query_float(req, "tilt", 0.0f));
+    }
+    char buf[96];
+    snprintf(buf, sizeof(buf), "{\"held\":%s,\"pan\":%.2f,\"tilt\":%.2f,\"turnedDeg\":%.3f}", servoHeld ? "true" : "false",
+             currentServoAngleDeg, currentTiltAngleDeg, turnedRad * 180.0f / (float) M_PI);
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_sendstr(req, buf);
+}
+
 esp_err_t handle_tune(httpd_req_t *req) {
     if (!ota_request_authorized(req)) return ESP_OK;
     g_panFollowIntervalMs = (int) std::fmin(std::fmax(query_float(req, "interval", (float) g_panFollowIntervalMs), 5.0f), 200.0f);
@@ -256,6 +328,7 @@ void debug_pan_register_routes() {
         {"/debug/panexp", handle_exp},
         {"/debug/panlog", handle_log},
         {"/debug/pantune", handle_tune},
+        {"/debug/servo", handle_servo},
     };
     for (const auto &r : routes) {
         httpd_uri_t u = {.uri = r.uri, .method = HTTP_GET, .handler = r.handler, .user_ctx = nullptr,

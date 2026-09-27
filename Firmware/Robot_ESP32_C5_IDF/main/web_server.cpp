@@ -1,4 +1,5 @@
 #include "web_server.hpp"
+#include "ws_broadcast.hpp"
 #include "settings.hpp"
 #include "waypoints.hpp"
 #include "control_modes.hpp"
@@ -614,11 +615,14 @@ esp_err_t handle_cam_diag(httpd_req_t *req) {
 esp_err_t handle_pose(httpd_req_t *req) {
     float m[9];
     getPoseMatrix(m);
-    char json[300];
+    float panActDeg, tiltActDeg;
+    ws_broadcast_servo_actual(&panActDeg, &tiltActDeg);
+    char json[360];
     snprintf(json, sizeof(json),
         "{\"x\":%.4f,\"y\":%.4f,\"theta\":%.4f,\"servoAngleDeg\":%.2f,\"tiltAngleDeg\":%.2f,"
+        "\"panActDeg\":%.2f,\"tiltActDeg\":%.2f,"
         "\"matrix\":[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
-        poseX_m, poseY_m, poseThetaRad, currentServoAngleDeg, currentTiltAngleDeg,
+        poseX_m, poseY_m, poseThetaRad, currentServoAngleDeg, currentTiltAngleDeg, panActDeg, tiltActDeg,
         m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]);
 
     httpd_resp_set_type(req, "application/json");
@@ -932,7 +936,7 @@ void web_server_init() {
     config.server_port = 80;
     config.stack_size = 8192;
     config.max_open_sockets = 12; // the UI opens ~6 conns per page navigation
-    config.max_uri_handlers = 32; // ~20 here + /ws (ws_broadcast.cpp) + OTA/model routes (ota.cpp)
+    config.max_uri_handlers = 40; // ~22 here + /ws (ws_broadcast.cpp) + OTA/model (ota.cpp, model_store.cpp) + /debug/* (debug_pan.cpp); registrations past this fail silently
     config.lru_purge_enable = true; // reconnect-storm resilience
     config.send_wait_timeout = 2; // bound the worst case if a peer stalls
     config.recv_wait_timeout = 5; // OTA upload chunks need it, once milestone G exists
@@ -992,9 +996,10 @@ void web_server_init() {
     httpd_register_uri_handler(g_server, &poseResetUri);
     httpd_register_uri_handler(g_server, &waypointsGetUri);
     httpd_register_uri_handler(g_server, &waypointsPostUri);
-    static const char *APP_DATA_DOCS[] = {"settings", "scores"};
-    static char appDataUris[2][32];
-    for (int i = 0; i < 2; i++) {
+    static const char *APP_DATA_DOCS[] = {"settings", "scores", "camcal"};
+    constexpr int APP_DATA_DOC_COUNT = sizeof(APP_DATA_DOCS) / sizeof(APP_DATA_DOCS[0]);
+    static char appDataUris[APP_DATA_DOC_COUNT][32];
+    for (int i = 0; i < APP_DATA_DOC_COUNT; i++) {
         std::snprintf(appDataUris[i], sizeof(appDataUris[i]), "/appdata/%s", APP_DATA_DOCS[i]);
         httpd_uri_t getUri = {.uri = appDataUris[i], .method = HTTP_GET, .handler = handle_app_data_get,
                               .user_ctx = (void *) APP_DATA_DOCS[i], .is_websocket = false,

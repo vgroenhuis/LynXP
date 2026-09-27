@@ -83,7 +83,7 @@ window.Lynx = window.Lynx || {};
       const y = (ch - h) / 2;
       ar.view = {
         cw, ch, imgW, imgH, scale, offX: x, offY: y, x, y, w, h,
-        f: imgH / 2 / Math.tan(calib.vfovRad / 2),
+        f: Lynx.lens.params(imgW, imgH).f, // near the image center; see Lynx.lens
         cx: x + w / 2,
         cy: y + h / 2,
       };
@@ -106,9 +106,10 @@ window.Lynx = window.Lynx || {};
       const zc = rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt);
       if (zc < NEAR_M) return null;
       const yc = vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt);
-      const u = v.imgW / 2 + (v.f * rel.right) / zc;
-      const vv = v.imgH / 2 + (v.f * yc) / zc;
-      return { x: v.offX + u * v.scale, y: v.offY + vv * v.scale, depth: zc, ppm: (v.f * v.scale) / zc };
+      // Through the calibrated lens model (Lynx.lens, lynx_common.js).
+      const p = Lynx.lens.project(rel.right, yc, zc, v.imgW, v.imgH);
+      if (!p) return null;
+      return { x: v.offX + p.u * v.scale, y: v.offY + p.v * v.scale, depth: zc, ppm: (p.scale * v.scale) / zc };
     };
 
     // Is a projected point inside the visible video area (with margin px)?
@@ -308,7 +309,7 @@ window.Lynx = window.Lynx || {};
       ctx.strokeStyle = "rgba(90, 255, 120, 0.25)";
       ctx.stroke();
       // Field-of-view wedge.
-      const halfFov = Math.atan((v.w / 2) / (v.f * v.scale));
+      const halfFov = Lynx.lens.angleAt(v.imgW / 2, v.imgW, v.imgH);
       ctx.fillStyle = "rgba(90, 255, 120, 0.12)";
       ctx.beginPath();
       ctx.moveTo(cx, cy);

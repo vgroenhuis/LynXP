@@ -386,6 +386,10 @@
             <label for="camGridOpacity">Grid opacity (%):</label>
             <input type="number" id="camGridOpacity" min="0" max="100" step="5" value="90">
           </div>
+          <div class="form-group inline-group">
+            <label for="camOverlayDelayMs" title="How far the overlays are held back to match the video's own delay. Raise it if the grid runs ahead of the picture while turning, lower it if it trails.">Overlay delay (ms):</label>
+            <input type="number" id="camOverlayDelayMs" min="0" max="400" step="5" value="45">
+          </div>
           <div class="form-group">
             <h4>Floor grid calibration</h4>
             <div class="inline-group">

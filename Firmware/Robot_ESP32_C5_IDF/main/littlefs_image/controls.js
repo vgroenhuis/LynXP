@@ -27,12 +27,23 @@ window.Lynx = window.Lynx || {};
   let connectStartedAtMs = 0;
   let reconnectTimer = null;
   let started = false;
+  const messageListeners = new Map(); // telemetry type -> callbacks (e.g. "pose")
 
   function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
     connectStartedAtMs = Date.now();
     ws.onopen = () => (lastMessageAtMs = Date.now());
-    ws.onmessage = () => (lastMessageAtMs = Date.now());
+    ws.onmessage = (ev) => {
+      lastMessageAtMs = Date.now();
+      if (!messageListeners.size || typeof ev.data !== "string") return;
+      let msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch (e) {
+        return;
+      }
+      (messageListeners.get(msg.type) || []).forEach((cb) => cb(msg));
+    };
     ws.onclose = () => {
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, 250);
@@ -81,6 +92,12 @@ window.Lynx = window.Lynx || {};
       if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
     },
     start: ensureStarted,
+    // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
+    onMessage(type, cb) {
+      if (!messageListeners.has(type)) messageListeners.set(type, []);
+      messageListeners.get(type).push(cb);
+      ensureStarted();
+    },
   };
 
   // -- keyboard ---------------------------------------------------------------

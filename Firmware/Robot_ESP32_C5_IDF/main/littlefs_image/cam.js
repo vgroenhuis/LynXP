@@ -203,13 +203,22 @@ window.addEventListener("DOMContentLoaded", () => {
   // Retried until it succeeds (e.g. page opened while the robot is still
   // rebooting), so the overlays start by themselves once it's back.
   const CALIB_RETRY_MS = 2000;
+  // The per-resolution lens calibration (/appdata/camcal, see Lynx.lens) is
+  // optional: without it the overlays use a pinhole with cameraVerticalFovDeg.
   const loadCalib = () =>
     fetchWithTimeout("/params", 5000)
-      .then((data) => ({
-        heightM: data.cameraHeightMm / 1000,
-        tiltRad: (data.cameraTiltDeg * Math.PI) / 180,
-        vfovRad: (data.cameraVerticalFovDeg * Math.PI) / 180,
-      }))
+      .then((data) =>
+        fetchWithTimeout("/appdata/camcal", 5000)
+          .catch(() => null)
+          .then((camcal) => {
+            Lynx.lens.setCalibration(camcal, data.cameraVerticalFovDeg);
+            return {
+              heightM: data.cameraHeightMm / 1000,
+              tiltRad: (data.cameraTiltDeg * Math.PI) / 180,
+              vfovRad: (data.cameraVerticalFovDeg * Math.PI) / 180, // fallback only -- projection goes through Lynx.lens
+            };
+          })
+      )
       .catch(() => {
         document.getElementById("cam-status").textContent = "Unable to load camera settings from the robot -- retrying...";
         return new Promise((resolve) => setTimeout(resolve, CALIB_RETRY_MS)).then(loadCalib);
@@ -505,10 +514,10 @@ function ensureFireballOverlayInitialized(calib) {
     const verticalOffsetM = calib.heightM - h;
     const zc = y * Math.cos(effectiveTiltRad) + verticalOffsetM * Math.sin(effectiveTiltRad);
     const yc = verticalOffsetM * Math.cos(effectiveTiltRad) - y * Math.sin(effectiveTiltRad);
-    const imgW = img.naturalWidth;
-    const imgH = img.naturalHeight;
-    const f = imgH / 2 / Math.tan(calib.vfovRad / 2);
-    return { u: imgW / 2 + (f * x) / zc, v: imgH / 2 + (f * yc) / zc, zc };
+    // Through the calibrated lens model (Lynx.lens). s = local pixels per
+    // unit of x/z there, for sizing things at that depth.
+    const p = Lynx.lens.project(x, yc, zc, img.naturalWidth, img.naturalHeight);
+    return p ? { u: p.u, v: p.v, zc, s: p.scale } : { u: NaN, v: NaN, zc, s: 0 };
   }
 
   // Current world position of a fireball, straight-line along its fixed
@@ -691,7 +700,6 @@ function ensureFireballOverlayInitialized(calib) {
     const scale = Math.min(containerW / imgW, containerH / imgH);
     const offsetX = (containerW - imgW * scale) / 2;
     const offsetY = (containerH - imgH * scale) / 2;
-    const f = imgH / 2 / Math.tan(calib.vfovRad / 2);
 
     // Current camera aim -- for REPROJECTING against wherever the camera is
     // looking right now, not for a fireball's own trajectory (that's fixed
@@ -719,7 +727,7 @@ function ensureFireballOverlayInitialized(calib) {
       // camera position to the fireball's current world position), so it
       // correctly grows/shrinks if the robot itself drives closer to or
       // further from it, not just from its own flight.
-      const radiusPx = Math.max(((f * FIREBALL_RADIUS_M) / Math.max(p.zc, 0.05)) * scale, 0.01);
+      const radiusPx = Math.max(((p.s * FIREBALL_RADIUS_M) / Math.max(p.zc, 0.05)) * scale, 0.01);
 
       const fadeStartMs = fireballLifetimeMs * FIREBALL_FADE_FRACTION;
       const opacity = ageMs > fadeStartMs ? Math.max(0, 1 - (ageMs - fadeStartMs) / (fireballLifetimeMs - fadeStartMs)) : 1;
@@ -743,7 +751,7 @@ function ensureFireballOverlayInitialized(calib) {
       const bodyCy = offsetY + bodyP.v * scale;
       const feetCx = offsetX + feetP.u * scale;
       const feetCy = offsetY + feetP.v * scale;
-      const bodyRadiusPx = Math.max(((f * MONSTER_RADIUS_M) / Math.max(bodyP.zc, 0.05)) * scale, 0.01);
+      const bodyRadiusPx = Math.max(((bodyP.s * MONSTER_RADIUS_M) / Math.max(bodyP.zc, 0.05)) * scale, 0.01);
       const feetRadiusXPx = bodyRadiusPx * 0.9;
       const feetRadiusYPx = bodyRadiusPx * 0.35; // flattened, ground-hugging ellipse
       const dead = m.state === "dead";
@@ -846,6 +854,18 @@ function lerpPose(a, b, t) {
   };
 }
 
+// Where the servos physically point: the robot's estimate (panActDeg/
+// tiltActDeg: commands of one servo lag ago), not the command itself. The
+// pan command deliberately leads the chassis to cover the servo's lag, so
+// using it made the overlays swing while the real camera held still.
+// Older firmware only sends the commands.
+function servoAngles(m) {
+  return {
+    servoAngleDeg: m.panActDeg ?? m.servoAngleDeg ?? 0,
+    tiltAngleDeg: m.tiltActDeg ?? m.tiltAngleDeg ?? 0,
+  };
+}
+
 // Returns an unsubscribe function (used when a game is switched in-page).
 function subscribeToPose(callback) {
   poseSubscribers.push(callback);
@@ -874,10 +894,63 @@ function subscribeToPose(callback) {
   let nextPose = null;
   let nextPoseReceivedAtMs = 0;
 
+  // Preferred source: the robot's own pose broadcast on the WebSocket this
+  // page already holds open for driving (controls.js) -- ~10 Hz, each sample
+  // stamped with the robot's clock ("t", ms). The overlays are then drawn
+  // for "robot time now minus the video's delay", so they show the same
+  // moment as the picture instead of trailing it (polling + smoothing above
+  // put them ~150-250 ms behind, which during a turn is a visible slide).
+  // Robot time now is estimated from the fastest-arriving samples.
+  const wsSamples = []; // {t, pose}, robot-clock ms, oldest first
+  const clockOffsets = []; // recent (arrival - t), their min ~ clock offset + min one-way delay
+  let wsLastArrival = -Infinity;
+  const overlayDelayMs = () => {
+    const v = parseFloat(localStorage.getItem("camOverlayDelayMs"));
+    // Measured 2026-09-27: video frames reach a PC ~45-55 ms after the robot
+    // clock (in-place turns, video vs odometry); minus the one-way delay the
+    // clock estimate below already includes, plus decoding. Tunable on the
+    // Main page ("Camera page settings").
+    return Number.isFinite(v) ? v : 45;
+  };
+  Lynx.control.onMessage("pose", (m) => {
+    if (typeof m.t !== "number") return; // older firmware
+    const now = performance.now();
+    wsLastArrival = now;
+    if (wsSamples.length && m.t <= wsSamples[wsSamples.length - 1].t) {
+      wsSamples.length = 0; // robot rebooted: its clock restarted
+      clockOffsets.length = 0;
+    }
+    clockOffsets.push(now - m.t);
+    if (clockOffsets.length > 100) clockOffsets.shift();
+    const pose = { x: m.x, y: m.y, theta: m.theta, ...servoAngles(m) };
+    wsSamples.push({ t: m.t, pose });
+    if (wsSamples.length > 30) wsSamples.shift();
+  });
+  const wsFresh = () => performance.now() - wsLastArrival < 600 && wsSamples.length >= 2;
+
+  function wsPoseAt() {
+    const target = performance.now() - Math.min(...clockOffsets) - overlayDelayMs();
+    const n = wsSamples.length;
+    let i = n - 1;
+    while (i > 0 && wsSamples[i - 1].t > target) i--;
+    const a = wsSamples[Math.max(i - 1, 0)];
+    const b = wsSamples[Math.max(i, 1)];
+    // Interpolate between the samples around the target time, or carry the
+    // last motion forward (at most 200 ms) if the next sample isn't in yet.
+    const span = b.t - a.t;
+    let t = span > 0 ? (target - a.t) / span : 1;
+    t = Math.max(0, Math.min(t, 1 + 200 / Math.max(span, 1)));
+    return lerpPose(a.pose, b.pose, t);
+  }
+
   function poll() {
+    if (wsFresh()) {
+      setTimeout(poll, POSE_POLL_INTERVAL_MS); // not needed while the socket delivers poses
+      return;
+    }
     fetchWithTimeout("/pose", 2500)
       .then((data) => {
-        const pose = { x: data.x, y: data.y, theta: data.theta, servoAngleDeg: data.servoAngleDeg || 0, tiltAngleDeg: data.tiltAngleDeg || 0 };
+        const pose = { x: data.x, y: data.y, theta: data.theta, ...servoAngles(data) };
         prevPose = nextPose || pose;
         nextPose = pose;
         nextPoseReceivedAtMs = performance.now();
@@ -888,7 +961,10 @@ function subscribeToPose(callback) {
   poll();
 
   function animate() {
-    if (nextPose) {
+    if (wsFresh()) {
+      const pose = wsPoseAt();
+      poseSubscribers.slice().forEach((cb) => cb(pose));
+    } else if (nextPose) {
       const t = Math.min((performance.now() - nextPoseReceivedAtMs) / POSE_POLL_INTERVAL_MS, 1);
       const pose = prevPose ? lerpPose(prevPose, nextPose, t) : nextPose;
       poseSubscribers.slice().forEach((cb) => cb(pose));
@@ -1237,18 +1313,14 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
     return { x0: x0 + t0 * dx, y0: y0 + t0 * dy, x1: x0 + t1 * dx, y1: y0 + t1 * dy, t0, t1 };
   }
 
+  // Through the calibrated lens model (Lynx.lens, lynx_common.js), so the
+  // grid bends with the camera's barrel distortion.
   function project(x, y) {
     const zc = y * Math.cos(effectiveTiltRad) + calib.heightM * Math.sin(effectiveTiltRad);
     if (zc <= 0.01) return null; // behind the camera, or grazing along the optical axis
     const yc = calib.heightM * Math.cos(effectiveTiltRad) - y * Math.sin(effectiveTiltRad);
-    const imgW = img.naturalWidth;
-    const imgH = img.naturalHeight;
-    const f = imgH / 2 / Math.tan(calib.vfovRad / 2);
-    return {
-      u: imgW / 2 + (f * x) / zc,
-      v: imgH / 2 + (f * yc) / zc,
-      zc,
-    };
+    const p = Lynx.lens.project(x, yc, zc, img.naturalWidth, img.naturalHeight);
+    return p && { u: p.u, v: p.v, zc };
   }
 
   function draw() {
@@ -1297,14 +1369,19 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
     const uMax = (containerW - offsetX) / scale + 4;
     const vMin = -offsetY / scale - 4;
     const vMax = (containerH - offsetY) / scale + 4;
+    // Clipping uses the straight chord between a line's projected ends, which
+    // the lens bends away from -- so clip with some slack.
+    const slackU = 0.15 * imgW;
+    const slackV = 0.15 * imgH;
 
     // Half the horizontal field of view of that viewport, in the same
     // pinhole model. A floor point `forward` meters ahead is at most
     // (forward + height) deep along the optical axis at any downward tilt,
     // so that times tan(half-FOV) bounds how far sideways it can still be in
     // view -- with a little margin so lines run cleanly off the edges.
-    const fImg = imgH / 2 / Math.tan(calib.vfovRad / 2);
-    const tanHalfHfov = Math.max(uMax - imgW / 2, imgW / 2 - uMin) / fImg;
+    const fImg = Lynx.lens.params(imgW, imgH).f; // pixels per radian near the center
+    const edgeAngle = Lynx.lens.angleAt(Math.max(uMax - imgW / 2, imgW / 2 - uMin), imgW, imgH);
+    const tanHalfHfov = Math.tan(Math.min(edgeAngle, 1.45));
     const halfWidthAt = (forwardM) => (forwardM + calib.heightM) * tanHalfHfov * 1.15 + 0.1;
     // With the camera tilted up past level, the nearest floor is behind the
     // lens (project() rejects it) -- start the box where depth turns positive
@@ -1339,7 +1416,7 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
       // the view rotated. 1/depth is linear along the screen segment, so a
       // screen fraction s maps back to t = s*z0 / (s*z0 + (1-s)*z1) along
       // the floor segment.
-      const sc = clipToBox(p1.u, p1.v, p2.u, p2.v, uMin, uMax, vMin, vMax);
+      const sc = clipToBox(p1.u, p1.v, p2.u, p2.v, uMin - slackU, uMax + slackU, vMin - slackV, vMax + slackV);
       if (!sc) return;
       const toT = (sv) => (sv * p1.zc) / (sv * p1.zc + (1 - sv) * p2.zc);
       const ta = toT(sc.t0);
@@ -1348,8 +1425,10 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
       const fa = fadeAt(pointAt(ta).forward, maxDistM);
       const fb = fadeAt(pointAt(tb).forward, maxDistM);
       if (fa <= 0 && fb <= 0) return;
-      // Fade as a few solid pieces rather than a gradient (same GPU concern).
-      const pieces = Math.min(12, Math.max(1, Math.ceil(Math.abs(fa - fb) / 0.08)));
+      // Drawn as short solid pieces: follows the lens curvature (~25 px
+      // pieces) and the fade (a gradient has the same GPU concern as above).
+      const chordPx = Math.hypot((sc.x1 - sc.x0) * scale, (sc.y1 - sc.y0) * scale);
+      const pieces = Math.min(48, Math.max(1, Math.ceil(Math.abs(fa - fb) / 0.08), Math.ceil(chordPx / 25)));
       let prev = null;
       for (let i = 0; i <= pieces; i++) {
         const t = ta + ((tb - ta) * i) / pieces;
@@ -1595,10 +1674,10 @@ function initWaypointOverlay(calib) {
     const verticalOffsetM = calib.heightM - h;
     const zc = y * Math.cos(effectiveTiltRad) + verticalOffsetM * Math.sin(effectiveTiltRad);
     const yc = verticalOffsetM * Math.cos(effectiveTiltRad) - y * Math.sin(effectiveTiltRad);
-    const imgW = img.naturalWidth;
-    const imgH = img.naturalHeight;
-    const f = imgH / 2 / Math.tan(calib.vfovRad / 2);
-    return { u: imgW / 2 + (f * x) / zc, v: imgH / 2 + (f * yc) / zc, zc };
+    // Through the calibrated lens model (Lynx.lens). s = local pixels per
+    // unit of x/z there, for sizing things at that depth.
+    const p = Lynx.lens.project(x, yc, zc, img.naturalWidth, img.naturalHeight);
+    return p ? { u: p.u, v: p.v, zc, s: p.scale } : { u: NaN, v: NaN, zc, s: 0 };
   }
 
   // The two vertical edges of a cylinder that are actually visible as its

@@ -3,3 +3,5 @@ managed_components/
 sdkconfig
 main/wifi_creds.h
 models/
+tools/calib_out/
+tools/__pycache__/

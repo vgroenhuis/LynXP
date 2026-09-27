@@ -27,6 +27,8 @@
 
 namespace {
 
+void servo_history_record(unsigned long nowMs); // see ws_broadcast_servo_actual()
+
 const char *TAG = "ws";
 
 unsigned long millis_now() { return (unsigned long) (esp_timer_get_time() / 1000); }
@@ -538,6 +540,7 @@ void ws_poll_task(void *arg) {
             }
         }
 
+        servo_history_record(nowMs);
         int wsCount = count_ws_clients(server);
 
         breadcrumb_mark_core0(CORE0_CP_POSE_BROADCAST);
@@ -558,17 +561,21 @@ void ws_poll_task(void *arg) {
             // reads that flag rather than treating 0V/0mA as a real reading.
             float inaVoltageV = 0.0f, inaCurrentMa = 0.0f, inaPowerMw = 0.0f;
             bool inaOk = ina260_read(&inaVoltageV, &inaCurrentMa, &inaPowerMw);
+            float panActDeg, tiltActDeg;
+            ws_broadcast_servo_actual(&panActDeg, &tiltActDeg);
             char json[800];
             int len = snprintf(json, sizeof(json),
-                "{\"type\":\"pose\",\"x\":%.4f,\"y\":%.4f,\"theta\":%.4f,\"controlTheta\":%.4f,"
+                "{\"type\":\"pose\",\"t\":%lu,\"x\":%.4f,\"y\":%.4f,\"theta\":%.4f,\"controlTheta\":%.4f,"
                 "\"calibrating\":%s,\"calibratingPwm\":%d,"
                 "\"encoderCalibrating\":%s,\"encoderCalibrationWheel\":%d,\"encoderCalibrationRevs\":%.3f,"
                 "\"speedCmPerSec\":%.2f,\"servoAngleDeg\":%.2f,\"tiltAngleDeg\":%.2f,"
+                "\"panActDeg\":%.2f,\"tiltActDeg\":%.2f,"
                 "\"inaAvailable\":%s,\"inaVoltageV\":%.3f,\"inaCurrentMa\":%.1f,\"inaPowerMw\":%.1f",
-                poseX_m, poseY_m, poseThetaRad, controlFrameThetaRad,
+                nowMs, poseX_m, poseY_m, poseThetaRad, controlFrameThetaRad,
                 deadzoneCalibrationActive ? "true" : "false", deadzoneCalibrationPwm,
                 encoderCalibrationActive ? "true" : "false", encoderCalibrationWheel, encoderCalibrationRevsDone,
                 speedCmPerSec, currentServoAngleDeg, currentTiltAngleDeg,
+                panActDeg, tiltActDeg,
                 inaOk ? "true" : "false", inaVoltageV, inaCurrentMa, inaPowerMw);
             if (gotoDiagnosticsEnabled && len > 0 && (size_t) len < sizeof(json)) {
                 len += snprintf(json + len, sizeof(json) - len,
@@ -632,13 +639,62 @@ void ws_poll_task(void *arg) {
     }
 }
 
+// Where the servos physically are, as opposed to where they've been told to
+// go: they take ~70 ms to follow a command (measured -- that's also the pan
+// follow's lead, debug_pan.hpp), and since the pan command itself leads the
+// chassis by that much, "chassis heading + commanded pan" ran ahead of the
+// real camera heading by turn rate x 70 ms (up to ~20 deg in a fast turn).
+// The camera page's overlays use this estimate instead: the commanded angles
+// of g_panLeadMs ago, from a short history recorded every poll tick.
+constexpr int SERVO_HISTORY = 32; // 32 x 20 ms = 640 ms
+struct ServoSample {
+    unsigned long ms;
+    float pan;
+    float tilt;
+};
+ServoSample servoHistory[SERVO_HISTORY];
+int servoHistoryHead = 0; // next slot to write
+int servoHistoryCount = 0;
+portMUX_TYPE servoHistoryMux = portMUX_INITIALIZER_UNLOCKED;
+
+void servo_history_record(unsigned long nowMs) {
+    taskENTER_CRITICAL(&servoHistoryMux);
+    servoHistory[servoHistoryHead] = {nowMs, currentServoAngleDeg, currentTiltAngleDeg};
+    servoHistoryHead = (servoHistoryHead + 1) % SERVO_HISTORY;
+    if (servoHistoryCount < SERVO_HISTORY) servoHistoryCount++;
+    taskEXIT_CRITICAL(&servoHistoryMux);
+}
+
 } // namespace
+
+void ws_broadcast_servo_actual(float *panDeg, float *tiltDeg) {
+    *panDeg = currentServoAngleDeg;
+    *tiltDeg = currentTiltAngleDeg;
+    unsigned long target = millis_now() - (unsigned long) g_panLeadMs;
+    taskENTER_CRITICAL(&servoHistoryMux);
+    // newest to oldest: the first sample at or before `target` is the command
+    // that was in force then
+    for (int i = 1; i <= servoHistoryCount; i++) {
+        const ServoSample &s = servoHistory[(servoHistoryHead - i + SERVO_HISTORY) % SERVO_HISTORY];
+        *panDeg = s.pan;
+        *tiltDeg = s.tilt;
+        if ((long) (target - s.ms) >= 0) break;
+    }
+    taskEXIT_CRITICAL(&servoHistoryMux);
+}
 
 void ws_broadcast_set_pan_angle(float deg) {
     currentServoAngleDeg = std::clamp(deg, settings.servoMinAngleDeg, settings.servoMaxAngleDeg);
     lastPanActiveMs = millis_now();
     panServoIdle = false;
     writePanServoPulse();
+}
+
+void ws_broadcast_set_tilt_angle(float deg) {
+    currentTiltAngleDeg = std::clamp(deg, settings.tiltMinAngleDeg, settings.tiltMaxAngleDeg);
+    lastTiltActiveMs = millis_now();
+    tiltServoIdle = false;
+    writeTiltServoPulse();
 }
 
 void ws_broadcast_hold_drive_command() {

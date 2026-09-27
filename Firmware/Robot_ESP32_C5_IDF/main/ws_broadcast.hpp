@@ -23,7 +23,12 @@ void ws_broadcast_start();
 // For debug_pan.cpp's experiments: set the pan servo directly (as the
 // servo_angle WS message does), and keep the drive-command watchdog fed.
 void ws_broadcast_set_pan_angle(float deg);
+void ws_broadcast_set_tilt_angle(float deg);
 void ws_broadcast_hold_drive_command();
+
+// Estimated physical pan/tilt servo angles (the commands of one servo lag
+// ago) -- what the camera is really pointing at, for overlays.
+void ws_broadcast_servo_actual(float *panDeg, float *tiltDeg);
 
 // For watchdog_system_init()/diagnostics_register_tasks() to subscribe/
 // measure this task. Valid only after ws_broadcast_start() returns.

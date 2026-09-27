@@ -2376,6 +2376,7 @@ window.addEventListener("DOMContentLoaded", () => {
   restorePersistentCheckbox("camShowWorldAxes"); // read by cam.js on the Camera page, not used here
   restorePersistentCheckbox("camShowWaypointsOverlay"); // read by cam.js on the Camera page, not used here
   restorePersistentNumberInput("camGridOpacity", 90); // read by cam.js on the Camera page, not used here
+  restorePersistentNumberInput("camOverlayDelayMs", 45); // read by cam.js on the Camera page, not used here
   document.getElementById("camGridColor").value = localStorage.getItem("camGridColor") || "#c0c0c0"; // keep in step with cam.js's CAM_GRID_DEFAULT_COLOR
   document.getElementById("camGridColor").addEventListener("change", (e) => {
     localStorage.setItem("camGridColor", e.target.value); // read by cam.js on the Camera page, not used here

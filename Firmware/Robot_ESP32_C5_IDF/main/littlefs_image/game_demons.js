@@ -237,11 +237,16 @@ Lynx.games = Lynx.games || {};
   }
 
   // -- tuning --------------------------------------------------------------------
+  // dmg: damage taken; hp: demon health; count: demons per wave; shotSpeed:
+  // fireball speed; attack: time between a demon's attacks (x); gap: time
+  // between spawns (x); speed: demon walking speed. Aiming and dodging with a
+  // real robot is much slower than with a mouse, so even the default ("Hurt
+  // me plenty") is gentle -- "Ultra-Violence" is what the default used to be.
   const DIFFICULTY = {
-    itytd: { dmg: 0.5, hp: 0.8, count: 0.7, shotSpeed: 0.85 },
-    hmp: { dmg: 1, hp: 1, count: 1, shotSpeed: 1 },
-    uv: { dmg: 1.5, hp: 1.2, count: 1.3, shotSpeed: 1.15 },
-    nm: { dmg: 2, hp: 1.5, count: 1.6, shotSpeed: 1.35 },
+    itytd: { dmg: 0.35, hp: 0.6, count: 0.6, shotSpeed: 0.7, attack: 1.8, gap: 1.6, speed: 0.7 },
+    hmp: { dmg: 0.6, hp: 0.8, count: 0.8, shotSpeed: 0.8, attack: 1.4, gap: 1.3, speed: 0.85 },
+    uv: { dmg: 1, hp: 1, count: 1, shotSpeed: 1, attack: 1, gap: 1, speed: 1 },
+    nm: { dmg: 1.6, hp: 1.3, count: 1.4, shotSpeed: 1.25, attack: 0.8, gap: 0.85, speed: 1.2 },
   };
   const ENEMY = {
     imp: { hp: 30, speed: 0.12, heightM: 0.34, score: 100, keepAway: [0.9, 1.5] },
@@ -264,7 +269,8 @@ Lynx.games = Lynx.games || {};
 
   Lynx.games.demons = (ar, cfg) => {
     const diff = DIFFICULTY[cfg.difficulty] || DIFFICULTY.hmp;
-    const speedMult = cfg.enemySpeed || 1;
+    const speedMult = (cfg.enemySpeed || 1) * diff.speed;
+    const aimAssist = cfg.aimAssist !== false;
     const spawnR = cfg.spawnRadiusM || 2.5;
 
     const sprites = {
@@ -331,7 +337,7 @@ Lynx.games = Lynx.games || {};
       for (let i = 0; i < n(wave - 1); i++) list.push("pinky");
       for (let i = 0; i < n(Math.floor((wave - 1) / 2)); i++) list.push("caco");
       list.sort(() => Math.random() - 0.5);
-      spawnQueue = list.map((type, i) => ({ type, at: 1.2 + i * rand(1.0, 2.2) }));
+      spawnQueue = list.map((type, i) => ({ type, at: 1.2 + i * rand(1.0, 2.2) * diff.gap }));
       stateTime = 0;
       state = "playing";
       Lynx.sfx.play("wave");
@@ -351,7 +357,7 @@ Lynx.games = Lynx.games || {};
       const def = ENEMY[type];
       enemies.push({
         type, x: pos.x, y: pos.y, hp: def.hp * diff.hp, state: "alive", pain: 0, anim: Math.random(),
-        attackTimer: rand(1.5, 3.5), attackAnim: 0, strafeDir: Math.random() < 0.5 ? -1 : 1, strafeTimer: rand(1, 3), deadTime: 0,
+        attackTimer: rand(1.5, 3.5) * diff.attack, attackAnim: 0, strafeDir: Math.random() < 0.5 ? -1 : 1, strafeTimer: rand(1, 3), deadTime: 0,
       });
       if (Math.random() < 0.4) Lynx.sfx.play("growl");
     }
@@ -398,14 +404,24 @@ Lynx.games = Lynx.games || {};
       Lynx.sfx.play(w.sound);
       const v = ar.view;
       const hits = new Map();
+      // Aim assist: a shot that lands this close to a demon (screen pixels)
+      // still counts -- lining up a crosshair by turning a robot is coarse.
+      const assistPx = aimAssist ? 0.04 * v.w : 0;
       for (let i = 0; i < w.pellets; i++) {
         const px = v.cx + rand(-1, 1) * w.spread * v.w;
         const py = v.cy + rand(-1, 1) * w.spread * v.w * 0.6;
         let target = null;
+        let targetMiss = Infinity;
         enemies.forEach((e) => {
           if (e.state !== "alive" || !e.rect) return;
           const r = e.rect;
-          if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h && (!target || r.depth < target.rect.depth)) target = e;
+          const miss = Math.hypot(Math.max(r.x - px, 0, px - (r.x + r.w)), Math.max(r.y - py, 0, py - (r.y + r.h)));
+          if (miss > assistPx) return;
+          // a direct hit beats a near miss; among equals, the nearer demon
+          if (!target || miss < targetMiss - 0.5 || (Math.abs(miss - targetMiss) <= 0.5 && r.depth < target.rect.depth)) {
+            target = e;
+            targetMiss = miss;
+          }
         });
         if (!target) continue;
         // Damage falls off with distance, shotgun most of all.
@@ -559,13 +575,13 @@ Lynx.games = Lynx.games || {};
         e.attackTimer -= dt;
         if (e.type === "pinky") {
           if (dist < BITE_RANGE_M && e.attackTimer <= 0) {
-            e.attackTimer = 1.1;
+            e.attackTimer = 1.1 * diff.attack;
             e.attackAnim = 0.25;
             damagePlayer(rand(10, 15));
           }
         } else if (e.attackTimer <= 0 && dist < 5) {
           e.attackAnim = 0.45;
-          e.attackTimer = (e.type === "caco" ? rand(3.5, 6) : rand(2.5, 4.5)) / Math.sqrt(diff.dmg);
+          e.attackTimer = (e.type === "caco" ? rand(3.5, 6) : rand(2.5, 4.5)) * diff.attack;
         }
         if (e.attackAnim > 0) {
           e.attackAnim -= dt;
@@ -709,7 +725,6 @@ Lynx.games = Lynx.games || {};
       if (state === "playing" || state === "intermission") {
         if (cfg.arrows) {
           enemies.forEach((e) => e.state === "alive" && ar.edgeArrow(e.x, e.y, ENEMY[e.type].heightM / 2, "#ff4030"));
-          shots.forEach((s) => ar.edgeArrow(s.x, s.y, s.h, "#ffb020"));
         }
         if (cfg.radar) {
           const blips = [];
