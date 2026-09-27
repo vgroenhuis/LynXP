@@ -7,6 +7,23 @@
 // innerHTML.
 
 // Returns { start(), stop() } -- starts/stops polling /wifi/status.
+// fetch() with a deadline. A request in flight while the robot reboots
+// (e.g. a firmware/filesystem OTA) can hang forever -- no reply and no reset
+// ever arrives, and fetch() has no timeout of its own -- which silently
+// stalled every poll loop that only schedules its next round once the
+// previous request settles. Aborting it makes such a loop just carry on.
+function fetchWithTimeout(url, timeoutMs, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).then(
+    (r) => r.json().finally(() => clearTimeout(timer)),
+    (e) => {
+      clearTimeout(timer);
+      throw e;
+    }
+  );
+}
+
 function initWifiManager(root) {
   root.classList.add("wifi-mgr");
   root.innerHTML = `
@@ -233,8 +250,7 @@ function initWifiManager(root) {
   }
 
   function refresh() {
-    return fetch("/wifi/status", { cache: "no-store" })
-      .then((r) => r.json())
+    return fetchWithTimeout("/wifi/status", 5000, { cache: "no-store" })
       .then(render)
       .catch(() => {
         el.status.textContent = "Can't reach LynXP -- if it just switched networks, reconnect to that network.";

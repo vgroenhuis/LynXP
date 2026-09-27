@@ -444,13 +444,14 @@ Lynx.games = Lynx.games || {};
     });
     Lynx.onAction("weapon", (which) => {
       if (which === "next") switchNext();
+      else if (which === "prev") switchNext(-1);
       else if (p.owned[which]) p.weapon = which;
     });
 
-    Lynx.touchButtons().add("\u{1F52B} Weapon", switchNext);
-    function switchNext() {
+    Lynx.touchButtons().add("\u{1F52B} Weapon", () => switchNext());
+    function switchNext(step = 1) {
       for (let i = 1; i <= 3; i++) {
-        const cand = ((p.weapon - 1 + i) % 3) + 1;
+        const cand = ((((p.weapon - 1 + step * i) % 3) + 3) % 3) + 1;
         if (p.owned[cand]) {
           p.weapon = cand;
           return;

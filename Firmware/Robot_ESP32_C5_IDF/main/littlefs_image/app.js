@@ -855,11 +855,19 @@ function updateCamDiagDisplay(d) {
   document.getElementById("s3camDiagBlock").classList.toggle("diag-stale", !!d.stale);
 }
 
+// Periodic polls use fetchWithTimeout() (wifi.js, loaded before this file)
+// and skip a tick while the previous request is still pending: requests
+// that hang across a robot reboot (e.g. an OTA) would otherwise pile up until
+// they hold all 6 of the browser's connections to the robot, after which
+// nothing on the page -- not even a reload -- could reach it.
+let camDiagInFlight = false;
 function pollCamDiag() {
-  fetch("/camdiag")
-    .then((r) => r.json())
+  if (camDiagInFlight) return;
+  camDiagInFlight = true;
+  fetchWithTimeout("/camdiag", 2500)
     .then(updateCamDiagDisplay)
-    .catch(() => {}); // transient fetch failure -- next tick will retry
+    .catch(() => {}) // transient fetch failure -- next tick will retry
+    .finally(() => (camDiagInFlight = false));
 }
 
 function startCamDiagPolling() {
@@ -1272,18 +1280,20 @@ function saveWaypoints() {
 const WAYPOINTS_BACKGROUND_REFRESH_MS = 5000;
 
 function startWaypointsBackgroundRefresh() {
+  let inFlight = false; // see pollCamDiag()
   setInterval(() => {
     const panel = document.getElementById("panel-waypoints");
-    if (!panel.open || editingWaypoint) return;
-    fetch("/waypoints")
-      .then((res) => res.json())
+    if (!panel.open || editingWaypoint || inFlight) return;
+    inFlight = true;
+    fetchWithTimeout("/waypoints", 4000)
       .then((data) => {
         if (!Array.isArray(data)) return;
         waypoints = data;
         selectedWaypointIndex = null; // list contents may have shifted under the old index
         renderWaypointsTable();
       })
-      .catch(() => {}); // keep polling through a transient failure (e.g. brief Wi-Fi hiccup)
+      .catch(() => {}) // keep polling through a transient failure (e.g. brief Wi-Fi hiccup)
+      .finally(() => (inFlight = false));
   }, WAYPOINTS_BACKGROUND_REFRESH_MS);
 }
 
@@ -2363,6 +2373,7 @@ window.addEventListener("DOMContentLoaded", () => {
   restorePersistentCheckbox("camShowMapOverlay"); // read by cam.js on the Camera page, not used here
   restorePersistentCheckbox("camShowFloorGrid"); // read by cam.js on the Camera page, not used here
   restorePersistentCheckbox("camShowMinorGrid"); // read by cam.js on the Camera page, not used here
+  restorePersistentCheckbox("camShowWorldAxes"); // read by cam.js on the Camera page, not used here
   restorePersistentCheckbox("camShowWaypointsOverlay"); // read by cam.js on the Camera page, not used here
   restorePersistentNumberInput("camGridOpacity", 90); // read by cam.js on the Camera page, not used here
   document.getElementById("camGridColor").value = localStorage.getItem("camGridColor") || "#c0c0c0"; // keep in step with cam.js's CAM_GRID_DEFAULT_COLOR

@@ -22,6 +22,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+#include <cmath>
 
 // ESP-IDF replacement for Robot_Pico2W_SDK/src/web_server.cpp's HTTP half
 // (everything except /ws and the poll-loop telemetry broadcast, which live
@@ -380,6 +381,16 @@ void web_server_recenter_servo() {
 
 namespace {
 
+// Heading shift that re-anchors the world frame so +X points where the
+// camera is looking right now (chassis heading + pan servo angle). Every
+// heading-like quantity -- the pose's theta and the control frame -- moves
+// by this same amount, so their difference (what the pan servo follows,
+// and what the control-frame assists steer the chassis by) is unchanged:
+// nothing physically turns, only the numbers describing it do.
+float cameraAlignedThetaShift() {
+    return -wrapToPi(poseThetaRad + currentServoAngleDeg * (float) M_PI / 180.0f);
+}
+
 // -- /set, /params, /pose, /wifi, /pose_reset, /waypoints ---------------
 
 esp_err_t handle_set(httpd_req_t *req) {
@@ -420,11 +431,29 @@ esp_err_t handle_set(httpd_req_t *req) {
     }
     if (get_query_str(req, "reset_orientation", buf, sizeof(buf))) {
         // Orientation only -- current position is deliberately preserved.
+        // World +X becomes the camera's current viewing direction, without
+        // turning the robot or the pan servo (see cameraAlignedThetaShift()).
+        float shift = cameraAlignedThetaShift();
         resetPoseX_m = poseX_m;
         resetPoseY_m = poseY_m;
-        resetPoseTheta_rad = 0.0f;
+        resetPoseTheta_rad = wrapToPi(poseThetaRad + shift);
         resetPoseFlag = true;
-        controlFrameThetaRad = 0.0f;
+        controlFrameThetaRad = wrapToPi(controlFrameThetaRad + shift);
+        stopAllMotion();
+    }
+    if (get_query_str(req, "reset_home", buf, sizeof(buf))) {
+        // Position AND orientation (the camera page's "Set position as
+        // home"): the robot's current spot becomes the world origin, with +X
+        // along the camera's current viewing direction -- again without
+        // turning anything physically.
+        float shift = cameraAlignedThetaShift();
+        resetPoseX_m = 0.0f;
+        resetPoseY_m = 0.0f;
+        resetPoseTheta_rad = wrapToPi(poseThetaRad + shift);
+        resetPoseFlag = true;
+        goalX_m = 0.0f;
+        goalY_m = 0.0f;
+        controlFrameThetaRad = wrapToPi(controlFrameThetaRad + shift);
         stopAllMotion();
     }
     if (get_query_float(req, "kp", &fval)) { settings.kp = fval; dirty = true; }

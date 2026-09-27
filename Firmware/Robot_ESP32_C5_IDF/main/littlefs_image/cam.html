@@ -11,6 +11,7 @@
   <div class="cam-fullscreen">
     <img id="camStream" alt="Camera stream">
     <canvas id="camFloorGrid" class="cam-floor-grid" style="display:none"></canvas>
+    <canvas id="camAxesOverlay" class="cam-floor-grid" style="display:none"></canvas>
     <canvas id="camWaypointOverlay" class="cam-floor-grid" style="display:none"></canvas>
     <canvas id="camFireballOverlay" class="cam-floor-grid" style="display:none"></canvas>
     <details class="cam-menu-panel" id="camMenuPanel" open>
@@ -18,11 +19,13 @@
       <div class="cam-menu-panel-body">
         <a href="/" class="cam-overlay-btn">Main</a>
         <button id="camFullscreenBtn" class="cam-overlay-btn">Fullscreen</button>
+        <button id="camReloadBtn" class="cam-overlay-btn">Reload page</button>
         <a id="camSettingsLink" href="#" target="_blank" rel="noopener" class="cam-overlay-btn" style="display:none">Cam settings</a>
         <label class="cam-mode-label">Game / app
           <select id="camModeSelect" class="cam-mode-select"></select>
         </label>
         <a href="/games" class="cam-overlay-btn">Games &amp; apps settings</a>
+        <div id="gamepadStatus" class="cam-gamepad-status"></div>
       </div>
     </details>
     <button id="camFireballBtn" class="cam-overlay-btn cam-fireball-btn" style="display:none">🔥 Fire</button>
@@ -40,10 +43,16 @@
           Floor grid
         </label>
         <label class="cam-toggle-switch">
+          <input type="checkbox" id="camToggleWorldAxes">
+          <span class="cam-toggle-slider"></span>
+          World axes
+        </label>
+        <label class="cam-toggle-switch">
           <input type="checkbox" id="camToggleWaypoints">
           <span class="cam-toggle-slider"></span>
           Waypoints
         </label>
+        <button id="camSetHomeBtn" class="cam-overlay-btn">Set position as home</button>
       </div>
     </details>
     <canvas id="camMapOverlay" class="cam-map-overlay" width="160" height="160" style="display:none"></canvas>

@@ -269,3 +269,6 @@
     renderModelStatus();
   });
 })();
+
+// The exact origin to allow in Chrome's insecure-origin flag (see the Gamepad notes).
+document.querySelectorAll(".robot-origin").forEach((el) => (el.textContent = location.origin));

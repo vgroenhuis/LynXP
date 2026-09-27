@@ -9,6 +9,11 @@
 //   Space        fire / action                 1-3     pick weapon
 //   Tab          next weapon
 //
+// and a gamepad (Gamepad API, "standard" layout -- e.g. a GameSir G8 phone
+// controller): left stick drives/strafes, right stick turns/tilts the
+// camera (D-pad too), A / RT / Start fire, LB / RB previous / next weapon,
+// LT held = half speed. Both inputs add up, so either can be used any time.
+//
 // Drive/look commands use exactly the same messages as the joysticks
 // ("control_joystick", "control_frame_rotate", "tilt_rate"), resent every
 // HEARTBEAT_MS while held and zeroed on release or when the tab loses focus.
@@ -100,16 +105,20 @@ window.Lynx = window.Lynx || {};
     return (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0);
   }
 
+  const clamp1 = (v) => Math.max(-1, Math.min(1, v));
+  // Analog stick values are rounded so tiny jitter doesn't turn into a
+  // stream of "changed" commands.
+  const quantize = (v) => Math.round(v * 20) / 20;
+
   function computeAndSend(force) {
-    const slow = held.has("ShiftLeft") || held.has("ShiftRight") ? 0.5 : 1;
+    const slow = held.has("ShiftLeft") || held.has("ShiftRight") || pad.slow ? 0.5 : 1;
     const cmd = {
-      j1: axis("KeyA", "KeyD") * DRIVE_SPEED * slow,
-      j2: axis("KeyS", "KeyW") * DRIVE_SPEED * slow,
+      j1: quantize(clamp1(axis("KeyA", "KeyD") * DRIVE_SPEED + pad.j1) * slow),
+      j2: quantize(clamp1(axis("KeyS", "KeyW") * DRIVE_SPEED + pad.j2) * slow),
       // Rotate is positive to the LEFT, matching the right touch joystick's mapping.
-      rot: (axis("ArrowRight", "ArrowLeft") + axis("KeyE", "KeyQ")) * TURN_SPEED * slow,
-      tilt: axis("ArrowDown", "ArrowUp") * TILT_SPEED * slow,
+      rot: quantize(clamp1((axis("ArrowRight", "ArrowLeft") + axis("KeyE", "KeyQ")) * TURN_SPEED + pad.rot) * slow),
+      tilt: quantize(clamp1(axis("ArrowDown", "ArrowUp") * TILT_SPEED + pad.tilt) * slow),
     };
-    cmd.rot = Math.max(-1, Math.min(1, cmd.rot));
     const driveChanged = cmd.j1 !== lastSent.j1 || cmd.j2 !== lastSent.j2;
     const lookChanged = cmd.rot !== lastSent.rot || cmd.tilt !== lastSent.tilt;
     const driving = cmd.j1 !== 0 || cmd.j2 !== 0;
@@ -178,5 +187,111 @@ window.Lynx = window.Lynx || {};
     window.addEventListener("blur", releaseAll);
     document.addEventListener("visibilitychange", () => document.hidden && releaseAll());
     Lynx.control.start();
+    enableGamepad();
   };
+
+  // -- gamepad ------------------------------------------------------------------
+  const PAD_POLL_MS = 50;
+  const DEADZONE = 0.15;
+  // Standard-layout button indices (https://w3c.github.io/gamepad/#remapping).
+  const BTN = { A: 0, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const FIRE_BUTTONS = [BTN.A, BTN.RT, BTN.START];
+
+  const pad = { j1: 0, j2: 0, rot: 0, tilt: 0, slow: false };
+  let padIndex = null;
+  let padPoll = null;
+  let prevPressed = [];
+  let padFireHeld = false;
+
+  // What the page can tell about gamepad support, for the status line on the
+  // camera page: "unsupported" (no Gamepad API at all), "waiting" (API there,
+  // no pad seen yet -- browsers only reveal one after a button press),
+  // "connected". insecure = page isn't a secure context; some browsers hide
+  // gamepads from plain-http pages, and the robot can only serve http.
+  Lynx.gamepad = {
+    state: typeof navigator.getGamepads === "function" ? "waiting" : "unsupported",
+    id: "",
+    insecure: !window.isSecureContext,
+    onChange: null,
+  };
+  const notify = () => Lynx.gamepad.onChange && Lynx.gamepad.onChange(Lynx.gamepad);
+
+  function deadzone(v) {
+    const a = Math.abs(v);
+    return a < DEADZONE ? 0 : (Math.sign(v) * (a - DEADZONE)) / (1 - DEADZONE);
+  }
+
+  function readPad() {
+    let pads = [];
+    try {
+      pads = navigator.getGamepads() || [];
+    } catch (e) {
+      return null; // e.g. blocked by permissions policy
+    }
+    if (padIndex !== null && pads[padIndex] && pads[padIndex].connected) return pads[padIndex];
+    const found = Array.from(pads).find((g) => g && g.connected);
+    return found || null;
+  }
+
+  function releasePad() {
+    Object.assign(pad, { j1: 0, j2: 0, rot: 0, tilt: 0, slow: false });
+    if (padFireHeld) Lynx.input.fireHeld = false;
+    padFireHeld = false;
+    prevPressed = [];
+    computeAndSend(false);
+  }
+
+  function pollPad() {
+    const g = document.hidden ? null : readPad();
+    if (!g) {
+      if (padIndex !== null) {
+        padIndex = null;
+        Lynx.gamepad.state = "waiting";
+        Lynx.gamepad.id = "";
+        releasePad();
+        notify();
+      }
+      return;
+    }
+    if (padIndex !== g.index) {
+      padIndex = g.index;
+      Lynx.gamepad.state = "connected";
+      Lynx.gamepad.id = g.id;
+      notify();
+    }
+
+    const pressed = g.buttons.map((b) => b.pressed || b.value > 0.5);
+    const down = (i) => !!pressed[i];
+    const justDown = (i) => down(i) && !prevPressed[i];
+    if (pressed.some((p, i) => p && !prevPressed[i])) Lynx.sfx.unlock();
+
+    const ax = (i) => deadzone(g.axes[i] || 0);
+    const dpad = (neg, pos) => (down(pos) ? 1 : 0) - (down(neg) ? 1 : 0);
+    pad.j1 = ax(0) * DRIVE_SPEED;
+    pad.j2 = -ax(1) * DRIVE_SPEED;
+    pad.rot = clamp1(-ax(2) + dpad(BTN.RIGHT, BTN.LEFT)) * TURN_SPEED;
+    pad.tilt = clamp1(-ax(3) + dpad(BTN.DOWN, BTN.UP)) * TILT_SPEED;
+    pad.slow = down(BTN.LT);
+    computeAndSend(false);
+
+    const fireDown = FIRE_BUTTONS.some(down);
+    if (FIRE_BUTTONS.some(justDown)) Lynx.fireAction();
+    if (fireDown !== padFireHeld) {
+      padFireHeld = fireDown;
+      Lynx.input.fireHeld = fireDown;
+    }
+    if (justDown(BTN.RB)) listeners.weapon.forEach((cb) => cb("next"));
+    if (justDown(BTN.LB)) listeners.weapon.forEach((cb) => cb("prev"));
+    prevPressed = pressed;
+  }
+
+  function enableGamepad() {
+    if (Lynx.gamepad.state === "unsupported" || padPoll !== null) return;
+    // Cheap enough to just poll; gamepadconnected only fires after the
+    // first button press anyway, and not at all in some browsers.
+    padPoll = setInterval(pollPad, PAD_POLL_MS);
+    window.addEventListener("gamepadconnected", pollPad);
+    window.addEventListener("gamepaddisconnected", pollPad);
+    notify();
+  }
 })(window.Lynx);

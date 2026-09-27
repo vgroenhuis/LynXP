@@ -41,10 +41,48 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   document.addEventListener("fullscreenchange", () => {
     fullscreenBtn.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+    // Going fullscreen is for the view, so fold the Menu and Overlays
+    // panels away (each is still one tap to reopen).
+    if (document.fullscreenElement) {
+      document.querySelectorAll(".cam-menu-panel").forEach((panel) => (panel.open = false));
+    }
   });
 
-  // Overlays panel: same three toggles as the Main page's "Camera page
-  // settings" panel (camShowMapOverlay/camShowFloorGrid/
+  document.getElementById("camReloadBtn").addEventListener("click", () => location.reload());
+
+  // Moves the world origin (home) to where the robot is now, with +X along
+  // the camera's current viewing direction (/set?reset_home -- nothing
+  // physically turns), and stops the robot. Tap
+  // twice to confirm (a confirm() dialog can knock the page out of
+  // fullscreen), since waypoints and game layouts are relative to home.
+  const setHomeBtn = document.getElementById("camSetHomeBtn");
+  const SET_HOME_LABEL = setHomeBtn.textContent;
+  let setHomeArmedTimer = null;
+  setHomeBtn.addEventListener("click", () => {
+    if (!setHomeArmedTimer) {
+      setHomeBtn.textContent = "Tap again to confirm";
+      setHomeBtn.classList.add("cam-btn-armed");
+      setHomeArmedTimer = setTimeout(disarmSetHome, 3000);
+      return;
+    }
+    disarmSetHome();
+    fetch("/set?reset_home=1")
+      .then((r) => {
+        if (!r.ok) throw new Error(r.status);
+        setHomeBtn.textContent = "Home set ✓";
+        setTimeout(() => (setHomeBtn.textContent = SET_HOME_LABEL), 1500);
+      })
+      .catch(() => (document.getElementById("cam-status").textContent = "Couldn't set home -- is the robot reachable?"));
+  });
+  function disarmSetHome() {
+    clearTimeout(setHomeArmedTimer);
+    setHomeArmedTimer = null;
+    setHomeBtn.textContent = SET_HOME_LABEL;
+    setHomeBtn.classList.remove("cam-btn-armed");
+  }
+
+  // Overlays panel: same toggles as the Main page's "Camera page
+  // settings" panel (camShowMapOverlay/camShowFloorGrid/camShowWorldAxes/
   // camShowWaypointsOverlay), reading/writing the exact same localStorage
   // keys so either page's control reflects the other's latest choice on its
   // next load.
@@ -60,10 +98,11 @@ window.addEventListener("DOMContentLoaded", () => {
   // all until actually enabled, matching this page's existing "don't poll
   // for something nobody turned on" approach elsewhere (see subscribeToPose
   // and startWaypointsPolling's own comments).
-  function wireOverlayToggle(toggleId, storageKey, canvasId, ensureInitialized) {
+  function wireOverlayToggle(toggleId, storageKey, canvasId, ensureInitialized, defaultOn = false) {
     const toggle = document.getElementById(toggleId);
     const canvas = document.getElementById(canvasId);
-    const initiallyOn = localStorage.getItem(storageKey) === "true";
+    const stored = localStorage.getItem(storageKey);
+    const initiallyOn = stored === null ? defaultOn : stored === "true";
     toggle.checked = initiallyOn;
     canvas.style.display = initiallyOn ? "block" : "none";
     if (initiallyOn) ensureInitialized();
@@ -122,9 +161,15 @@ window.addEventListener("DOMContentLoaded", () => {
     settingsLink.style.display = "";
   }
 
+  // Deadline + no overlap: requests that hang across a robot reboot would
+  // otherwise pile up one per tick until they hold all 6 of the browser's
+  // connections to the robot, after which nothing on this page (not even
+  // navigating away) could reach it any more -- see fetchWithTimeout().
+  let camHeartbeatInFlight = false;
   function pollCamHeartbeat() {
-    fetch("/camdiag")
-      .then((r) => r.json())
+    if (camHeartbeatInFlight) return;
+    camHeartbeatInFlight = true;
+    fetchWithTimeout("/camdiag", 3000)
       .then((d) => {
         const reachable = !d.stale && d.ip && d.ip !== "0.0.0.0";
         if (reachable && (!wasReachable || d.ip !== currentCamIp)) {
@@ -134,7 +179,8 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         wasReachable = reachable;
       })
-      .catch(() => {}); // transient fetch failure -- next tick retries
+      .catch(() => {}) // transient fetch failure -- next tick retries
+      .finally(() => (camHeartbeatInFlight = false));
   }
   pollCamHeartbeat();
   setInterval(pollCamHeartbeat, CAM_HEARTBEAT_INTERVAL_MS);
@@ -154,19 +200,25 @@ window.addEventListener("DOMContentLoaded", () => {
   // either overlay starts on (a single one-off request, unlike the
   // recurring /pose or /waypoints polling those overlays themselves start)
   // so switching one on later doesn't need to wait on a fresh fetch.
-  const calibPromise = fetch("/params")
-    .then((r) => r.json())
-    .then((data) => {
-      return {
+  // Retried until it succeeds (e.g. page opened while the robot is still
+  // rebooting), so the overlays start by themselves once it's back.
+  const CALIB_RETRY_MS = 2000;
+  const loadCalib = () =>
+    fetchWithTimeout("/params", 5000)
+      .then((data) => ({
         heightM: data.cameraHeightMm / 1000,
         tiltRad: (data.cameraTiltDeg * Math.PI) / 180,
         vfovRad: (data.cameraVerticalFovDeg * Math.PI) / 180,
-      };
-    })
-    .catch(() => {
-      document.getElementById("cam-status").textContent = "Unable to load camera settings from the robot.";
-      return null;
-    });
+      }))
+      .catch(() => {
+        document.getElementById("cam-status").textContent = "Unable to load camera settings from the robot -- retrying...";
+        return new Promise((resolve) => setTimeout(resolve, CALIB_RETRY_MS)).then(loadCalib);
+      });
+  const calibPromise = loadCalib().then((calib) => {
+    const status = document.getElementById("cam-status");
+    if (status.textContent.startsWith("Unable to load camera settings")) status.textContent = "";
+    return calib;
+  });
 
   let floorGridInitialized = false;
   wireOverlayToggle("camToggleFloorGrid", "camShowFloorGrid", "camFloorGrid", () => {
@@ -176,6 +228,16 @@ window.addEventListener("DOMContentLoaded", () => {
       if (calib) initFloorGrid(calib);
     });
   });
+
+  // World coordinate frame (X red, Y green, 1 m ticks) -- on by default.
+  let worldAxesInitialized = false;
+  wireOverlayToggle("camToggleWorldAxes", "camShowWorldAxes", "camAxesOverlay", () => {
+    if (worldAxesInitialized) return;
+    worldAxesInitialized = true;
+    calibPromise.then((calib) => {
+      if (calib) initFloorGrid(calib, { canvasId: "camAxesOverlay", grid: false, axes: true });
+    });
+  }, true);
 
   let waypointOverlayInitialized = false;
   wireOverlayToggle("camToggleWaypoints", "camShowWaypointsOverlay", "camWaypointOverlay", () => {
@@ -207,6 +269,38 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // -- Games & apps (see games.html / lynx_common.js) ---------------------------
   Lynx.enableKeyboardControls();
+
+  // Gamepad status line in the Menu panel, plus a brief toast when a pad
+  // (dis)connects -- the panel is usually collapsed while playing.
+  const gamepadStatus = document.getElementById("gamepadStatus");
+  let lastPadState = Lynx.gamepad.state;
+  const renderGamepad = (gp) => {
+    const name = gp.id.split(" (")[0] || "Gamepad";
+    if (gp.state === "unsupported") gamepadStatus.textContent = "\u{1F3AE} This browser doesn't support gamepads";
+    else if (gp.state === "connected") gamepadStatus.textContent = `\u{1F3AE} ${name} connected`;
+    else if (gp.insecure) gamepadStatus.textContent = "\u{1F3AE} Gamepad: press a button on it. Nothing? See Games & apps settings.";
+    else gamepadStatus.textContent = "\u{1F3AE} Gamepad: press a button on it";
+    if (gp.state !== lastPadState && gp.state !== "unsupported") {
+      showToast(gp.state === "connected" ? `\u{1F3AE} ${name} connected` : "\u{1F3AE} Gamepad disconnected");
+    }
+    lastPadState = gp.state;
+  };
+  Lynx.gamepad.onChange = renderGamepad;
+  renderGamepad(Lynx.gamepad);
+
+  let toastTimer = null;
+  function showToast(text) {
+    let toast = document.querySelector(".cam-toast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.className = "cam-toast";
+      document.querySelector(".cam-fullscreen").appendChild(toast);
+    }
+    toast.textContent = text;
+    toast.classList.add("visible");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("visible"), 2500);
+  }
 
   // The action button: press = one fire/action, hold = automatic fire.
   const actionBtn = document.getElementById("camFireballBtn");
@@ -711,6 +805,23 @@ function spawnFireball(calib) {
 // more robust fix is to just not hold a second long-lived connection open
 // at all: each poll is a short request/response over the same HTTP path
 // already used for /params etc., not a persistent socket.
+// fetch() with a deadline. A request in flight while the robot reboots
+// (e.g. a firmware/filesystem OTA) can hang forever -- no reply and no reset
+// ever arrives, and fetch() has no timeout of its own -- which silently
+// stalled every poll loop that only schedules its next round once the
+// previous request settles. Aborting it makes such a loop just carry on.
+function fetchWithTimeout(url, timeoutMs, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).then(
+    (r) => r.json().finally(() => clearTimeout(timer)),
+    (e) => {
+      clearTimeout(timer);
+      throw e;
+    }
+  );
+}
+
 const POSE_POLL_INTERVAL_MS = 150; // ~6-7Hz - smooth enough for overlay tracking, not chasing WS-grade rates
 
 const poseSubscribers = [];
@@ -764,8 +875,7 @@ function subscribeToPose(callback) {
   let nextPoseReceivedAtMs = 0;
 
   function poll() {
-    fetch("/pose")
-      .then((r) => r.json())
+    fetchWithTimeout("/pose", 2500)
       .then((data) => {
         const pose = { x: data.x, y: data.y, theta: data.theta, servoAngleDeg: data.servoAngleDeg || 0, tiltAngleDeg: data.tiltAngleDeg || 0 };
         prevPose = nextPose || pose;
@@ -1004,8 +1114,12 @@ function hexToRgb(hex) {
 // Since a pinhole camera maps straight lines to straight lines, each grid
 // line only needs its (possibly clipped) two endpoints projected, not
 // sampled point-by-point.
-function initFloorGrid(calib) {
-  const canvas = document.getElementById("camFloorGrid");
+// Also draws the world coordinate frame (see drawAxes() in draw()): a second
+// instance with { canvasId: "camAxesOverlay", grid: false, axes: true } so
+// the two overlays toggle independently but share one projection/clipping
+// pipeline.
+function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = false } = {}) {
+  const canvas = document.getElementById(canvasId);
   const img = document.getElementById("camStream");
   // wireOverlayToggle() only ever calls this once actually enabling the
   // overlay (initially on, or the moment it's first switched on) -- display
@@ -1032,7 +1146,15 @@ function initFloorGrid(calib) {
   const gridRgb = hexToRgb(localStorage.getItem("camGridColor") || CAM_GRID_DEFAULT_COLOR);
   const gridOpacityPct = parseFloat(localStorage.getItem("camGridOpacity"));
   const majorOpacity = Number.isFinite(gridOpacityPct) ? gridOpacityPct / 100 : 0.9;
-  const rgba = (opacity) => `rgba(${gridRgb.r}, ${gridRgb.g}, ${gridRgb.b}, ${opacity})`;
+  const rgbaOf = (c, opacity) => `rgba(${c.r}, ${c.g}, ${c.b}, ${opacity})`;
+
+  // World axes: X red, Y green, tick marks + labels every whole meter.
+  const X_AXIS_RGB = hexToRgb("#ff3b30");
+  const Y_AXIS_RGB = hexToRgb("#34d158");
+  const AXIS_OPACITY = 0.95;
+  const AXIS_TICK_HALF_M = 0.06; // whole-meter tick marks are 12 cm across, on the floor
+  const AXIS_HALF_TICK_HALF_M = 0.035; // half-meter ones 7 cm
+  const AXIS_LABEL_MIN_GAP_PX = 28; // labels closer than this (near the horizon) are skipped
 
   // Each tier reaches only as far as its lines stay at least this many
   // pixels apart on screen (see draw()): fine lines near the robot, coarse
@@ -1201,56 +1323,60 @@ function initFloorGrid(calib) {
     const reachFor = (interval) =>
       Math.min(MAX_GRID_DISTANCE_M, Math.sqrt((fPx * calib.heightM * interval) / MIN_LINE_SPACING_PX));
 
-    TIERS.forEach(({ interval, opacity, lineWidth }) => {
+    // Returns a function drawing one camera-relative floor segment, clipped
+    // to [nearM, maxDistM] ahead / +-halfWidthM sideways and to the
+    // viewport, fading out toward maxDistM.
+    const makeLineDrawer = (maxDistM, halfWidthM, rgb, opacity) => (right0, forward0, right1, forward1) => {
+      const c = clipToBox(right0, forward0, right1, forward1, -halfWidthM, halfWidthM, nearM, maxDistM);
+      if (!c) return;
+      const p1 = project(c.x0, c.y0);
+      const p2 = project(c.x1, c.y1);
+      if (!p1 || !p2) return;
+      // Trim to the viewport (in image pixels, small margin) before
+      // stroking. Near the lens a floor line can project tens of thousands
+      // of pixels off-screen, and GPU canvas rasterizers are prone to
+      // dropping such strokes -- which is what made lines blink out while
+      // the view rotated. 1/depth is linear along the screen segment, so a
+      // screen fraction s maps back to t = s*z0 / (s*z0 + (1-s)*z1) along
+      // the floor segment.
+      const sc = clipToBox(p1.u, p1.v, p2.u, p2.v, uMin, uMax, vMin, vMax);
+      if (!sc) return;
+      const toT = (sv) => (sv * p1.zc) / (sv * p1.zc + (1 - sv) * p2.zc);
+      const ta = toT(sc.t0);
+      const tb = toT(sc.t1);
+      const pointAt = (t) => ({ right: c.x0 + t * (c.x1 - c.x0), forward: c.y0 + t * (c.y1 - c.y0) });
+      const fa = fadeAt(pointAt(ta).forward, maxDistM);
+      const fb = fadeAt(pointAt(tb).forward, maxDistM);
+      if (fa <= 0 && fb <= 0) return;
+      // Fade as a few solid pieces rather than a gradient (same GPU concern).
+      const pieces = Math.min(12, Math.max(1, Math.ceil(Math.abs(fa - fb) / 0.08)));
+      let prev = null;
+      for (let i = 0; i <= pieces; i++) {
+        const t = ta + ((tb - ta) * i) / pieces;
+        const pt = pointAt(t);
+        const pp = project(pt.right, pt.forward);
+        if (!pp) return;
+        const cur = { ...toCanvas(pp.u, pp.v), forward: pt.forward };
+        if (prev) {
+          const alpha = opacity * fadeAt((prev.forward + cur.forward) / 2, maxDistM);
+          if (alpha > 0.005) {
+            ctx.strokeStyle = rgbaOf(rgb, alpha);
+            ctx.beginPath();
+            ctx.moveTo(prev.x, prev.y);
+            ctx.lineTo(cur.x, cur.y);
+            ctx.stroke();
+          }
+        }
+        prev = cur;
+      }
+    };
+
+    if (grid) TIERS.forEach(({ interval, opacity, lineWidth }) => {
       const maxDistM = reachFor(interval);
       if (nearM >= maxDistM) return;
       const halfWidthM = halfWidthAt(maxDistM);
       ctx.lineWidth = lineWidth;
-
-      const drawRelativeLine = (right0, forward0, right1, forward1) => {
-        const c = clipToBox(right0, forward0, right1, forward1, -halfWidthM, halfWidthM, nearM, maxDistM);
-        if (!c) return;
-        const p1 = project(c.x0, c.y0);
-        const p2 = project(c.x1, c.y1);
-        if (!p1 || !p2) return;
-        // Trim to the viewport (in image pixels, small margin) before
-        // stroking. Near the lens a floor line can project tens of thousands
-        // of pixels off-screen, and GPU canvas rasterizers are prone to
-        // dropping such strokes -- which is what made lines blink out while
-        // the view rotated. 1/depth is linear along the screen segment, so a
-        // screen fraction s maps back to t = s*z0 / (s*z0 + (1-s)*z1) along
-        // the floor segment.
-        const sc = clipToBox(p1.u, p1.v, p2.u, p2.v, uMin, uMax, vMin, vMax);
-        if (!sc) return;
-        const toT = (sv) => (sv * p1.zc) / (sv * p1.zc + (1 - sv) * p2.zc);
-        const ta = toT(sc.t0);
-        const tb = toT(sc.t1);
-        const pointAt = (t) => ({ right: c.x0 + t * (c.x1 - c.x0), forward: c.y0 + t * (c.y1 - c.y0) });
-        const fa = fadeAt(pointAt(ta).forward, maxDistM);
-        const fb = fadeAt(pointAt(tb).forward, maxDistM);
-        if (fa <= 0 && fb <= 0) return;
-        // Fade as a few solid pieces rather than a gradient (same GPU concern).
-        const pieces = Math.min(12, Math.max(1, Math.ceil(Math.abs(fa - fb) / 0.08)));
-        let prev = null;
-        for (let i = 0; i <= pieces; i++) {
-          const t = ta + ((tb - ta) * i) / pieces;
-          const pt = pointAt(t);
-          const pp = project(pt.right, pt.forward);
-          if (!pp) return;
-          const cur = { ...toCanvas(pp.u, pp.v), forward: pt.forward };
-          if (prev) {
-            const alpha = opacity * fadeAt((prev.forward + cur.forward) / 2, maxDistM);
-            if (alpha > 0.005) {
-              ctx.strokeStyle = rgba(alpha);
-              ctx.beginPath();
-              ctx.moveTo(prev.x, prev.y);
-              ctx.lineTo(cur.x, cur.y);
-              ctx.stroke();
-            }
-          }
-          prev = cur;
-        }
-      };
+      const drawRelativeLine = makeLineDrawer(maxDistM, halfWidthM, gridRgb, opacity);
 
       // World-frame bounding box of this tier's camera-relative box, from
       // its 4 corners -- decides which world grid lines are worth trying.
@@ -1278,6 +1404,74 @@ function initFloorGrid(calib) {
         drawRelativeLine(a.right, a.forward, b.right, b.forward);
       }
     });
+
+    if (axes && nearM < MAX_GRID_DISTANCE_M) {
+      const maxDistM = MAX_GRID_DISTANCE_M;
+      const halfWidthM = halfWidthAt(maxDistM);
+      const spanM = maxDistM + halfWidthM; // farther than this from the robot can't be in view
+      const worldSeg = (draw, x0, y0, x1, y1) => {
+        const a = worldToRelative(x0, y0, pose);
+        const b = worldToRelative(x1, y1, pose);
+        draw(a.right, a.forward, b.right, b.forward);
+      };
+      const labels = [];
+      // along: 0 = X axis (y = 0), 1 = Y axis (x = 0).
+      [[0, X_AXIS_RGB], [1, Y_AXIS_RGB]].forEach(([along, rgb]) => {
+        const at = (k, off) => (along === 0 ? [k, off] : [off, k]); // world point k meters along the axis, off to the side
+        const center = along === 0 ? pose.x : pose.y;
+        const lineDraw = makeLineDrawer(maxDistM, halfWidthM, rgb, AXIS_OPACITY);
+        ctx.lineWidth = 3;
+        worldSeg(lineDraw, ...at(center - spanM, 0), ...at(center + spanM, 0));
+        // Every half meter: whole meters get the bigger tick and label
+        // priority; the 0.5 m ones only get labels where there's room.
+        for (let i = Math.ceil(2 * (center - spanM)); i <= Math.floor(2 * (center + spanM)); i++) {
+          if (i === 0) continue;
+          const k = i / 2;
+          const half = i % 2 !== 0;
+          ctx.lineWidth = half ? 1.5 : 2;
+          const tickM = half ? AXIS_HALF_TICK_HALF_M : AXIS_TICK_HALF_M;
+          worldSeg(lineDraw, ...at(k, -tickM), ...at(k, tickM));
+          const [wx, wy] = at(k, 0);
+          const rel = worldToRelative(wx, wy, pose);
+          if (rel.forward < nearM || rel.forward > maxDistM) continue;
+          const p = project(rel.right, rel.forward);
+          if (!p) continue;
+          const c = toCanvas(p.u, p.v);
+          if (c.x < 0 || c.x > containerW || c.y < 0 || c.y > containerH) continue;
+          // Placement priority: the +1 m mark (which also carries the axis
+          // name), then other whole meters, then half meters.
+          const priority = k === 1 ? 0 : half ? 2 : 1;
+          const name = k === 1 ? (along === 0 ? "X" : "Y") : null;
+          labels.push({ x: c.x, y: c.y, text: `${k}`, alpha: fadeAt(rel.forward, maxDistM), forward: rel.forward, priority, name });
+        }
+      });
+      // By priority, nearest first within each, skipping any that would
+      // crowd an already-placed one.
+      labels.sort((a, b) => a.priority - b.priority || a.forward - b.forward);
+      const placed = [];
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "bottom";
+      ctx.lineWidth = 3;
+      labels.forEach((l) => {
+        if (l.alpha < 0.05) return;
+        if (placed.some((q) => Math.hypot(q.x - l.x, q.y - l.y) < AXIS_LABEL_MIN_GAP_PX)) return;
+        placed.push(l);
+        ctx.strokeStyle = `rgba(0, 0, 0, ${0.7 * l.alpha})`;
+        ctx.strokeText(l.text, l.x + 4, l.y - 3);
+        // White text (dark outline) reads on any floor; the axis lines
+        // themselves carry the red/green.
+        ctx.fillStyle = `rgba(255, 255, 255, ${l.alpha})`;
+        ctx.fillText(l.text, l.x + 4, l.y - 3);
+        if (l.name) {
+          // Axis name in big letters above the +1 m label.
+          ctx.font = "bold 20px sans-serif";
+          ctx.strokeText(l.name, l.x + 4, l.y - 17);
+          ctx.fillText(l.name, l.x + 4, l.y - 17);
+          ctx.font = "bold 12px sans-serif";
+        }
+      });
+    }
   }
 
   img.addEventListener("load", draw, { once: true }); // ensures naturalWidth/Height are known
@@ -1314,8 +1508,7 @@ function startWaypointsPolling() {
   if (waypointsPollStarted) return;
   waypointsPollStarted = true;
   function poll() {
-    fetch("/waypoints")
-      .then((r) => r.json())
+    fetchWithTimeout("/waypoints", 5000)
       .then((data) => {
         cachedOverlayWaypoints = [CAM_HOME_WAYPOINT, ...(Array.isArray(data) ? data : [])];
       })
@@ -1522,8 +1715,10 @@ function initWaypointOverlay(calib) {
     // Label stays upright and inset from the edge, rather than rotating
     // with the arrow (which would make it hard to read near the corners).
     const labelX = Math.min(Math.max(x, EDGE_MARGIN_PX + 30), w - EDGE_MARGIN_PX - 30);
-    const labelY = Math.min(Math.max(y + 14, 12), h - 4);
-    drawLabel(labelX, labelY, "top", wp, distM);
+    // Below the arrow, or above it when the arrow's in the lower half
+    // (e.g. along the bottom edge) so the label isn't pushed off screen.
+    if (y > h / 2) drawLabel(labelX, Math.max(y - 12, 16), "bottom", wp, distM);
+    else drawLabel(labelX, Math.min(y + 14, h - 18), "top", wp, distM);
   }
 
   function draw() {
@@ -1589,10 +1784,12 @@ function initWaypointOverlay(calib) {
 
       // Off-screen: clamp a ray from the screen center toward the
       // waypoint's screen-space direction (in front of the camera, just
-      // outside the frame) or its world-relative right/left side (behind
-      // the camera, where u/v aren't meaningful) to the canvas edge.
+      // outside the frame) or, behind the camera where u/v aren't
+      // meaningful, its top-down radar direction (right = right, ahead =
+      // up) -- so a waypoint behind the player sits along the BOTTOM edge,
+      // sliding up the side edges as it comes round beside them.
       const dirX = c ? c.x - cx : rel.right;
-      const dirY = c ? c.y - cy : -1; // slight upward bias so a directly-behind waypoint doesn't sit exactly on the vertical center
+      const dirY = c ? c.y - cy : -rel.forward;
       if (dirX === 0 && dirY === 0) return;
       const halfW = containerW / 2 - EDGE_MARGIN_PX;
       const halfH = containerH / 2 - EDGE_MARGIN_PX;
