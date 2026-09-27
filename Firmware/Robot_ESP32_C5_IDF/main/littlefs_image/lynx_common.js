@@ -48,6 +48,26 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "demons", title: "Doom", better: "higher", format: "points" }],
     },
     {
+      id: "david",
+      kind: "game",
+      name: "David",
+      icon: "\u{1F4E6}",
+      blurb:
+        "Schiet de blokken op de vloer open: in het gouden blok zit steeds een nieuw, beter pistool " +
+        "(waterpistool, laserpistool, dubbelpistool, bliksemgeweer, regenboogkanon). Versla daarmee de monsters " +
+        "en haal zoveel mogelijk levels!",
+      settings: [
+        { key: "difficulty", label: "Moeilijkheid", type: "select", def: "normaal",
+          options: [["makkelijk", "Makkelijk"], ["normaal", "Normaal"], ["moeilijk", "Moeilijk"]] },
+        { key: "hearts", label: "Hartjes", type: "number", def: 5, min: 1, max: 9, step: 1 },
+        { key: "areaM", label: "Speelveld (straal)", type: "number", unit: "m", def: 2, min: 1, max: 5, step: 0.25 },
+        { key: "aimAssist", label: "Hulp bij richten", type: "checkbox", def: true },
+        { key: "radar", label: "Radar", type: "checkbox", def: true },
+        { key: "arrows", label: "Pijlen naar blokken en monsters", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "david", title: "David", better: "higher", format: "points" }],
+    },
+    {
       id: "coins",
       kind: "game",
       name: "Pacman",
@@ -316,6 +336,15 @@ window.Lynx = window.Lynx || {};
     go: (t) => tone(t, "square", 1320, null, 0.4, 0.35),
     found: (t) => { [523, 659, 784, 1047].forEach((f, i) => tone(t + i * 0.08, "triangle", f, null, 0.12, 0.35)); },
     fail: (t) => tone(t, "sawtooth", 220, 110, 0.4, 0.3),
+    // David
+    squirt: (t) => { noise(t, 0.14, "bandpass", 2500, 2, 0.5, 900); tone(t, "sine", 700, 350, 0.06, 0.15); },
+    laser: (t) => tone(t, "square", 1600, 300, 0.14, 0.25),
+    zap: (t) => { tone(t, "sawtooth", 1200, 200, 0.08, 0.2); noise(t, 0.06, "highpass", 3000, 1, 0.3); },
+    rainbow: (t) => { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(t + i * 0.03, "triangle", f, f * 1.5, 0.12, 0.2)); noise(t, 0.4, "lowpass", 1200, 0.8, 0.5, 100); },
+    knock: (t) => { noise(t, 0.08, "lowpass", 700, 1, 0.7); tone(t, "sine", 180, 90, 0.06, 0.3); },
+    crate: (t) => { noise(t, 0.35, "lowpass", 900, 0.8, 0.9, 120); tone(t, "square", 140, 60, 0.12, 0.3); },
+    boing: (t) => tone(t, "sine", 180, 520, 0.18, 0.35),
+    levelup: (t) => { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(t + i * 0.1, "square", f, null, 0.1, 0.22)); },
     // Short, original chugging riff for a new wave.
     wave: (t) => {
       const notes = [82, 82, 165, 82, 82, 147, 82, 82, 131, 82, 123, 110];
