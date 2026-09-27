@@ -20,6 +20,7 @@
 
 #include <strings.h>
 #include <cstdio>
+#include <unistd.h>
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
@@ -931,6 +932,15 @@ esp_err_t handle_waypoints_post_wrapper(httpd_req_t *req) { return handle_waypoi
 
 } // namespace
 
+// Session close callback: forget any half-sent WebSocket frame queued for
+// this socket before its number can be reused (ws_broadcast.cpp), then close
+// it -- which is all httpd does itself when no close_fn is set.
+static void close_session(httpd_handle_t hd, int sockfd) {
+    (void) hd;
+    ws_broadcast_forget_fd(sockfd);
+    close(sockfd);
+}
+
 void web_server_init() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
@@ -938,6 +948,7 @@ void web_server_init() {
     config.max_open_sockets = 12; // the UI opens ~6 conns per page navigation
     config.max_uri_handlers = 40; // ~22 here + /ws (ws_broadcast.cpp) + OTA/model (ota.cpp, model_store.cpp) + /debug/* (debug_pan.cpp); registrations past this fail silently
     config.lru_purge_enable = true; // reconnect-storm resilience
+    config.close_fn = close_session;
     config.send_wait_timeout = 2; // bound the worst case if a peer stalls
     config.recv_wait_timeout = 5; // OTA upload chunks need it, once milestone G exists
     // C5 is single-core, so this just pins to the only core that exists --

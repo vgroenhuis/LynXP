@@ -15,15 +15,21 @@
 //               odometry says the chassis turned `deg` (either sign; up to
 //               720), 1500 ms still. For calibration: a full 360 deg turn is
 //               exact whatever the calibration, see tools/calibrate.py.
+//       record: doesn't move anything -- just logs (for `secs`, default 60,
+//               max 600) while someone drives; kind=stop ends it early. The
+//               log is a ring buffer, so read it as it goes with ?from=.
 //     log_ms=N logs every N ms instead of every 5 (for long runs).
 // GET /debug/servo?pan=<deg>&tilt=<deg> | ?release=1
 //     Holds the pan/tilt servos at the given angles (pan follow suspended)
 //     until released, or for at most 2 minutes.
-// GET /debug/panlog
-//     CSV of the last experiment: t_us, theta_rad, wheel vel L/R (rev/s),
-//     servo command (deg), phase; first line is "# control_rad=..,t0_us=..".
+// GET /debug/panlog[?from=N]
+//     CSV of the experiment's log (409 while a scripted one is still running,
+//     unless ?from= is given): t_us, theta_rad, wheel vel L/R (rev/s), pan
+//     command (deg), phase, tilt command (deg), x_m, y_m. First line is
+//     "# control_rad=..,t0_us=..,next=N": ask for ?from=N next time to get
+//     only newer samples (the ring keeps the latest MAX_SAMPLES).
 //
-// No PSRAM on this build, so the log is packed to 16 bytes/sample (~19 KB).
+// No PSRAM on this build, so the log is packed to 20 bytes/sample (~20 KB).
 // GET /debug/pantune[?interval=20][&lead=70]
 //     Reads/sets the servo-follow knobs (not persisted; reboot resets them).
 //
@@ -44,6 +50,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -63,14 +70,17 @@ const char *TAG = "debug_pan";
 
 constexpr int SAMPLE_PERIOD_US = 5000; // 200 Hz
 constexpr int64_t SERVO_HOLD_MAX_US = 120LL * 1000 * 1000;
-constexpr int MAX_SAMPLES = 1200; // 6 s
+constexpr int MAX_SAMPLES = 1024; // ring buffer; ~5 s at 200 Hz, ~40 s at 25 ms
 
 struct Sample {
     uint32_t tUs; // since the experiment started
     float theta;
     int16_t wvL; // rev/s x 1000
     int16_t wvR;
-    int16_t servoCdeg; // deg x 100
+    int16_t servoCdeg; // pan command, deg x 100
+    int16_t tiltCdeg; // tilt command, deg x 100
+    int16_t xMm; // position, mm
+    int16_t yMm;
     uint8_t phase;
 };
 
@@ -81,6 +91,7 @@ volatile int sampleCount = 0;
 volatile uint8_t currentPhase = 0;
 volatile bool logging = false;
 volatile bool running = false;
+volatile bool stopRequested = false;
 esp_timer_handle_t sampleTimer = nullptr;
 int logEvery = 1; // log every Nth 5 ms tick
 int tickCounter = 0;
@@ -104,10 +115,12 @@ void sample_cb(void *) {
     if (!logging || samples == nullptr) return;
     if (++tickCounter < logEvery) return;
     tickCounter = 0;
-    int i = sampleCount;
-    if (i >= MAX_SAMPLES) return;
-    samples[i] = {(uint32_t) (esp_timer_get_time() - t0Us), poseThetaRad, (int16_t) (wheelVelRevPerSec[0] * 1000.0f),
-                  (int16_t) (wheelVelRevPerSec[1] * 1000.0f), (int16_t) (currentServoAngleDeg * 100.0f), currentPhase};
+    int i = sampleCount; // total ever logged this experiment; the ring holds the latest MAX_SAMPLES
+    samples[i % MAX_SAMPLES] = {(uint32_t) (esp_timer_get_time() - t0Us), poseThetaRad,
+                                (int16_t) (wheelVelRevPerSec[0] * 1000.0f), (int16_t) (wheelVelRevPerSec[1] * 1000.0f),
+                                (int16_t) (currentServoAngleDeg * 100.0f), (int16_t) (currentTiltAngleDeg * 100.0f),
+                                (int16_t) std::clamp(poseX_m * 1000.0f, -32767.0f, 32767.0f),
+                                (int16_t) std::clamp(poseY_m * 1000.0f, -32767.0f, 32767.0f), currentPhase};
     sampleCount = i + 1;
 }
 
@@ -155,6 +168,9 @@ void experiment_task(void *) {
         currentPhase = 4;
         hold_still(800);
         g_panFollowSuspended = false;
+    } else if (std::strcmp(params.kind, "record") == 0) {
+        int64_t end = t0Us + (int64_t) params.ms * 1000;
+        while (!stopRequested && esp_timer_get_time() < end) vTaskDelay(pdMS_TO_TICKS(50));
     } else if (std::strcmp(params.kind, "turnto") == 0) {
         g_panFollowSuspended = true;
         hold_still(500);
@@ -223,6 +239,11 @@ esp_err_t handle_now(httpd_req_t *req) {
 
 esp_err_t handle_exp(httpd_req_t *req) {
     if (!ota_request_authorized(req)) return ESP_OK;
+    char stopKind[8] = "";
+    if (query_str(req, "kind", stopKind, sizeof(stopKind)) && std::strcmp(stopKind, "stop") == 0) {
+        stopRequested = true; // record only; scripted experiments are short
+        return httpd_resp_sendstr(req, running ? "stopping" : "nothing running");
+    }
     if (running) {
         httpd_resp_set_status(req, "409 Conflict");
         return httpd_resp_sendstr(req, "experiment already running");
@@ -239,8 +260,9 @@ esp_err_t handle_exp(httpd_req_t *req) {
     }
     char kind[8] = "rotate";
     query_str(req, "kind", kind, sizeof(kind));
-    if (std::strcmp(kind, "rotate") != 0 && std::strcmp(kind, "servo") != 0 && std::strcmp(kind, "turnto") != 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kind must be rotate, servo or turnto");
+    if (std::strcmp(kind, "rotate") != 0 && std::strcmp(kind, "servo") != 0 && std::strcmp(kind, "turnto") != 0 &&
+        std::strcmp(kind, "record") != 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "kind must be rotate, servo, turnto, record or stop");
         return ESP_OK;
     }
     std::strcpy(params.kind, kind);
@@ -251,6 +273,10 @@ esp_err_t handle_exp(httpd_req_t *req) {
     float degLimit = std::strcmp(kind, "turnto") == 0 ? 720.0f : 80.0f;
     params.deg = std::fmin(std::fmax(query_float(req, "deg", 40.0f), -degLimit), degLimit);
     logEvery = (int) std::fmin(std::fmax(query_float(req, "log_ms", 5.0f) / 5.0f, 1.0f), 100.0f);
+    if (std::strcmp(kind, "record") == 0) {
+        params.ms = (int) std::fmin(std::fmax(query_float(req, "secs", 60.0f), 1.0f), 600.0f) * 1000;
+    }
+    stopRequested = false;
     tickCounter = 0;
 
     running = true;
@@ -267,19 +293,26 @@ esp_err_t handle_exp(httpd_req_t *req) {
 
 esp_err_t handle_log(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/csv");
-    if (running) {
+    char q[16];
+    bool incremental = query_str(req, "from", q, sizeof(q));
+    if (running && !incremental) {
         httpd_resp_set_status(req, "409 Conflict");
         return httpd_resp_sendstr(req, "still running");
     }
-    char line[128];
-    int len = snprintf(line, sizeof(line), "# control_rad=%.5f,t0_us=%lld\nt_us,theta_rad,wvL,wvR,servo_deg,phase\n",
-                       controlThetaAtStart, (long long) t0Us);
-    httpd_resp_send_chunk(req, line, len);
+    if (samples == nullptr) return httpd_resp_sendstr(req, "# nothing logged yet\n");
     int n = sampleCount;
-    for (int i = 0; i < n; i++) {
-        const Sample &s = samples[i];
-        len = snprintf(line, sizeof(line), "%lld,%.5f,%.3f,%.3f,%.2f,%d\n", (long long) (t0Us + s.tUs), s.theta,
-                       s.wvL / 1000.0f, s.wvR / 1000.0f, s.servoCdeg / 100.0f, s.phase);
+    int from = incremental ? (int) query_float(req, "from", 0.0f) : 0;
+    from = std::max(from, n - MAX_SAMPLES);
+    char line[160];
+    int len = snprintf(line, sizeof(line),
+                       "# control_rad=%.5f,t0_us=%lld,next=%d\nt_us,theta_rad,wvL,wvR,servo_deg,phase,tilt_deg,x_m,y_m\n",
+                       controlThetaAtStart, (long long) t0Us, n);
+    httpd_resp_send_chunk(req, line, len);
+    for (int i = std::max(from, 0); i < n; i++) {
+        const Sample &s = samples[i % MAX_SAMPLES];
+        len = snprintf(line, sizeof(line), "%lld,%.5f,%.3f,%.3f,%.2f,%d,%.2f,%.3f,%.3f\n", (long long) (t0Us + s.tUs),
+                       s.theta, s.wvL / 1000.0f, s.wvR / 1000.0f, s.servoCdeg / 100.0f, s.phase, s.tiltCdeg / 100.0f,
+                       s.xMm / 1000.0f, s.yMm / 1000.0f);
         if (httpd_resp_send_chunk(req, line, len) != ESP_OK) return ESP_FAIL;
     }
     return httpd_resp_send_chunk(req, nullptr, 0);

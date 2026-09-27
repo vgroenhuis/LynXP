@@ -26,6 +26,10 @@ void ws_broadcast_set_pan_angle(float deg);
 void ws_broadcast_set_tilt_angle(float deg);
 void ws_broadcast_hold_drive_command();
 
+// For the web server's session-close callback: drop any half-sent WebSocket
+// frame queued for this socket (see ws_send_text() in ws_broadcast.cpp).
+void ws_broadcast_forget_fd(int fd);
+
 // Estimated physical pan/tilt servo angles (the commands of one servo lag
 // ago) -- what the camera is really pointing at, for overlays.
 void ws_broadcast_servo_actual(float *panDeg, float *tiltDeg);

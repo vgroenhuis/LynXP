@@ -633,7 +633,11 @@ extern const uint8_t diag_html_end[]   asm("_binary_diag_html_end");
 #define PART_BOUNDARY "frameboundary"
 static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+// X-Timestamp: when the frame was captured (camera clock, esp_timer seconds
+// since boot, microsecond resolution) -- lets a viewer that parses the
+// stream itself pair each frame with robot telemetry from the same moment,
+// independent of how long that frame spent in buffers and on WiFi.
+static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %lld.%06ld\r\n\r\n";
 
 static httpd_handle_t s_main_httpd = NULL;
 static httpd_handle_t s_stream_httpd = NULL;
@@ -852,6 +856,7 @@ static uint8_t *s_frame_buf = NULL;
 static size_t s_frame_len = 0;
 static size_t s_frame_cap = 0;
 static volatile uint32_t s_frame_seq = 0;
+static int64_t s_frame_ts_us = 0; // capture time of s_frame_buf
 
 static SemaphoreHandle_t s_stream_slots; // counting semaphore, one per free viewer slot
 
@@ -897,6 +902,7 @@ static void capture_task(void *arg) {
         if (s_frame_buf && fb->len <= s_frame_cap) {
             memcpy(s_frame_buf, fb->buf, fb->len);
             s_frame_len = fb->len;
+            s_frame_ts_us = (int64_t) fb->timestamp.tv_sec * 1000000LL + fb->timestamp.tv_usec;
             s_frame_seq++;
         }
         xSemaphoreGive(s_frame_mutex);
@@ -940,7 +946,7 @@ static void stream_client_task(void *pvParameters) {
     uint32_t last_seq = 0;
     uint8_t *local_buf = NULL;
     size_t local_cap = 0;
-    char part_buf[64];
+    char part_buf[112];
 
     while (res == ESP_OK) {
         // Wait for the capture task to publish a frame we haven't sent yet.
@@ -963,6 +969,7 @@ static void stream_client_task(void *pvParameters) {
             }
         }
         if (local_buf && len <= local_cap) memcpy(local_buf, s_frame_buf, len);
+        int64_t ts_us = s_frame_ts_us;
         last_seq = s_frame_seq;
         xSemaphoreGive(s_frame_mutex);
 
@@ -979,7 +986,8 @@ static void stream_client_task(void *pvParameters) {
         int64_t send_start_us = esp_timer_get_time();
         res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
         if (res == ESP_OK) {
-            size_t hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART, len);
+            size_t hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART, len,
+                                   (long long) (ts_us / 1000000), (long) (ts_us % 1000000));
             res = httpd_resp_send_chunk(req, part_buf, hlen);
         }
         if (res == ESP_OK) {

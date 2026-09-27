@@ -24,6 +24,8 @@
 #include <cstdlib>
 #include <algorithm>
 #include <sys/select.h>
+#include <sys/socket.h>
+#include <cerrno>
 
 namespace {
 
@@ -291,23 +293,124 @@ esp_err_t ws_handler(httpd_req_t *req) {
 
 constexpr size_t MAX_WS_FDS = 16; // >= httpd_config_t.max_open_sockets (12)
 
-// Sends `json` to every currently-connected WS client. The httpd receive
-// handler (ws_handler, above) never sends anything itself -- everything
-// outbound funnels through this one function, called only from
-// ws_poll_task -- so two tasks can never race writes onto the same socket
-// and corrupt WS framing.
+// -- non-blocking WebSocket sends ------------------------------------------
+// Everything outbound on the WebSockets (telemetry broadcasts, pongs) goes
+// through ws_send_text() below, only ever from ws_poll_task, so framing can't
+// interleave. The httpd receive handler never sends.
 //
-// esp_http_server's httpd_ws_send_frame_async() does a genuinely BLOCKING
-// send() under the hood (bounded only by httpd_config_t.send_wait_timeout,
-// 2s here). A dead peer would otherwise stall this ENTIRE broadcast --
-// worse than the Pico build's unbounded-heap-leak version of this same bug,
-// since app.js reconnects after just 1s of silence and one stall would
-// cascade into every healthy client dropping. The select() probe below is
-// the direct analogue of the Pico's `c->send.len > WS_SEND_BACKLOG_LIMIT`
-// check: skip, don't block, if the socket isn't writable RIGHT NOW. TCP
-// keepalive (httpd_config_t) plus lru_purge_enable handle actually closing
-// a truly-dead connection at the OS/httpd level -- no separate strike
-// counter needed here.
+// This task is watched by the task watchdog (3 s), so it must never block on
+// a socket. esp_http_server's httpd_ws_send_frame_async() does two BLOCKING
+// send()s bounded only by send_wait_timeout, and lwIP checks that timeout
+// with ~1 s granularity -- one stalled client (e.g. a phone reloading the
+// page, a burst of new connections exhausting lwIP's buffers) could hold this
+// task for 3-6 s and trigger a watchdog reboot. That was the "hang in
+// pose_broadcast". A select() "writable" probe didn't help: it only
+// guarantees a minimal amount of send-buffer space.
+//
+// So frames are built here and written with MSG_DONTWAIT. Whatever doesn't
+// fit waits in that client's backlog, retried every tick; new frames for a
+// client with a backlog are dropped (telemetry is superseded 10x a second
+// anyway), and a client whose backlog hasn't drained for 2 s is closed --
+// the pages reconnect by themselves.
+constexpr size_t WS_FRAME_MAX = 1024; // largest frame we build: 4-byte header + <= 800-byte payload
+constexpr int64_t WS_BACKLOG_TIMEOUT_US = 2000000;
+
+struct WsBacklog {
+    int fd = -1;
+    size_t len = 0; // bytes waiting in buf
+    size_t off = 0; // of which already sent
+    int64_t sinceUs = 0;
+    uint8_t buf[WS_FRAME_MAX];
+};
+WsBacklog wsBacklogs[MAX_WS_FDS];
+portMUX_TYPE wsBacklogMux = portMUX_INITIALIZER_UNLOCKED; // guards slot ownership against the close callback
+
+WsBacklog *backlog_for(int fd) {
+    WsBacklog *found = nullptr;
+    taskENTER_CRITICAL(&wsBacklogMux);
+    for (auto &b : wsBacklogs) {
+        if (b.fd == fd) {
+            found = &b;
+            break;
+        }
+    }
+    if (!found) {
+        for (auto &b : wsBacklogs) {
+            if (b.fd < 0) {
+                b.fd = fd;
+                b.len = b.off = 0;
+                found = &b;
+                break;
+            }
+        }
+    }
+    taskEXIT_CRITICAL(&wsBacklogMux);
+    return found;
+}
+
+// >= 0: bytes written (possibly fewer than len); -1: socket error.
+int send_nonblocking(int fd, const uint8_t *data, size_t len) {
+    int n = send(fd, data, len, MSG_DONTWAIT);
+    if (n < 0) return (errno == EAGAIN || errno == EWOULDBLOCK) ? 0 : -1;
+    return n;
+}
+
+// Returns true if nothing is left waiting for this client.
+bool flush_backlog(httpd_handle_t server, WsBacklog &b) {
+    if (b.off >= b.len) return true;
+    int n = send_nonblocking(b.fd, b.buf + b.off, b.len - b.off);
+    if (n > 0) {
+        b.off += (size_t) n;
+        b.sinceUs = esp_timer_get_time(); // progress
+    }
+    if (b.off >= b.len) {
+        b.len = b.off = 0;
+        return true;
+    }
+    if (n < 0 || esp_timer_get_time() - b.sinceUs > WS_BACKLOG_TIMEOUT_US) {
+        ESP_LOGW(TAG, "ws fd %d stalled -- closing it", b.fd);
+        b.len = b.off = 0;
+        httpd_sess_trigger_close(server, b.fd);
+    }
+    return false;
+}
+
+void ws_send_text(httpd_handle_t server, int fd, const char *text, size_t len) {
+    if (len + 4 > WS_FRAME_MAX) return;
+    WsBacklog *b = backlog_for(fd);
+    if (b == nullptr) return;
+    if (!flush_backlog(server, *b)) return; // still busy with an earlier frame: drop this one
+    // Server-to-client frame: FIN + text opcode, unmasked, 7- or 16-bit length.
+    size_t h = 0;
+    b->buf[h++] = 0x81;
+    if (len < 126) {
+        b->buf[h++] = (uint8_t) len;
+    } else {
+        b->buf[h++] = 126;
+        b->buf[h++] = (uint8_t) (len >> 8);
+        b->buf[h++] = (uint8_t) len;
+    }
+    std::memcpy(b->buf + h, text, len);
+    b->len = h + len;
+    b->off = 0;
+    b->sinceUs = esp_timer_get_time();
+    flush_backlog(server, *b);
+}
+
+// Retry every client's pending bytes (called once per poll tick).
+void flush_all_backlogs(httpd_handle_t server) {
+    for (auto &b : wsBacklogs) {
+        if (b.fd >= 0 && b.len > b.off) {
+            if (httpd_ws_get_fd_info(server, b.fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
+                b.len = b.off = 0; // gone
+                continue;
+            }
+            flush_backlog(server, b);
+        }
+    }
+}
+
+// Sends `json` to every currently-connected WS client, never blocking.
 void broadcast_ws(httpd_handle_t server, const char *json, size_t len) {
     if (server == nullptr) {
         return;
@@ -317,25 +420,10 @@ void broadcast_ws(httpd_handle_t server, const char *json, size_t len) {
     if (httpd_get_client_list(server, &fdCount, fds) != ESP_OK) {
         return;
     }
-
-    httpd_ws_frame_t frame = {};
-    frame.type = HTTPD_WS_TYPE_TEXT;
-    frame.payload = (uint8_t *) json;
-    frame.len = len;
-
     for (size_t i = 0; i < fdCount; i++) {
-        int fd = fds[i];
-        if (httpd_ws_get_fd_info(server, fd) != HTTPD_WS_CLIENT_WEBSOCKET) {
-            continue;
+        if (httpd_ws_get_fd_info(server, fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
+            ws_send_text(server, fds[i], json, len);
         }
-        fd_set writeSet;
-        FD_ZERO(&writeSet);
-        FD_SET(fd, &writeSet);
-        struct timeval zeroTimeout = {0, 0};
-        if (select(fd + 1, nullptr, &writeSet, nullptr, &zeroTimeout) <= 0 || !FD_ISSET(fd, &writeSet)) {
-            continue; // not writable right now -- skip this tick rather than block
-        }
-        httpd_ws_send_frame_async(server, fd, &frame);
     }
 }
 
@@ -532,15 +620,12 @@ void ws_poll_task(void *arg) {
             char buf[64];
             int n = snprintf(buf, sizeof(buf), "{\"type\":\"pong\",\"seq\":%d}", pendingPongSeq);
             if (server != nullptr && httpd_ws_get_fd_info(server, pendingPongFd) == HTTPD_WS_CLIENT_WEBSOCKET) {
-                httpd_ws_frame_t frame = {};
-                frame.type = HTTPD_WS_TYPE_TEXT;
-                frame.payload = (uint8_t *) buf;
-                frame.len = (size_t) n;
-                httpd_ws_send_frame_async(server, pendingPongFd, &frame);
+                ws_send_text(server, pendingPongFd, buf, (size_t) n);
             }
         }
 
         servo_history_record(nowMs);
+        if (server != nullptr) flush_all_backlogs(server);
         int wsCount = count_ws_clients(server);
 
         breadcrumb_mark_core0(CORE0_CP_POSE_BROADCAST);
@@ -695,6 +780,19 @@ void ws_broadcast_set_tilt_angle(float deg) {
     lastTiltActiveMs = millis_now();
     tiltServoIdle = false;
     writeTiltServoPulse();
+}
+
+void ws_broadcast_forget_fd(int fd) {
+    // httpd's close callback (another task) -- make sure a reused socket
+    // number never inherits a closed client's half-sent frame.
+    taskENTER_CRITICAL(&wsBacklogMux);
+    for (auto &b : wsBacklogs) {
+        if (b.fd == fd) {
+            b.len = b.off = 0;
+            b.fd = -1;
+        }
+    }
+    taskEXIT_CRITICAL(&wsBacklogMux);
 }
 
 void ws_broadcast_hold_drive_command() {
