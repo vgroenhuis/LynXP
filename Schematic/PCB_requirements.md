@@ -28,6 +28,7 @@ committing to the layout.
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
 | OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED panel on the PCB** (see §5.1) |
 | nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
+| Headlights, microphone, speaker | — | Headlight outputs, on-board I²S microphone, speaker amplifier (new, see §11) |
 
 Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LED.
 
@@ -169,9 +170,13 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | QR pushbutton | 27 |
 | Screen-select potentiometer (§5.1) | GPIO1 (ADC1_CH0) |
 | UART0 TX / RX | 11 / 12 *(verify)* |
+| PCA9685 OE | 0 |
+| I²S BCLK / WS (shared by microphone and amplifier, §11.2) | 5 / 6 |
+| I²S DIN (microphone) / DOUT (amplifier) | 8 / 9 |
+| Addressable status LED | 7 |
+| MCP23017 INT (INTA/INTB mirrored) | 10 |
 
-Freed GPIOs (0, 5, 6, 7, 8, 9, 10) and other remaining GPIOs should go to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
-and a 2.54 mm female header with all remaining free GPIOs.
+Any GPIOs left over go to a 2.54 mm female header.
 
 Encoders **must** stay on native GPIOs (PCNT peripheral).
 
@@ -263,7 +268,8 @@ sensors, etc.) without using ESP32 pins.
   - Series resistor (~220 Ω) on each signal line.
   - Spacing wide enough to plug in 8 servo connectors side by side.
 - Channels 8 and 9: TB6612FNG PWMA (right motor) and PWMB (left motor).
-- **Must**: break out PCA9685 channels 10–15 on a 2.54 mm female header (with GND and 5 V next to it).
+- Channels 11 and 12: left and right **headlights** (§11.1).
+- **Must**: break out PCA9685 channels 13–15 on a 2.54 mm female header (with GND and 5 V next to it).
 - **Should**: channel 10 drives a logic-level low-side MOSFET for the **nOOds LED** (dimmable),
   with footprint for the series resistor (47 Ω on LynXP One) and a 2-pin connector.
 
@@ -271,7 +277,8 @@ sensors, etc.) without using ESP32 pins.
 
 ## 7. MCP23017 GPIO expander
 
-- **Must**: MCP23017 at 3.3 V, RESET pulled up (optionally to a GPIO), INTA/INTB to ESP32 GPIOs.
+- **Must**: MCP23017 at 3.3 V, RESET pulled up (optionally to a GPIO), INTA/INTB mirrored (one
+  interrupt line) to an ESP32 GPIO.
 - **Note** *(verify)*: newer MCP23017 datasheets specify **GPA7 and GPB7 as output-only**. Use these
   two pins for outputs (e.g. LEDs) and not for switches.
 - Suggested allocation:
@@ -279,6 +286,7 @@ sensors, etc.) without using ESP32 pins.
     motors are stopped while the MCP23017 is in reset or not yet configured.
   - 8-position DIP switch (inputs, see §9).
   - Large user switches/buttons (inputs).
+  - GPB7: speaker amplifier shutdown/mute (output, §11.2).
   - User LEDs (as needed).
   - All unused pins on a labelled 2.54 mm female header with GND and 3.3 V.
 
@@ -357,9 +365,31 @@ All three options on the board, electrically in parallel (only one used at a tim
 - Addressable status LED (WS2812/SK6812) on a free GPIO; **may** also add a 3-pin header to chain
   more.
 - nOOds LED 2-pin connector (see §6).
-- Female header breakout of all free ESP32 GPIOs, MCP23017 spare pins and PCA9685 channels 10–15,
+- Female header breakout of all free ESP32 GPIOs, MCP23017 spare pins and PCA9685 channels 13–15,
   each group with GND and supply pins next to it.
 - All connectors labelled on the silkscreen with signal name and voltage.
+
+### 11.1 Headlights
+- **Must**: two headlight outputs (LEFT, RIGHT), each a 2-pin connector (JST-PH 2.0 mm) for an
+  off-board white LED mounted at the front of the robot.
+- Each driven by a logic-level low-side MOSFET from PCA9685 channel 11/12 (dimmable), from the 5 V
+  rail, up to 350 mA per output.
+- Footprint for a current-limiting resistor per output (size for ≥ 1 W), so both small 5 mm LEDs and
+  1 W power LEDs can be used. A small constant-current LED driver instead of the resistor is
+  acceptable.
+
+### 11.2 Microphone and speaker
+- **Must**: on-board **I²S MEMS microphone** (e.g. ICS-43434 or INMP441-compatible, available at
+  JLCPCB/LCSC), top-port so it fits single-sided assembly. Placed at a board edge, away from the
+  motor driver, bucks and speaker connector; keep the sound port free (no silkscreen/solder mask
+  over it, no parts on top of it).
+- **Must**: **I²S class-D amplifier** (e.g. MAX98357A) powered from the 5 V rail, driving a
+  2-pin speaker connector (JST-PH 2.0 mm) for an off-board 4–8 Ω, 1–3 W speaker. Shutdown/mute
+  pin to MCP23017 GPB7 (pulled to shutdown by default so the speaker is silent during boot).
+- Microphone and amplifier share I²S BCLK and WS; separate data lines (see §4.2). Pin choice must
+  match the ESP32-C5 I²S peripheral *(verify)*.
+- Decouple the amplifier supply well (≥ 10 µF + 100 nF close to the chip) and route the speaker
+  output as a short differential pair away from the microphone and the antenna cable.
 
 ---
 
@@ -413,7 +443,7 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 The following firmware changes follow from this board and are not part of the PCB design:
 PCA9685 driver for servos and motor PWM (and OE control), MCP23017 driver for motor direction,
-DIP switch/buttons/LEDs, ADC driver for the analog inputs, screen selection with the
+DIP switch/buttons/LEDs, headlights, I²S microphone and speaker, ADC driver for the analog inputs, screen selection with the
 potentiometer, motor updates over I²C (the 1 kHz control loop must budget for I²C
 writes or update the motors at a lower rate), PD voltage
 handling at 12 V instead of 9 V (motor PWM limits), board detection at startup (§12.1) with
