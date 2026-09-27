@@ -167,7 +167,7 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | I²C SDA / SCL | 2 / 3 |
 | Camera UART RX / TX | 4 / 28 |
 | QR pushbutton | 27 |
-| Screen-select potentiometer (§5.1) | GPIO1 (ADC-capable *(verify)*) |
+| Screen-select potentiometer (§5.1) | GPIO1 (ADC1_CH0) |
 | UART0 TX / RX | 11 / 12 *(verify)* |
 
 Freed GPIOs (0, 5, 6, 7, 8, 9, 10) and other remaining GPIOs should go to: MCP23017 INTA/INTB, PCA9685 OE, an addressable status LED (WS2812/SK6812),
