@@ -12,6 +12,8 @@ The power and control circuit (powerbank, USB power delivery trigger, current se
 
 Also available as [PDF](Schematic/powerbank_circuit.pdf) or [PNG](Schematic/powerbank_circuit.png).
 
+A single PCB replacing the breadboard and modules is planned; see the [PCB requirements](Schematic/PCB_requirements.md).
+
 ## Bill of Materials
 
 | Component | Part | Qty | Cost (each) | Supplier | Notes |
