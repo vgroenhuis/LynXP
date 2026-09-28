@@ -106,6 +106,24 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "prisma", title: "Prisma (stars)", better: "higher", format: "points" }],
     },
     {
+      id: "temple",
+      kind: "game",
+      name: "Temple of LynXP",
+      icon: "\u{1F3DB}\u{FE0F}",
+      blurb:
+        "A Tomb Raider-style adventure in a 2 x 3 m temple on your floor. Jump spike pits and lava (virtual jumping), " +
+        "climb stone blocks for treasure, solve the glyph floor to raise the portcullis, " +
+        "then defeat the guardian: shoot its crystals, jump its shockwaves, dodge its fireballs.",
+      settings: [
+        { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
+          options: [["easy", "Easy (narrow pits)"], ["normal", "Normal"], ["hard", "Hard (4x4 glyph floor)"]] },
+        { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
+        { key: "aimAssist", label: "Aim assist", type: "checkbox", def: true },
+        { key: "radar", label: "Radar", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "temple", title: "Temple of LynXP", better: "higher", format: "points" }],
+    },
+    {
       id: "race",
       kind: "game",
       name: "Time Trial",

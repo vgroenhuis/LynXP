@@ -144,9 +144,10 @@ window.Lynx = window.Lynx || {};
     };
     // What the player stands on right now (m above the floor): games with
     // platforms set it every frame from where the robot is. Walking off an
-    // edge makes you fall; you can only get higher by jumping.
+    // edge makes you fall; you can only get higher by jumping. Negative =
+    // the bottom of a pit (you drop into it).
     ar.setGround = (h) => {
-      ar.ground = Math.max(0, h);
+      ar.ground = h;
     };
     // Height of the player's feet above the floor (0 = on the floor).
     ar.feet = () => ar.z;
@@ -388,7 +389,7 @@ window.Lynx = window.Lynx || {};
       ar.tilt = calib.tiltRad - (pose.tiltAngleDeg * Math.PI) / 180;
       updateView();
       const now = performance.now();
-      const dt = lastFrameMs === null ? 0 : Math.min((now - lastFrameMs) / 1000, 0.1);
+      const dt = lastFrameMs === null ? 0 : Math.max(0, Math.min((now - lastFrameMs) / 1000, 0.1));
       lastFrameMs = now;
       // jump / fall physics
       if (!ar.airborne && ar.z > ar.ground + 1e-4) {
