@@ -468,7 +468,7 @@ Lynx.games = Lynx.games || {};
     // Optional virtual jumping (off by default): jump over pinky bites and
     // incoming fireballs (those already aim at, and hit, the camera's height).
     if (cfg.jump) {
-      Lynx.onAction("jump", () => state === "playing" || state === "intermission" ? ar.jump() : null);
+      Lynx.onAction("jump", () => (state === "playing" || state === "intermission") && (ar.jump(), true));
       Lynx.touchButtons().add("\u2912 Jump", () => Lynx.jumpAction());
     }
     function switchNext(step = 1) {

@@ -329,7 +329,7 @@ Lynx.games = Lynx.games || {};
     // Optional virtual jumping (off by default): spring over crawling
     // monsters (bats fly too high for that).
     if (cfg.jump) {
-      Lynx.onAction("jump", () => state === "playing" && ar.jump());
+      Lynx.onAction("jump", () => state === "playing" && (ar.jump(), true));
       Lynx.touchButtons().add("\u2912 Spring", () => Lynx.jumpAction());
     }
 

@@ -29,9 +29,10 @@ Lynx.games = Lynx.games || {};
   const DIFFICULTY = {
     // scarabs: how many come to the glyph floor in all, one at a time, each
     // `scarabQuiet` seconds after the previous one is gone (time to think)
-    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabs: 2, scarabQuiet: 25, attackEvery: 5, vulnerable: 10 },
-    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, attackEvery: 4, vulnerable: 8 },
-    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, attackEvery: 3, vulnerable: 6 },
+    // bats: how many guard the hall of pits, released one at a time
+    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabs: 2, scarabQuiet: 25, bats: 1, batHp: 1, attackEvery: 5, vulnerable: 10 },
+    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, attackEvery: 4, vulnerable: 8 },
+    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, attackEvery: 3, vulnerable: 6 },
   };
 
   // -- sprites --------------------------------------------------------------------
@@ -168,6 +169,8 @@ Lynx.games = Lynx.games || {};
     let gateLift = 0;
     let scarabTimer = 0;
     let scarabsSent = 0;
+    let batsSent = 0;
+    let batTimer = 0;
     let bats = [];
     let scarabs = [];
     let boss = null;
@@ -332,6 +335,7 @@ Lynx.games = Lynx.games || {};
       chamber = 1;
       batsReleased = false;
       scarabsSent = 0;
+      batsSent = 0;
       gateOpen = false;
       gateLift = 0;
       standingOn = stuckIn = null;
@@ -441,7 +445,8 @@ Lynx.games = Lynx.games || {};
       else if (state === "dead" && stateTime > 1.5) carryOn();
       else firePressed = true;
     });
-    Lynx.onAction("jump", () => state === "playing" && ar.jump());
+    // returns whether jumping applies right now (see Lynx.jumpAction)
+    Lynx.onAction("jump", () => state === "playing" && (ar.jump(), true));
     Lynx.touchButtons().add("⤒ Jump", () => Lynx.jumpAction());
 
     // -- shooting --------------------------------------------------------------------
@@ -589,9 +594,12 @@ Lynx.games = Lynx.games || {};
       });
     }
 
+    // A bat first flutters where it appears for a while (time to aim), then swoops.
     function spawnBat(f, r) {
       const w = toWorld(f, r);
-      bats.push({ x: w.x, y: w.y, h: rand(0.18, 0.3), hp: 2, phase: Math.random() * 6, hit: 0, retreat: 0, rect: null });
+      const h = rand(0.18, 0.28);
+      bats.push({ x: w.x, y: w.y, h, homeX: w.x, homeY: w.y, homeH: h, wait: rand(2.5, 4), hp: d.batHp, phase: Math.random() * 6, hit: 0, retreat: 0, rect: null });
+      Lynx.sfx.play("growl");
     }
 
     function updateEnemies(dt, me) {
@@ -601,12 +609,19 @@ Lynx.games = Lynx.games || {};
         b.phase += dt * 7;
         b.hit = Math.max(0, b.hit - dt);
         b.retreat = Math.max(0, b.retreat - dt);
+        if (b.wait > 0) {
+          b.wait -= dt;
+          b.x = b.homeX + 0.06 * Math.cos(b.phase * 0.3);
+          b.y = b.homeY + 0.06 * Math.sin(b.phase * 0.3);
+          b.h = b.homeH + 0.02 * Math.sin(b.phase);
+          return;
+        }
         const dx = cam.x - b.x;
         const dy = cam.y - b.y;
         const dh = aimH - b.h;
         const dist = Math.hypot(dx, dy, dh) || 1;
         const sgn = b.retreat > 0 ? -1 : 1;
-        const speed = 0.22 * d.speed * (b.hit > 0 ? 0.3 : 1);
+        const speed = 0.15 * d.speed * (b.hit > 0 ? 0.3 : 1);
         const side = Math.sin(b.phase * 0.35) * 0.9;
         b.x += sgn * ((dx / dist) - (dy / dist) * side) * speed * dt;
         b.y += sgn * ((dy / dist) + (dx / dist) * side) * speed * dt;
@@ -636,10 +651,18 @@ Lynx.games = Lynx.games || {};
       bats = bats.filter((b) => !b.dead);
       scarabs = scarabs.filter((s) => !s.dead);
 
+      // the hall's bats: one at a time, the next a few seconds after the last is gone
       if (!batsReleased && me.f > 0.25) {
         batsReleased = true;
-        for (let i = 0; i < 3; i++) spawnBat(rand(1.0, 1.4), rand(-0.6, 0.6));
-        Lynx.sfx.play("growl");
+        batTimer = 1.5;
+      }
+      if (batsReleased && chamber === 1 && batsSent < d.bats && bats.length === 0) {
+        batTimer -= dt;
+        if (batTimer <= 0) {
+          batsSent++;
+          batTimer = 5;
+          spawnBat(rand(1.0, 1.3), rand(-0.5, 0.5));
+        }
       }
       if (chamber >= 2 && !gateOpen && scarabsSent < d.scarabs && scarabs.length === 0) {
         scarabTimer -= dt;
@@ -1029,7 +1052,7 @@ Lynx.games = Lynx.games || {};
     }
 
     function objective() {
-      if (chamber === 1) return { text: "Cross the pits (J / B / ⤒ = jump)", at: tileCenter((N - 1) / 2, (N - 1) / 2), h: 0 };
+      if (chamber === 1) return { text: "Cross the pits (J / gamepad A / ⤒ = jump)", at: tileCenter((N - 1) / 2, (N - 1) / 2), h: 0 };
       if (!gateOpen) return { text: "Light every glyph -- each step flips its neighbours too", at: tileCenter((N - 1) / 2, (N - 1) / 2), h: 0 };
       if (boss.state === "sleep") return { text: "Go through the portcullis", at: { f: GATE_F + 0.3, r: 0 }, h: 0.1 };
       if (boss.state === "shielded") {
@@ -1119,7 +1142,7 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("TEMPLE OF LYNXP", "Press FIRE to enter", { color: "#ffd84a" });
-        ar.text("Jump pits (J / gamepad B / ⤒), climb for treasure, solve the glyph floor, defeat the guardian.", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text("Jump pits (J / gamepad A / ⤒), climb for treasure, solve the glyph floor, defeat the guardian.", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         ar.text("The temple is laid out in front of the robot: about 2 m wide and 3 m deep.", v.cx, v.cy + v.h * 0.26, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.32, { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "dead") {
@@ -1145,6 +1168,7 @@ Lynx.games = Lynx.games || {};
       debug: {
         god: (on) => (godMode = on),
         killScarabs: () => (scarabs = []),
+        killBats: () => (bats = []),
         solveGlyphs: () => {
           // the presses that light every glyph (brute force), as "i,j" tiles
           for (let m = 0; m < 1 << (N * N); m++) {

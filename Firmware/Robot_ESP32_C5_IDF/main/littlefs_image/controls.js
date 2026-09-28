@@ -11,8 +11,10 @@
 //
 // and a gamepad (Gamepad API, "standard" layout -- e.g. a GameSir G8 phone
 // controller): left stick drives/strafes, right stick turns/tilts the
-// camera (D-pad too), A / RT / Start fire, LB / RB previous / next weapon,
-// LT held = half speed. Both inputs add up, so either can be used any time.
+// camera (D-pad too), RT / X / Start fire, A jumps (B too) in games with
+// jumping and fires otherwise (also on title/game-over screens, to start),
+// LB / RB previous / next weapon, LT held = half speed. Both inputs add up,
+// so either can be used any time.
 //
 // Drive/look commands use exactly the same messages as the joysticks
 // ("control_joystick", "control_frame_rotate", "tilt_rate"), resent every
@@ -114,9 +116,11 @@ window.Lynx = window.Lynx || {};
   Lynx.onAction = (name, cb) => listeners[name].push(cb);
   Lynx.clearActions = () => Object.values(listeners).forEach((l) => (l.length = 0));
   Lynx.fireAction = () => listeners.fire.forEach((cb) => cb());
-  // Virtual jump (J key, gamepad B, or a game's touch button) -- only games
-  // that support it listen.
-  Lynx.jumpAction = () => listeners.jump.forEach((cb) => cb());
+  // Virtual jump (J key, gamepad A/B, or a game's touch button) -- only games
+  // that support it listen. A listener returns whether jumping applies right
+  // now (e.g. playing, not on a title screen); jumpAction() returns whether
+  // any did, so gamepad A can fall back to fire when it doesn't.
+  Lynx.jumpAction = () => listeners.jump.map((cb) => !!cb()).some(Boolean);
   // True while Space / the on-screen action button is held -- for
   // automatic weapons. Presses still go through fireAction() too.
   Lynx.input = { fireHeld: false };
@@ -218,14 +222,15 @@ window.Lynx = window.Lynx || {};
   const PAD_POLL_MS = 50;
   const DEADZONE = 0.15;
   // Standard-layout button indices (https://w3c.github.io/gamepad/#remapping).
-  const BTN = { A: 0, B: 1, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
-  const FIRE_BUTTONS = [BTN.A, BTN.RT, BTN.START];
+  const BTN = { A: 0, B: 1, X: 2, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const FIRE_BUTTONS = [BTN.RT, BTN.X, BTN.START];
 
   const pad = { j1: 0, j2: 0, rot: 0, tilt: 0, slow: false };
   let padIndex = null;
   let padPoll = null;
   let prevPressed = [];
   let padFireHeld = false;
+  let aFires = false; // this A press went to fire (no jumping right now), so holding it auto-fires
 
   // What the page can tell about gamepad support, for the status line on the
   // camera page: "unsupported" (no Gamepad API at all), "waiting" (API there,
@@ -298,7 +303,13 @@ window.Lynx = window.Lynx || {};
     pad.slow = down(BTN.LT);
     computeAndSend(false);
 
-    const fireDown = FIRE_BUTTONS.some(down);
+    // A: jump where jumping applies, otherwise the classic fire / action
+    if (justDown(BTN.A)) {
+      aFires = !Lynx.jumpAction();
+      if (aFires) Lynx.fireAction();
+    }
+    if (!down(BTN.A)) aFires = false;
+    const fireDown = FIRE_BUTTONS.some(down) || aFires;
     if (FIRE_BUTTONS.some(justDown)) Lynx.fireAction();
     if (fireDown !== padFireHeld) {
       padFireHeld = fireDown;
@@ -306,7 +317,7 @@ window.Lynx = window.Lynx || {};
     }
     if (justDown(BTN.RB)) listeners.weapon.forEach((cb) => cb("next"));
     if (justDown(BTN.LB)) listeners.weapon.forEach((cb) => cb("prev"));
-    if (justDown(BTN.B)) Lynx.jumpAction();
+    if (justDown(BTN.B)) Lynx.jumpAction(); // the old jump button, still works
     prevPressed = pressed;
   }
 

@@ -81,7 +81,7 @@ Lynx.games = Lynx.games || {};
 
     // Optional virtual jumping (off by default): hop over a ghost.
     if (cfg.jump) {
-      Lynx.onAction("jump", () => state === "playing" && ar.jump());
+      Lynx.onAction("jump", () => state === "playing" && (ar.jump(), true));
       Lynx.touchButtons().add("\u2912 Jump", () => Lynx.jumpAction());
     }
 
