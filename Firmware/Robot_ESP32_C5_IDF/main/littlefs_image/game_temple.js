@@ -27,9 +27,11 @@ Lynx.games = Lynx.games || {};
   const RING_SPEED = 0.45;
 
   const DIFFICULTY = {
-    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabEvery: 8, attackEvery: 5, vulnerable: 10 },
-    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabEvery: 6, attackEvery: 4, vulnerable: 8 },
-    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabEvery: 4.5, attackEvery: 3, vulnerable: 6 },
+    // scarabs: how many come to the glyph floor in all, one at a time, each
+    // `scarabQuiet` seconds after the previous one is gone (time to think)
+    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabs: 2, scarabQuiet: 25, attackEvery: 5, vulnerable: 10 },
+    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, attackEvery: 4, vulnerable: 8 },
+    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, attackEvery: 3, vulnerable: 6 },
   };
 
   // -- sprites --------------------------------------------------------------------
@@ -165,6 +167,7 @@ Lynx.games = Lynx.games || {};
     let gateOpen = false;
     let gateLift = 0;
     let scarabTimer = 0;
+    let scarabsSent = 0;
     let bats = [];
     let scarabs = [];
     let boss = null;
@@ -328,6 +331,7 @@ Lynx.games = Lynx.games || {};
       elapsed = 0;
       chamber = 1;
       batsReleased = false;
+      scarabsSent = 0;
       gateOpen = false;
       gateLift = 0;
       standingOn = stuckIn = null;
@@ -637,10 +641,11 @@ Lynx.games = Lynx.games || {};
         for (let i = 0; i < 3; i++) spawnBat(rand(1.0, 1.4), rand(-0.6, 0.6));
         Lynx.sfx.play("growl");
       }
-      if (chamber >= 2 && !gateOpen) {
+      if (chamber >= 2 && !gateOpen && scarabsSent < d.scarabs && scarabs.length === 0) {
         scarabTimer -= dt;
-        if (scarabTimer <= 0 && scarabs.length < 3) {
-          scarabTimer = d.scarabEvery;
+        if (scarabTimer <= 0) {
+          scarabTimer = d.scarabQuiet;
+          scarabsSent++;
           const corner = toWorld(Math.random() < 0.5 ? grid.f0 - 0.05 : grid.f1 + 0.05, (Math.random() < 0.5 ? -1 : 1) * (HALF_W - 0.1));
           scarabs.push({ x: corner.x, y: corner.y, hp: 1, phase: 0, hit: 0, retreat: 0, rect: null });
         }
@@ -771,6 +776,7 @@ Lynx.games = Lynx.games || {};
       if (!solid && !outside) {
         if (chamber === 1 && me.f > grid.f0 - 0.1) {
           chamber = 2;
+          scarabTimer = 10; // a quiet start to look at the puzzle
           say("Chamber 2 -- light every glyph", "#ffd84a");
         }
         updateGlyphs(me);
@@ -1138,6 +1144,7 @@ Lynx.games = Lynx.games || {};
       actionLabel: "\u{1F52B} Fire",
       debug: {
         god: (on) => (godMode = on),
+        killScarabs: () => (scarabs = []),
         solveGlyphs: () => {
           // the presses that light every glyph (brute force), as "i,j" tiles
           for (let m = 0; m < 1 << (N * N); m++) {
