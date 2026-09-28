@@ -326,6 +326,12 @@ Lynx.games = Lynx.games || {};
       else if (which - 1 < owned) weapon = which - 1;
     });
     Lynx.touchButtons().add("\u{1F52B} Wissel", () => (weapon = (weapon + 1) % owned));
+    // Optional virtual jumping (off by default): spring over crawling
+    // monsters (bats fly too high for that).
+    if (cfg.jump) {
+      Lynx.onAction("jump", () => state === "playing" && ar.jump());
+      Lynx.touchButtons().add("\u2912 Spring", () => Lynx.jumpAction());
+    }
 
     // -- update ----------------------------------------------------------------------------
     function update(dt) {
@@ -380,7 +386,8 @@ Lynx.games = Lynx.games || {};
         const speed = def.speed * diff.speed * (1 + 0.06 * (level - 1)) * (m.hit > 0 ? 0.3 : 1);
         m.x += ((dx / d) - (dy / d) * side) * speed * dt;
         m.y += ((dy / d) + (dx / d) * side) * speed * dt;
-        if (d < TOUCH_M + (m.type === "boss" ? 0.1 : 0) && invulnerable === 0) {
+        const jumpedOver = ar.feet() > def.fly + def.heightM * 0.7;
+        if (d < TOUCH_M + (m.type === "boss" ? 0.1 : 0) && invulnerable === 0 && !jumpedOver) {
           hearts--;
           invulnerable = INVULNERABLE_S;
           hurtFlash = 0.5;

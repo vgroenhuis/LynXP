@@ -109,11 +109,14 @@ window.Lynx = window.Lynx || {};
   const held = new Set();
   let heartbeat = null;
   let lastSent = { j1: 0, j2: 0, rot: 0, tilt: 0 };
-  const listeners = { fire: [], weapon: [] };
+  const listeners = { fire: [], weapon: [], jump: [] };
 
   Lynx.onAction = (name, cb) => listeners[name].push(cb);
   Lynx.clearActions = () => Object.values(listeners).forEach((l) => (l.length = 0));
   Lynx.fireAction = () => listeners.fire.forEach((cb) => cb());
+  // Virtual jump (J key, gamepad B, or a game's touch button) -- only games
+  // that support it listen.
+  Lynx.jumpAction = () => listeners.jump.forEach((cb) => cb());
   // True while Space / the on-screen action button is held -- for
   // automatic weapons. Presses still go through fireAction() too.
   Lynx.input = { fireHeld: false };
@@ -177,6 +180,10 @@ window.Lynx = window.Lynx || {};
         listeners.weapon.forEach((cb) => cb(Number(e.code.slice(5))));
         return;
       }
+      if (e.code === "KeyJ") {
+        if (!e.repeat) Lynx.jumpAction();
+        return;
+      }
       if (e.code === "Tab") {
         e.preventDefault();
         listeners.weapon.forEach((cb) => cb("next"));
@@ -211,7 +218,7 @@ window.Lynx = window.Lynx || {};
   const PAD_POLL_MS = 50;
   const DEADZONE = 0.15;
   // Standard-layout button indices (https://w3c.github.io/gamepad/#remapping).
-  const BTN = { A: 0, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const BTN = { A: 0, B: 1, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const FIRE_BUTTONS = [BTN.A, BTN.RT, BTN.START];
 
   const pad = { j1: 0, j2: 0, rot: 0, tilt: 0, slow: false };
@@ -299,6 +306,7 @@ window.Lynx = window.Lynx || {};
     }
     if (justDown(BTN.RB)) listeners.weapon.forEach((cb) => cb("next"));
     if (justDown(BTN.LB)) listeners.weapon.forEach((cb) => cb("prev"));
+    if (justDown(BTN.B)) Lynx.jumpAction();
     prevPressed = pressed;
   }
 

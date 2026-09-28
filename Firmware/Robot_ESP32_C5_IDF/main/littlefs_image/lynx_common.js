@@ -42,6 +42,7 @@ window.Lynx = window.Lynx || {};
         { key: "spawnRadiusM", label: "Spawn distance", type: "number", unit: "m", def: 2.5, min: 1, max: 6, step: 0.25 },
         { key: "enemySpeed", label: "Enemy speed", type: "number", unit: "×", def: 1, min: 0.25, max: 3, step: 0.25 },
         { key: "aimAssist", label: "Aim assist", type: "checkbox", def: true },
+        { key: "jump", label: "Virtual jumping (J / gamepad B)", type: "checkbox", def: false },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
         { key: "arrows", label: "Off-screen arrows", type: "checkbox", def: true },
       ],
@@ -62,6 +63,7 @@ window.Lynx = window.Lynx || {};
         { key: "hearts", label: "Hartjes", type: "number", def: 5, min: 1, max: 9, step: 1 },
         { key: "areaM", label: "Speelveld (straal)", type: "number", unit: "m", def: 2, min: 1, max: 5, step: 0.25 },
         { key: "aimAssist", label: "Hulp bij richten", type: "checkbox", def: true },
+        { key: "jump", label: "Springen (J / gamepad B)", type: "checkbox", def: false },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
         { key: "arrows", label: "Pijlen naar blokken en monsters", type: "checkbox", def: true },
       ],
@@ -81,9 +83,27 @@ window.Lynx = window.Lynx || {};
         { key: "ghostCount", label: "Ghosts", type: "number", def: 2, min: 0, max: 6, step: 1 },
         { key: "ghostSpeedMps", label: "Ghost speed", type: "number", unit: "m/s", def: 0.1, min: 0.02, max: 0.5, step: 0.02 },
         { key: "lives", label: "Lives", type: "number", def: 3, min: 1, max: 9, step: 1 },
+        { key: "jump", label: "Virtual jumping (J / gamepad B)", type: "checkbox", def: false },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
       ],
       boards: [{ key: "coins", title: "Pacman", better: "higher", format: "points" }],
+    },
+    {
+      id: "prisma",
+      kind: "game",
+      name: "Prisma",
+      icon: "\u{1F52E}",
+      blurb:
+        "A laser puzzle laid out on your floor, Sokoban style. Drive tile by tile, push mirrors and crates, " +
+        "stand on plates to open gates, and steer every beam onto its receiver -- your robot casts a shadow too. " +
+        "17 levels, from gentle to fiendish; the fewest moves earns three stars.",
+      settings: [
+        { key: "startLevel", label: "Start at level (0 = continue)", type: "number", def: 0, min: 0, max: 17, step: 1 },
+        { key: "cellM", label: "Tile size", type: "number", unit: "m", def: 0.25, min: 0.15, max: 0.5, step: 0.05 },
+        { key: "hints", label: "Level hints", type: "checkbox", def: true },
+        { key: "minimap", label: "Minimap", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "prisma", title: "Prisma (stars)", better: "higher", format: "points" }],
     },
     {
       id: "race",
@@ -344,6 +364,7 @@ window.Lynx = window.Lynx || {};
     knock: (t) => { noise(t, 0.08, "lowpass", 700, 1, 0.7); tone(t, "sine", 180, 90, 0.06, 0.3); },
     crate: (t) => { noise(t, 0.35, "lowpass", 900, 0.8, 0.9, 120); tone(t, "square", 140, 60, 0.12, 0.3); },
     boing: (t) => tone(t, "sine", 180, 520, 0.18, 0.35),
+    jump: (t) => tone(t, "square", 300, 900, 0.16, 0.2),
     levelup: (t) => { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(t + i * 0.1, "square", f, null, 0.1, 0.22)); },
     // Short, original chugging riff for a new wave.
     wave: (t) => {

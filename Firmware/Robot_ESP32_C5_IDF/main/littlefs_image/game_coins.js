@@ -79,6 +79,12 @@ Lynx.games = Lynx.games || {};
       Lynx.sfx.play("power");
     }
 
+    // Optional virtual jumping (off by default): hop over a ghost.
+    if (cfg.jump) {
+      Lynx.onAction("jump", () => state === "playing" && ar.jump());
+      Lynx.touchButtons().add("\u2912 Jump", () => Lynx.jumpAction());
+    }
+
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title" || (state === "over" && stateTime > 1.5)) start();
@@ -197,6 +203,7 @@ Lynx.games = Lynx.games || {};
           g.y += (dy / d) * Math.min(s * dt, d);
         }
         if (g.eaten || Math.hypot(g.x - px, g.y - py) > GHOST_TOUCH_M) return;
+        if (ar.feet() > GHOST_HEIGHT_M * 0.7) return; // jumped over it
         if (fright > 0) {
           g.eaten = true;
           chain++;

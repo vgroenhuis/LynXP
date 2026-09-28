@@ -15,6 +15,13 @@ window.Lynx = window.Lynx || {};
 
 (function (Lynx) {
   const NEAR_M = 0.04; // closer than this in front of the lens isn't drawn (projection blows up)
+  // Virtual jumping: the camera's virtual height rises along a jump arc while
+  // its floor position stays the robot's real one. Robot scale: the camera
+  // sits ~10 cm up, obstacles are 10-30 cm.
+  const JUMP_HEIGHT_M = 0.28;
+  const JUMP_TIME_S = 0.75; // up and down again
+  const GRAVITY = (8 * JUMP_HEIGHT_M) / (JUMP_TIME_S * JUMP_TIME_S);
+  const JUMP_SPEED = (4 * JUMP_HEIGHT_M) / JUMP_TIME_S;
   const FALLBACK_IMG_W = 640; // until the stream's first frame arrives
   const FALLBACK_IMG_H = 480;
 
@@ -61,6 +68,13 @@ window.Lynx = window.Lynx || {};
       tilt: calib.tiltRad,
       view: null, // {cw, ch, imgW, imgH, scale, offX, offY, f, x, y, w, h, cx, cy}
       hasVideo: false,
+      // Virtual elevation of the camera above its real height (m): the ground
+      // under the player (a platform a game put there, see setGround) plus
+      // the current jump. Everything virtual is drawn from that height.
+      z: 0,
+      ground: 0,
+      vz: 0,
+      airborne: false,
     };
     const frameCallbacks = [];
     let queueItems = [];
@@ -102,7 +116,7 @@ window.Lynx = window.Lynx || {};
     ar.project = (wx, wy, h) => {
       const rel = ar.toCamera(wx, wy);
       const v = ar.view;
-      const vertical = calib.heightM - h;
+      const vertical = calib.heightM + ar.z - h;
       const zc = rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt);
       if (zc < NEAR_M) return null;
       const yc = vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt);
@@ -118,7 +132,24 @@ window.Lynx = window.Lynx || {};
       p.y >= ar.view.y - margin && p.y <= ar.view.y + ar.view.h + margin;
 
     // Camera position in the world (for 3D distances, e.g. projectile hits).
-    ar.cameraWorld = () => ({ x: ar.pose.x, y: ar.pose.y, h: calib.heightM });
+    ar.cameraWorld = () => ({ x: ar.pose.x, y: ar.pose.y, h: calib.heightM + ar.z });
+
+    // Jump (only from the ground). Returns whether a jump started.
+    ar.jump = () => {
+      if (ar.airborne) return false;
+      ar.vz = JUMP_SPEED;
+      ar.airborne = true;
+      Lynx.sfx.play("jump");
+      return true;
+    };
+    // What the player stands on right now (m above the floor): games with
+    // platforms set it every frame from where the robot is. Walking off an
+    // edge makes you fall; you can only get higher by jumping.
+    ar.setGround = (h) => {
+      ar.ground = Math.max(0, h);
+    };
+    // Height of the player's feet above the floor (0 = on the floor).
+    ar.feet = () => ar.z;
 
     // Unit vector of where the camera is looking, in world coordinates.
     ar.aimVector = () => ({
@@ -359,6 +390,24 @@ window.Lynx = window.Lynx || {};
       const now = performance.now();
       const dt = lastFrameMs === null ? 0 : Math.min((now - lastFrameMs) / 1000, 0.1);
       lastFrameMs = now;
+      // jump / fall physics
+      if (!ar.airborne && ar.z > ar.ground + 1e-4) {
+        ar.airborne = true; // walked off an edge
+        ar.vz = 0;
+      }
+      if (ar.airborne) {
+        // exact for constant gravity, so the jump height doesn't depend on the frame rate
+        ar.z += ar.vz * dt - 0.5 * GRAVITY * dt * dt;
+        ar.vz -= GRAVITY * dt;
+        if (ar.vz <= 0 && ar.z <= ar.ground) {
+          ar.z = ar.ground;
+          ar.vz = 0;
+          ar.airborne = false;
+          ar.landedAt = now; // games can react to a landing
+        }
+      } else {
+        ar.z = ar.ground;
+      }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       frameCallbacks.forEach((cb) => cb(now, dt));
     });

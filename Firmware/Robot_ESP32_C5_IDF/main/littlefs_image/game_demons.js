@@ -465,6 +465,12 @@ Lynx.games = Lynx.games || {};
     });
 
     Lynx.touchButtons().add("\u{1F52B} Weapon", () => switchNext());
+    // Optional virtual jumping (off by default): jump over pinky bites and
+    // incoming fireballs (those already aim at, and hit, the camera's height).
+    if (cfg.jump) {
+      Lynx.onAction("jump", () => state === "playing" || state === "intermission" ? ar.jump() : null);
+      Lynx.touchButtons().add("\u2912 Jump", () => Lynx.jumpAction());
+    }
     function switchNext(step = 1) {
       for (let i = 1; i <= 3; i++) {
         const cand = ((((p.weapon - 1 + step * i) % 3) + 3) % 3) + 1;
@@ -574,7 +580,7 @@ Lynx.games = Lynx.games || {};
         if (state !== "playing" && state !== "intermission") return;
         e.attackTimer -= dt;
         if (e.type === "pinky") {
-          if (dist < BITE_RANGE_M && e.attackTimer <= 0) {
+          if (dist < BITE_RANGE_M && e.attackTimer <= 0 && ar.feet() < 0.12) {
             e.attackTimer = 1.1 * diff.attack;
             e.attackAnim = 0.25;
             damagePlayer(rand(10, 15));
