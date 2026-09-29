@@ -26,7 +26,7 @@ committing to the layout.
 | Analog inputs | — | **8-channel I²C ADC** for add-on sensors (new, see §5.2) |
 | Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
-| OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED panel on the PCB** (see §5.1) |
+| OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED integrated on the PCB** (strongly recommended; 4-pin header acceptable, see §5.1) |
 | nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
 | Headlights | — | Two headlight outputs with connectors (new, see §11.1) |
 | Microphone, speaker | — | **Optional**: on-board I²S microphone and speaker amplifier (new, see §11.2) |
@@ -212,7 +212,7 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
   header for add-ons.
 
 ### 5.1 On-board 1.3" OLED display
-- **Must**: the 1.3" 128×64 monochrome OLED is part of the PCB, not a plug-in module. Use a bare
+- **Strongly recommended**: the 1.3" 128×64 monochrome OLED is integrated on the PCB. Use a bare
   1.3" OLED glass panel with integrated controller and FPC tail (typically 30-pin, soldered or in
   an FPC connector), with all support circuitry on the PCB. Panel colour white (as on LynXP One);
   blue or yellow acceptable.
@@ -240,9 +240,12 @@ Encoders **must** stay on native GPIOs (PCNT peripheral).
   potentiometer with shaft (e.g. 9 mm type, linear, 10 kΩ) and a knob large enough to turn by
   hand, between 3.3 V and GND, wiper to a native ESP32-C5 ADC pin with a 100 nF filter capacitor.
   The knob must be reachable with the robot assembled and not obstruct the view of the display.
-- **Should**: as a fallback, a 4-pin 2.54 mm female header on the same I²C bus for an external
-  OLED module, with solder jumpers for both common pin orders (GND-VCC-SCL-SDA and
-  VCC-GND-SCL-SDA).
+- **Acceptable alternative** (only if integrating the panel is not feasible): a 4-pin 2.54 mm
+  female header on the same I²C bus for a 1.3" OLED module, placed and with mounting holes so the
+  module sits in the same position (display visible, potentiometer right of it). Note that the
+  order of the 4 pins differs per manufacturer (e.g. GND-VCC-SCL-SDA vs VCC-GND-SCL-SDA), so the
+  header needs solder jumpers for both common orders — one reason integration is strongly
+  preferred. The on-panel requirements above (controller, charge pump, RES#) then do not apply.
 
 ### 5.2 8-channel ADC for analog sensors
 Lets students add analog sensors (potentiometers, light sensors, IR distance sensors, line
