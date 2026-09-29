@@ -99,9 +99,35 @@ window.Lynx = window.Lynx || {};
   // -- its release must get through even if absolute aim took over meanwhile.
   const rateRunning = { control_frame_rotate: false, tilt_rate: false };
 
+  // A game can keep the robot out of its virtual walls: every drive command
+  // (keyboard, gamepad, touch joystick) goes through its filter, which gets
+  // the control-frame j1 (right) / j2 (forward) and returns what to send.
+  // refreshDrive() re-sends the last real input through the filter when the
+  // filter's answer changed (the robot reached a wall between two resends),
+  // but only while that input is still being resent -- never on its own.
+  let driveFilter = null;
+  let rawDrive = { j1: 0, j2: 0, at: -1e9 };
+  let sentDrive = { j1: 0, j2: 0 };
+  const round2 = (v) => Math.round(v * 100) / 100;
+  function filterDrive(j1, j2) {
+    if (!driveFilter) return { j1, j2 };
+    const f = driveFilter(j1, j2);
+    return { j1: round2(Math.max(-1, Math.min(1, f.j1))), j2: round2(Math.max(-1, Math.min(1, f.j2))) };
+  }
+  function sendDrive(obj) {
+    const f = filterDrive(Number(obj.j1) || 0, Number(obj.j2) || 0);
+    sentDrive = f;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ...obj, j1: f.j1, j2: f.j2 }));
+  }
+
   Lynx.control = {
     send(obj) {
       ensureStarted();
+      if (obj.type === "control_joystick") {
+        rawDrive = { j1: Number(obj.j1) || 0, j2: Number(obj.j2) || 0, at: performance.now() };
+        sendDrive(obj);
+        return;
+      }
       const v = Math.max(-1, Math.min(1, Number(obj.value) || 0));
       const isAimRate = obj.type === "control_frame_rotate" || obj.type === "tilt_rate";
       if (obj.type === "control_frame_rotate") Object.assign(aimInput, { rot: v, rotAt: performance.now() });
@@ -116,6 +142,15 @@ window.Lynx = window.Lynx || {};
     },
     aimInput,
     absoluteAim: () => false, // cam.js replaces this once it can aim
+    setDriveFilter(fn) {
+      driveFilter = fn;
+      Lynx.control.refreshDrive();
+    },
+    refreshDrive() {
+      if (performance.now() - rawDrive.at > 1000) return; // the input stopped: the robot's own watchdog stops it
+      const f = filterDrive(rawDrive.j1, rawDrive.j2);
+      if (f.j1 !== sentDrive.j1 || f.j2 !== sentDrive.j2) sendDrive({ type: "control_joystick", j1: rawDrive.j1, j2: rawDrive.j2 });
+    },
     start: ensureStarted,
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
     onMessage(type, cb) {

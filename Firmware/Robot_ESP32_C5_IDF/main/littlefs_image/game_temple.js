@@ -42,7 +42,7 @@ Lynx.games = Lynx.games || {};
     normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, attackEvery: 4, vulnerable: 8, seq: 4, dartEvery: 2.8 },
     hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, attackEvery: 3, vulnerable: 6, seq: 5, dartEvery: 2.2 },
   };
-  const LAST_LEVEL = 2;
+  const LAST_LEVEL = 3;
   const SEQ_STEP_S = 0.9; // memory floor: each glyph shows this long (lit for SEQ_ON_S of it)
   const SEQ_ON_S = 0.65;
   const DART_H = 0.05; // darts fly this high: jump over them
@@ -217,6 +217,25 @@ Lynx.games = Lynx.games || {};
         intro: "Level 2 -- the dart hall: jump the pits and the darts!",
         chamber2: "Chamber 2 -- watch the glyphs, then step on them in order",
       },
+      // a two-storey maze with keys, doors and switches: game_temple_sanctum.js
+      3: {
+        name: "the sunken sanctum",
+        maze: true,
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Sun Crown",
+        winTitle: "THE CROWN IS YOURS",
+        intro: "Level 3 -- the sunken sanctum: walls stop you here. Find a way up!",
+      },
     };
     let level = firstLevel;
     let lv = LEVELS[level];
@@ -275,6 +294,7 @@ Lynx.games = Lynx.games || {};
     let best = null;
     let rankMsg = "";
     let godMode = false; // testing: Lynx.activeGame.debug.god(true) from the console
+    let maze = null; // level 3's game_temple_sanctum.js, while it's on
     Lynx.bestScore("temple").then((b) => (best = b));
 
     // -- coordinates -----------------------------------------------------------------
@@ -470,7 +490,7 @@ Lynx.games = Lynx.games || {};
           lit.fill(true);
           picks.forEach((k) => flip(Math.floor(k / N), k % N));
         } while (lit.every(Boolean));
-      } else {
+      } else if (lv.puzzle === "sequence") {
         // memory floor: a random order of glyphs, never the same one twice in a row
         seq = [];
         while (seq.length < d.seq) {
@@ -486,6 +506,7 @@ Lynx.games = Lynx.games || {};
       const hp = Math.round(d.bossHp * lv.bossHp);
       boss = { hp, maxHp: hp, state: "sleep", attackT: 3, attackN: 0, openT: 0, hit: 0, t: 0, rect: null };
       spawnCrystals();
+      maze = lv.maze ? Lynx.templeSanctum(mazeApi) : null;
       state = "playing";
       stateTime = 0;
       invulnerable = 1;
@@ -552,6 +573,7 @@ Lynx.games = Lynx.games || {};
       }
       if (lv.puzzle === "sequence" && !gateOpen) replaySequence(1.5);
       traps.forEach((t) => (t.dart = null));
+      if (maze) maze.carryOn();
       state = "playing";
       stateTime = 0;
       invulnerable = 2;
@@ -604,6 +626,10 @@ Lynx.games = Lynx.games || {};
           bestMiss = miss;
         }
       };
+      if (maze) {
+        maze.targets().forEach((t) => consider(t.obj, t.kind));
+        return hit;
+      }
       bats.forEach((b) => consider(b, "bat"));
       scarabs.forEach((s) => consider(s, "scarab"));
       crystals.forEach((c) => c.alive && consider(c, "crystal"));
@@ -621,6 +647,10 @@ Lynx.games = Lynx.games || {};
       const x0 = v.cx + (leftGun ? -0.2 : 0.2) * v.w;
       tracers.push({ x0, y0: v.y + v.h * 0.9, x1: t ? t.obj.rect.x + t.obj.rect.w / 2 : v.cx, y1: t ? t.obj.rect.y + t.obj.rect.h / 2 : v.cy, t: 0 });
       if (!t) return;
+      if (maze) {
+        maze.hit(t);
+        return;
+      }
       const o = t.obj;
       if (t.kind === "boss") {
         if (boss.state !== "open") {
@@ -1014,7 +1044,10 @@ Lynx.games = Lynx.games || {};
       if (gateOpen) gateLift = Math.min(0.3, gateLift + dt * 0.2);
       if (!anchor) return;
       const me = toLocal(ar.pose.x, ar.pose.y);
-      updateGround(me);
+      if (maze) {
+        maze.physics(me);
+        if (Lynx.control && Lynx.control.refreshDrive) Lynx.control.refreshDrive(); // stop at a wall now, not at the next input resend
+      } else updateGround(me);
       if (state !== "playing") return;
 
       elapsed += dt;
@@ -1022,6 +1055,10 @@ Lynx.games = Lynx.games || {};
       invulnerable = Math.max(0, invulnerable - dt);
       if (firePressed || Lynx.input.fireHeld) tryFire();
       firePressed = false;
+      if (maze) {
+        maze.update(dt, me);
+        return;
+      }
 
       // landed in a pit: hurt, and bounced up out of it
       if (wasAirborne && !ar.airborne && ar.ground < 0) {
@@ -1349,20 +1386,26 @@ Lynx.games = Lynx.games || {};
         const cw = ar.cameraWorld();
         const cl = toLocal(cw.x, cw.y);
         frame.cam = { f: cl.f, r: cl.r, h: cw.h };
-        drawFloor();
-        pits.forEach(drawPit);
-        drawGlyphs();
-        drawTraps();
-        drawRings();
-        drawWalls();
-        drawGate();
-        drawActors();
-        puffs.forEach((p) => {
+        const drawPuffs = () => puffs.forEach((p) => {
           const pr = camZ(p.x, p.y, p.h) >= NEAR ? ar.project(p.x, p.y, p.h) : null;
           const col = p.color || "255,255,255";
           if (pr) ar.glow(pr.x, pr.y, (p.big ? 0.4 : 0.12) * pr.ppm * (0.5 + p.t * 2), [[0, `rgba(${col},0.9)`], [1, `rgba(${col},0)`]], 1 - p.t / 0.5);
         });
-        ar.flush();
+        if (maze) {
+          maze.draw();
+          drawPuffs();
+        } else {
+          drawFloor();
+          pits.forEach(drawPit);
+          drawGlyphs();
+          drawTraps();
+          drawRings();
+          drawWalls();
+          drawGate();
+          drawActors();
+          drawPuffs();
+          ar.flush();
+        }
       }
       tracers.forEach((t) => {
         const c = ar.ctx;
@@ -1378,7 +1421,7 @@ Lynx.games = Lynx.games || {};
       });
 
       if (state === "playing" || state === "dead") {
-        const o = objective();
+        const o = maze ? maze.objective() : objective();
         const ow = toWorld(o.at.f, o.at.r);
         ar.edgeArrow(ow.x, ow.y, o.h, "#ffd84a");
         if (cfg.radar) {
@@ -1389,12 +1432,14 @@ Lynx.games = Lynx.games || {};
           items.forEach((it) => blips.push({ ...toWorld(it.f, it.r), color: "#ffd84a", r: 2.5 }));
           fireballs.forEach((b) => blips.push({ x: b.x, y: b.y, color: "#ffa020", r: 2 }));
           traps.forEach((t) => t.dart && blips.push({ ...toWorld(t.f, t.dart.r), color: "#d8c8a0", r: 2 }));
+          if (maze) blips.push(...maze.blips());
           ar.radar(blips, 1.5);
         }
         ar.crosshair("rgba(0,0,0,0.6)", 19, 5);
         ar.crosshair("#ffffff", 17, 6);
         drawGuns();
-        ar.text(`TEMPLE OF LYNXP · level ${level} · chamber ${chamber}`, v.x + 14, v.y + 66, { size: 16, color: "#ffd84a" });
+        ar.text(`TEMPLE OF LYNXP · level ${level} · ${maze ? maze.floorName() : `chamber ${chamber}`}`, v.x + 14, v.y + 66, { size: 16, color: "#ffd84a" });
+        if (maze) maze.hud();
         ar.text(o.text, v.x + 14, v.y + 88, { size: 14 });
         if (boss.state !== "sleep" && boss.state !== "dead") {
           const bw = Math.min(200, v.w * 0.3);
@@ -1444,11 +1489,29 @@ Lynx.games = Lynx.games || {};
       } else if (state === "won") {
         ar.flash("#000", 0.4);
         const s = Math.floor(elapsed);
-        const title = firstLevel < LAST_LEVEL ? "THE TEMPLE IS CONQUERED" : "THE HEART IS YOURS";
+        const title = firstLevel < LAST_LEVEL ? "THE TEMPLE IS CONQUERED" : lv.winTitle || "THE HEART IS YOURS";
         ar.banner(title, `Score ${score} · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} · ${deaths} deaths`, { color: "#ffd84a" });
         if (rankMsg) ar.text(rankMsg, v.cx, v.cy + v.h * 0.18, { size: 16, align: "center", color: "#ffd84a" });
         if (stateTime > 2) ar.text("Press FIRE to play again", v.cx, v.cy + v.h * 0.25, { size: 14, align: "center" });
       }
+    }
+
+    // What level 3 (game_temple_sanctum.js) gets to work with.
+    const mazeApi = {
+      ar, d, cfg, img, frame,
+      anchor: () => anchor,
+      time: () => stateTime,
+      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, extent, pointAt, drawSprite,
+      hurt, say,
+      addScore: (n) => (score += n),
+      heal: () => (hearts < maxHearts ? hearts++ : (score += 100)),
+      puff: (p) => puffs.push(p),
+      complete: () => relicTaken(),
+    };
+    // Level 3's walls stop the robot: drive commands go through the maze first.
+    if (Lynx.control && Lynx.control.setDriveFilter) {
+      Lynx.control.setDriveFilter((j1, j2) => (maze && state !== "title" ? maze.filterDrive(j1, j2) : { j1, j2 }));
+      ar.onDestroy(() => Lynx.control.setDriveFilter(null));
     }
 
     ar.onFrame((now, dt) => {
@@ -1477,12 +1540,14 @@ Lynx.games = Lynx.games || {};
         },
         tileCenter,
         crystals: () => crystals.filter((c) => c.alive).map((c) => ({ f: c.f, r: c.r, h: c.h })),
-        level: (n) => startLevel(n), // jump straight to a level (1 or 2)
+        level: (n) => startLevel(n), // jump straight to a level (1 to 3)
+        maze: () => maze && maze.debug,
       },
       snapshot: () => {
         const me = anchor ? toLocal(ar.pose.x, ar.pose.y) : null;
         return {
           state, level, chamber, hearts, score, elapsed: +elapsed.toFixed(1),
+          maze: maze && maze.snapshot(),
           seq: lv.puzzle === "sequence" ? { phase: seqPhase, pos: seqPos, len: seq.length } : null,
           darts: traps.filter((t) => t.dart).length,
           me: me && { f: +me.f.toFixed(3), r: +me.r.toFixed(3) },
