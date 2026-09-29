@@ -359,7 +359,7 @@ All three options on the board, electrically in parallel (only one used at a tim
 | 3 | CAM_TX | D0 (GPIO1, TX) | GPIO4 (UART1 RX) |
 | 4 | CAM_RX | D1 (GPIO2, RX) | GPIO28 (UART1 TX) |
 
-- 115200 baud, 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the UART lines.
+- 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the UART lines.
 - Place the connector so the cable has room to follow the pan/tilt motion; provide a strain-relief
   point (hole for a cable tie) next to it.
 - Budget ≥ 500 mA on the 5 V rail for the camera.
