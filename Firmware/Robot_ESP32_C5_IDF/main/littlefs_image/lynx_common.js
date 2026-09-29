@@ -20,11 +20,11 @@ window.Lynx = window.Lynx || {};
 
   Lynx.CATALOG = [
     {
-      id: "none",
+      id: "none", // kept as-is: stored settings refer to it
       kind: "none",
-      name: "Nothing",
-      icon: "⏸️",
-      blurb: "Plain first-person view -- no game or app running.",
+      name: "Free drive",
+      icon: "\u{1F697}",
+      blurb: "Just drive around and look -- no game or app running. The Overlays menu adds the floor grid, world axes, map and waypoints.",
       settings: [],
     },
     {
