@@ -291,7 +291,7 @@ sensors, etc.) without using ESP32 pins.
 - Suggested allocation:
   - GPA0–GPA3: TB6612FNG AIN1, AIN2, BIN1, BIN2 (outputs). Pull-downs on these four lines so both
     motors are stopped while the MCP23017 is in reset or not yet configured.
-  - 8-position DIP switch (inputs, see §9).
+  - 4-position DIP switch (inputs, see §9).
   - 4 large user buttons (inputs).
   - GPA7: PCA9685 OE (output, §6).
   - GPB7: speaker amplifier shutdown/mute (output, §11.2).
