@@ -1550,51 +1550,64 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
     // Returns a function drawing one camera-relative floor segment, clipped
     // to [nearM, maxDistM] ahead / +-halfWidthM sideways and to the
     // viewport, fading out toward maxDistM.
+    // Pieces of a projected floor line are split in half (on the floor) until
+    // each is short on screen, nearly straight, and nearly evenly faded; the
+    // lens bends straight floor lines, most of all close to the camera and
+    // far off to the side. (An earlier version clipped the straight chord
+    // between the projected END points to the viewport -- with the lens'
+    // curvature that chord can miss the picture while the line itself
+    // crosses it, so lines near the robot vanished, especially tilted up.)
+    const MAX_PIECE_PX = 90;
+    const MAX_BEND_PX = 1;
+    const MAX_FADE_STEP = 0.08;
+    const MAX_SPLITS = 12;
+
     const makeLineDrawer = (maxDistM, halfWidthM, rgb, opacity) => (right0, forward0, right1, forward1) => {
       const c = clipToBox(right0, forward0, right1, forward1, -halfWidthM, halfWidthM, nearM, maxDistM);
       if (!c) return;
-      const p1 = project(c.x0, c.y0);
-      const p2 = project(c.x1, c.y1);
-      if (!p1 || !p2) return;
-      // Trim to the viewport (in image pixels, small margin) before
-      // stroking. Near the lens a floor line can project tens of thousands
-      // of pixels off-screen, and GPU canvas rasterizers are prone to
-      // dropping such strokes -- which is what made lines blink out while
-      // the view rotated. 1/depth is linear along the screen segment, so a
-      // screen fraction s maps back to t = s*z0 / (s*z0 + (1-s)*z1) along
-      // the floor segment.
-      const sc = clipToBox(p1.u, p1.v, p2.u, p2.v, uMin - slackU, uMax + slackU, vMin - slackV, vMax + slackV);
-      if (!sc) return;
-      const toT = (sv) => (sv * p1.zc) / (sv * p1.zc + (1 - sv) * p2.zc);
-      const ta = toT(sc.t0);
-      const tb = toT(sc.t1);
-      const pointAt = (t) => ({ right: c.x0 + t * (c.x1 - c.x0), forward: c.y0 + t * (c.y1 - c.y0) });
-      const fa = fadeAt(pointAt(ta).forward, maxDistM);
-      const fb = fadeAt(pointAt(tb).forward, maxDistM);
-      if (fa <= 0 && fb <= 0) return;
-      // Drawn as short solid pieces: follows the lens curvature (~25 px
-      // pieces) and the fade (a gradient has the same GPU concern as above).
-      const chordPx = Math.hypot((sc.x1 - sc.x0) * scale, (sc.y1 - sc.y0) * scale);
-      const pieces = Math.min(48, Math.max(1, Math.ceil(Math.abs(fa - fb) / 0.08), Math.ceil(chordPx / 25)));
-      let prev = null;
-      for (let i = 0; i <= pieces; i++) {
-        const t = ta + ((tb - ta) * i) / pieces;
-        const pt = pointAt(t);
-        const pp = project(pt.right, pt.forward);
-        if (!pp) return;
-        const cur = { ...toCanvas(pp.u, pp.v), forward: pt.forward };
-        if (prev) {
-          const alpha = opacity * fadeAt((prev.forward + cur.forward) / 2, maxDistM);
-          if (alpha > 0.005) {
-            ctx.strokeStyle = rgbaOf(rgb, alpha);
-            ctx.beginPath();
-            ctx.moveTo(prev.x, prev.y);
-            ctx.lineTo(cur.x, cur.y);
-            ctx.stroke();
-          }
-        }
-        prev = cur;
-      }
+      const a = { right: c.x0, forward: c.y0, p: project(c.x0, c.y0) };
+      const b = { right: c.x1, forward: c.y1, p: project(c.x1, c.y1) };
+      if (!a.p || !b.p) return; // the box keeps the ends in front of the lens
+      a.fade = fadeAt(a.forward, maxDistM);
+      b.fade = fadeAt(b.forward, maxDistM);
+
+      const strokePiece = (p, q) => {
+        const alpha = opacity * fadeAt((p.forward + q.forward) / 2, maxDistM);
+        if (alpha <= 0.005) return;
+        // off one side of the picture entirely: nothing to draw (and huge
+        // off-screen strokes are what GPU rasterizers tend to drop)
+        if ((p.p.u < uMin - slackU && q.p.u < uMin - slackU) || (p.p.u > uMax + slackU && q.p.u > uMax + slackU)) return;
+        if ((p.p.v < vMin - slackV && q.p.v < vMin - slackV) || (p.p.v > vMax + slackV && q.p.v > vMax + slackV)) return;
+        const s = toCanvas(p.p.u, p.p.v);
+        const e = toCanvas(q.p.u, q.p.v);
+        ctx.strokeStyle = rgbaOf(rgb, alpha);
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(e.x, e.y);
+        ctx.stroke();
+      };
+
+      const piece = (p, q, depth) => {
+        const m = { right: (p.right + q.right) / 2, forward: (p.forward + q.forward) / 2 };
+        m.p = project(m.right, m.forward);
+        if (!m.p || depth >= MAX_SPLITS) return strokePiece(p, q);
+        m.fade = fadeAt(m.forward, maxDistM);
+        const du = (q.p.u - p.p.u) * scale;
+        const dv = (q.p.v - p.p.v) * scale;
+        const lenPx = Math.hypot(du, dv);
+        // how far the true midpoint lies off the straight chord, on screen
+        const bendPx = lenPx > 1e-6 ? Math.abs(((m.p.u - p.p.u) * scale) * dv - ((m.p.v - p.p.v) * scale) * du) / lenPx : 0;
+        // ends and middle all beyond the same edge of the picture: this piece
+        // stays out of view, so it isn't worth refining
+        const beyond = (f) => [p, m, q].every((x) => f(x.p));
+        if (beyond((x) => x.u < uMin - slackU) || beyond((x) => x.u > uMax + slackU) ||
+            beyond((x) => x.v < vMin - slackV) || beyond((x) => x.v > vMax + slackV)) return;
+        const needsSplit = bendPx > MAX_BEND_PX || Math.abs(p.fade - q.fade) > MAX_FADE_STEP || lenPx > MAX_PIECE_PX;
+        if (!needsSplit) return strokePiece(p, q);
+        piece(p, m, depth + 1);
+        piece(m, q, depth + 1);
+      };
+      piece(a, b, 0);
     };
 
     if (grid) TIERS.forEach(({ interval, opacity, lineWidth }) => {
