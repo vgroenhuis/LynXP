@@ -88,8 +88,8 @@ re-inserting the cable works; switching the load does not.
 ### 2.4 Protection
 - **Must**: TVS diode on VBUS_PD rated for the maximum selectable PD voltage (≥ 20 V standoff if 20 V
   can be selected).
-- **Must**: fuse (PTC or eFuse) on V_BUS sized for the total budget (~2.5–3 A at 12 V for a
-  30 W powerbank *(verify powerbank PDO list)*).
+- No fuse on the PCB: overcurrent protection is provided by the powerbank, which cuts its output
+  when the negotiated current (~2.5–3 A at 12 V for a 30 W powerbank) is exceeded.
 - **Should**: ESD protection on CC lines.
 
 ### 2.5 Current sensing (INA260)
@@ -104,13 +104,13 @@ re-inserting the cable works; switching the load does not.
 
 | Rail | Source | Minimum rating | Notes |
 |---|---|---|---|
-| **V_BUS** (12 V default; VBUS_PD after PD load switch, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
+| **V_BUS** (12 V default; VBUS_PD after PD load switch and INA260) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
 | **5 V** logic | Buck from V_BUS | 3 A | Camera, nOOds, exposed |
 | **V_SERVO** (5 V default) | Separate buck from V_BUS | 3 A | 8 servo headers |
 | **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O, encoders |
 
 - Net names: **VBUS_PD** = raw VBUS pin of the POWER connector; **VBUS_PROG** = raw VBUS pin of
-  the PROG connector; **V_BUS** = main rail (VBUS_PD after load switch, INA260 and fuse). Bare
+  the PROG connector; **V_BUS** = main rail (VBUS_PD after load switch and INA260). Bare
   "VBUS" is not used as a net name.
 - Bucks **must** accept 5–20 V input with margin (≥ 28 V abs. max) because the rail follows the PD
   voltage.
