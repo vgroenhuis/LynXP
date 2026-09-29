@@ -106,7 +106,7 @@ re-inserting the cable works; switching the load does not.
 |---|---|---|---|
 | **V_BUS** (12 V default; VBUS_PD after PD load switch, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
 | **5 V** logic | Buck from V_BUS | 3 A | Camera, nOOds, exposed |
-| **V_SERVO** (5 V default) | Separate buck from V_BUS | 3 A continuous | 8 servo headers |
+| **V_SERVO** (5 V default) | Separate buck from V_BUS | 3 A | 8 servo headers |
 | **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O, encoders |
 
 - Net names: **VBUS_PD** = raw VBUS pin of the POWER connector; **VBUS_PROG** = raw VBUS pin of
