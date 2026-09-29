@@ -90,7 +90,6 @@ re-inserting the cable works; switching the load does not.
   can be selected).
 - No fuse on the PCB: overcurrent protection is provided by the powerbank, which cuts its output
   when the negotiated current (~2.5–3 A at 12 V for a 30 W powerbank) is exceeded.
-- **Should**: ESD protection on CC lines.
 
 ### 2.5 Current sensing (INA260)
 - **Must** place an INA260 (integrated shunt, high-side) in series with V_BUS directly after
