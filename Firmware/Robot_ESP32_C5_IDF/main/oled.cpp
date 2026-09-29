@@ -25,7 +25,8 @@ extern "C" {
 //
 //   LynXP                    9.01 V  450 mA     <- header
 //   ------------------------------------------
-//   Mojca_Vincent_Reelaan3_5GHz                 <- network (scrolls if too long)
+//   Mojca_Vincent_Reel...       ch40 -67dBm     <- network (scrolls if too long),
+//                                                  channel + signal of the AP joined
 //   192.168.0.17                                <- robot IP, largest font that fits
 //   ------------------------------------------
 //   CAM 192.168.0.99                            <- camera (scrolls if too long)
@@ -84,27 +85,27 @@ struct Marquee {
     int64_t startMs = 0;
 };
 
-void draw_band(Marquee &m, const uint8_t *font, const char *text, int baseline, bool center = true) {
+void draw_band(Marquee &m, const uint8_t *font, const char *text, int baseline, bool center = true, int width = W) {
     if (std::strncmp(m.text, text, sizeof(m.text) - 1) != 0) {
         std::snprintf(m.text, sizeof(m.text), "%s", text);
         m.startMs = now_ms();
     }
     u8g2_SetFont(&s_u8g2, font);
     int tw = u8g2_GetStrWidth(&s_u8g2, text);
-    if (tw <= W) {
-        u8g2_DrawStr(&s_u8g2, center ? (W - tw) / 2 : 0, baseline, text);
+    if (tw <= width) {
+        u8g2_DrawStr(&s_u8g2, center ? (width - tw) / 2 : 0, baseline, text);
         return;
     }
     constexpr int HOLD_MS = 1500;
     constexpr int PX_PER_S = 30;
-    int overflow = tw - W;
+    int overflow = tw - width;
     int scrollMs = overflow * 1000 / PX_PER_S;
     int cycle = HOLD_MS + scrollMs + HOLD_MS;
     int t = (int) ((now_ms() - m.startMs) % cycle);
     int offset = t < HOLD_MS ? 0 : t < HOLD_MS + scrollMs ? (t - HOLD_MS) * PX_PER_S / 1000 : overflow;
     int ascent = u8g2_GetAscent(&s_u8g2);
     int descent = u8g2_GetDescent(&s_u8g2); // negative
-    u8g2_SetClipWindow(&s_u8g2, 0, baseline - ascent, W, baseline - descent + 1);
+    u8g2_SetClipWindow(&s_u8g2, 0, baseline - ascent, width, baseline - descent + 1);
     u8g2_DrawStr(&s_u8g2, -offset, baseline, text);
     u8g2_SetMaxClipWindow(&s_u8g2);
 }
@@ -120,6 +121,18 @@ Marquee s_networkBand;
 Marquee s_bottomBand;
 char s_powerText[24] = "";
 int64_t s_lastInaUs = 0;
+char s_linkText[24] = "";
+int64_t s_lastLinkMs = 0;
+
+// Channel + signal strength of the access point joined -- with many access
+// points on one network (e.g. iotroam), which one the robot is on and how
+// well it hears it. Refreshed once a second so the number stays readable.
+void update_link_text(const WifiStatus &st) {
+    int64_t now = now_ms();
+    if (s_linkText[0] && now - s_lastLinkMs < 1000) return;
+    s_lastLinkMs = now;
+    std::snprintf(s_linkText, sizeof(s_linkText), "ch%d %ddBm", st.channel, st.rssi);
+}
 
 void update_power_text() {
     int64_t now = esp_timer_get_time();
@@ -152,7 +165,11 @@ void compose() {
     char line[64];
 
     if (st.connected) {
-        draw_band(s_networkBand, u8g2_font_helvR08_tr, st.ssid, 20);
+        update_link_text(st);
+        u8g2_SetFont(&s_u8g2, u8g2_font_helvR08_tr);
+        int linkW = u8g2_GetStrWidth(&s_u8g2, s_linkText);
+        u8g2_DrawStr(&s_u8g2, W - linkW, 20, s_linkText);
+        draw_band(s_networkBand, u8g2_font_helvR08_tr, st.ssid, 20, false, W - linkW - 4);
         draw_big(DIGIT_FONTS, sizeof(DIGIT_FONTS) / sizeof(DIGIT_FONTS[0]), st.ip, 46);
     } else if (st.apActive) {
         draw_band(s_networkBand, u8g2_font_helvR08_tr, "Setup hotspot -- no password:", 20);

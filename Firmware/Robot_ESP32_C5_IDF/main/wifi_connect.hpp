@@ -46,6 +46,7 @@ struct WifiStatus {
     char ssid[33];          // network currently joined ("" if none)
     char ip[16];
     int rssi;               // dBm, 0 if not connected
+    int channel;            // primary channel of the access point joined, 0 if not connected
     bool connectedOn5Ghz;
     bool connecting;
     char connectingSsid[33];

@@ -584,6 +584,7 @@ void wifi_get_status(WifiStatus *out) {
         wifi_ap_record_t info;
         if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
             out->rssi = info.rssi;
+            out->channel = info.primary;
             out->connectedOn5Ghz = info.primary > 14;
         }
     }

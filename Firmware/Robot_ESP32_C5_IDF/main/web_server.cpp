@@ -682,6 +682,7 @@ esp_err_t handle_wifi_status(httpd_req_t *req) {
     cJSON_AddStringToObject(root, "ssid", st.ssid);
     cJSON_AddStringToObject(root, "ip", st.ip);
     cJSON_AddNumberToObject(root, "rssi", st.rssi);
+    cJSON_AddNumberToObject(root, "channel", st.channel);
     cJSON_AddBoolToObject(root, "on5GHz", st.connectedOn5Ghz);
     cJSON_AddBoolToObject(root, "connecting", st.connecting);
     cJSON_AddStringToObject(root, "connectingSsid", st.connectingSsid);

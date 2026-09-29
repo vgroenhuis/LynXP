@@ -61,8 +61,8 @@ void handle_wifi_command(const char *args) {
     if (std::strcmp(verb, "list") == 0 || verb[0] == '\0') {
         WifiStatus st;
         wifi_get_status(&st);
-        printf("connected=%d ssid=\"%s\" ip=%s rssi=%d | hotspot %s \"%s\" (open) | prefer 5 GHz %s\n", st.connected,
-               st.ssid, st.ip, st.rssi, st.apActive ? "ON" : "off", wifi_ap_get_ssid(), wifi_get_prefer_5ghz() ? "on" : "off");
+        printf("connected=%d ssid=\"%s\" ip=%s rssi=%d channel=%d | hotspot %s \"%s\" (open) | prefer 5 GHz %s\n", st.connected,
+               st.ssid, st.ip, st.rssi, st.channel, st.apActive ? "ON" : "off", wifi_ap_get_ssid(), wifi_get_prefer_5ghz() ? "on" : "off");
         size_t n = wifi_networks_count();
         for (size_t i = 0; i < n; i++) {
             WifiCredential c;
