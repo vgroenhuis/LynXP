@@ -1,5 +1,6 @@
 // Temple of LynXP -- a small Tomb Raider-style adventure laid out on the
-// floor in front of the robot (about 2 x 3 m). Three chambers:
+// floor in front of the robot (about 2 x 3 m). Two levels of three chambers.
+// Level 1, the upper temple:
 //   1. the hall of pits: jump a spike pit and a lava channel, climb stone
 //      blocks for treasure, fend off bats;
 //   2. the glyph floor: a lights-out puzzle (stepping on a glyph flips it and
@@ -7,6 +8,13 @@
 //      the portcullis, while scarabs crawl in;
 //   3. the guardian: shoot its three crystals to drop its shield, then shoot
 //      it; jump its floor shockwaves, dodge its fireballs.
+// Level 2, the lower temple (laid out afresh in front of the robot):
+//   1. the dart hall: a wide spike pit with a stepping stone in the middle, a
+//      lava channel, and dart traps that shoot low across the floor -- jump
+//      the darts;
+//   2. the memory floor: glyphs light up one by one; step on them in the same
+//      order (step off the floor to see it again). Mistakes call a scarab;
+//   3. the obsidian guardian: four crystals, more health, angrier sooner.
 // Jumping is virtual (ar.jump): the view rises, the robot stays on the floor.
 // Temple coordinates: f = forward from the entrance, r = to the right (m),
 // fixed where the robot stands when the game starts.
@@ -20,7 +28,6 @@ Lynx.games = Lynx.games || {};
   const START_F = 0.15;
   const WALL_H = 0.22;
   const PIT_D = 0.12; // pit depth below the floor
-  const GATE_F = 2.07; // the portcullis
   const INVULNERABLE_S = 1.5;
   const TOUCH_M = 0.11;
   const NEAR = 0.06; // polygons are clipped this far in front of the lens
@@ -30,10 +37,16 @@ Lynx.games = Lynx.games || {};
     // scarabs: how many come to the glyph floor in all, one at a time, each
     // `scarabQuiet` seconds after the previous one is gone (time to think)
     // bats: how many guard the hall of pits, released one at a time
-    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabs: 2, scarabQuiet: 25, bats: 1, batHp: 1, attackEvery: 5, vulnerable: 10 },
-    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, attackEvery: 4, vulnerable: 8 },
-    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, attackEvery: 3, vulnerable: 6 },
+    // (level 2) seq: glyphs to remember on the memory floor; dartEvery: seconds between a trap's darts
+    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabs: 2, scarabQuiet: 25, bats: 1, batHp: 1, attackEvery: 5, vulnerable: 10, seq: 3, dartEvery: 3.4 },
+    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, attackEvery: 4, vulnerable: 8, seq: 4, dartEvery: 2.8 },
+    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, attackEvery: 3, vulnerable: 6, seq: 5, dartEvery: 2.2 },
   };
+  const LAST_LEVEL = 2;
+  const SEQ_STEP_S = 0.9; // memory floor: each glyph shows this long (lit for SEQ_ON_S of it)
+  const SEQ_ON_S = 0.65;
+  const DART_H = 0.05; // darts fly this high: jump over them
+  const DART_SPEED = 1.4;
 
   // -- sprites --------------------------------------------------------------------
   const GUARDIAN = [
@@ -59,6 +72,7 @@ Lynx.games = Lynx.games || {};
     "kkkkkkkkkkkkkkkk",
   ];
   const GUARDIAN_PAL = { k: "#2a1a08", a: "#c8a050", e: "#101010", r: "#ff3020", g: "#2050c0", b: "#e0c040" };
+  const OBSIDIAN_PAL = { k: "#050508", a: "#3c3c4a", e: "#101010", r: "#40ff70", g: "#8a2090", b: "#e0c040" };
   const BAT = [
     "p............p",
     "pp...pppp...pp",
@@ -111,8 +125,11 @@ Lynx.games = Lynx.games || {};
     const d = DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal;
     const maxHearts = cfg.hearts || 5;
     const aimAssist = cfg.aimAssist !== false;
+    const firstLevel = Math.min(LAST_LEVEL, Math.max(1, Math.round(+cfg.startLevel) || 1));
     const img = {
-      guardian: Lynx.sprite(GUARDIAN, GUARDIAN_PAL),
+      guardian1: Lynx.sprite(GUARDIAN, GUARDIAN_PAL),
+      guardian2: Lynx.sprite(GUARDIAN, OBSIDIAN_PAL),
+      heart: Lynx.sprite(EYE, { k: "#400010", w: "#ffc0d0", g: "#ff2050" }),
       bat: Lynx.sprite(BAT, BAT_PAL),
       scarab: Lynx.sprite(SCARAB, SCARAB_PAL),
       gem: Lynx.sprite(GEM, { c: "#30e0a0", w: "#ffffff" }),
@@ -124,28 +141,100 @@ Lynx.games = Lynx.games || {};
 
     // -- the temple -------------------------------------------------------------------
     const G = d.gap;
-    const platforms = [
-      { f0: 0.62, f1: 0.87, r0: -HALF_W, r1: -0.5, h: 0.15 },
-      { f0: 0.87, f1: 1.07, r0: -HALF_W, r1: -0.5, h: 0.32 },
-      { f0: 0.58, f1: 0.8, r0: 0.55, r1: HALF_W, h: 0.2 },
-      { f0: 2.3, f1: 2.5, r0: -HALF_W, r1: -0.62, h: 0.15, pedestal: true },
-      { f0: 2.3, f1: 2.5, r0: 0.62, r1: HALF_W, h: 0.15, pedestal: true },
-    ];
-    const pits = [
-      { f0: 0.38, f1: 0.38 + G, r0: -HALF_W, r1: HALF_W, kind: "spikes" },
-      { f0: 0.9, f1: 0.9 + G, r0: -0.5, r1: HALF_W, kind: "lava" },
-    ];
     const N = d.grid;
     const T = N === 3 ? 0.25 : 0.2;
-    const grid = { f0: 1.575 - (N * T) / 2, f1: 1.575 + (N * T) / 2, r0: (-N * T) / 2, r1: (N * T) / 2 };
-    const tileCenter = (i, j) => ({ f: grid.f0 + (i + 0.5) * T, r: grid.r0 + (j + 0.5) * T });
+    const makeGrid = (fc) => ({ f0: fc - (N * T) / 2, f1: fc + (N * T) / 2, r0: (-N * T) / 2, r1: (N * T) / 2 });
     const BOSS = { f: 2.85, r: 0 };
-    const CRYSTAL_SPOTS = [{ f: 2.25, r: -0.55, h: 0.3 }, { f: 2.25, r: 0.55, h: 0.3 }, { f: 2.62, r: 0, h: 0.38 }];
+    const STONE = { f0: 0.3 + G, f1: 0.42 + G }; // level 2: the stepping stone in the wide spike pit
+    const LEVELS = {
+      1: {
+        name: "the upper temple",
+        gateF: 2.07, // the portcullis
+        grid: makeGrid(1.575),
+        puzzle: "lights",
+        platforms: [
+          { f0: 0.62, f1: 0.87, r0: -HALF_W, r1: -0.5, h: 0.15 },
+          { f0: 0.87, f1: 1.07, r0: -HALF_W, r1: -0.5, h: 0.32 },
+          { f0: 0.58, f1: 0.8, r0: 0.55, r1: HALF_W, h: 0.2 },
+          { f0: 2.3, f1: 2.5, r0: -HALF_W, r1: -0.62, h: 0.15, pedestal: true },
+          { f0: 2.3, f1: 2.5, r0: 0.62, r1: HALF_W, h: 0.15, pedestal: true },
+        ],
+        pits: [
+          { f0: 0.38, f1: 0.38 + G, r0: -HALF_W, r1: HALF_W, kind: "spikes" },
+          { f0: 0.9, f1: 0.9 + G, r0: -0.5, r1: HALF_W, kind: "lava" },
+        ],
+        traps: [],
+        crystals: [{ f: 2.25, r: -0.55, h: 0.3 }, { f: 2.25, r: 0.55, h: 0.3 }, { f: 2.62, r: 0, h: 0.38 }],
+        items: () => [
+          { kind: "potion", f: 0.745, r: -0.7, base: 0.15 },
+          { kind: "bigGem", f: 0.97, r: -0.7, base: 0.32 },
+          { kind: "gem", f: 0.69, r: 0.72, base: 0.2 },
+          // over the pits: grab them mid-jump
+          { kind: "gem", f: 0.38 + G / 2, r: 0.3, base: 0.1, float: true },
+          { kind: "gem", f: 0.9 + G / 2, r: 0.45, base: 0.1, float: true },
+        ],
+        bossHp: 1, // times the difficulty's
+        rage: 0.5, // below this share of its health the guardian attacks double
+        relic: "the Eye of LynXP",
+        intro: "Chamber 1 -- the hall of pits: jump!",
+        chamber2: "Chamber 2 -- light every glyph",
+      },
+      2: {
+        name: "the lower temple",
+        gateF: 2.2,
+        grid: makeGrid(1.7),
+        puzzle: "sequence",
+        platforms: [
+          { f0: STONE.f0, f1: STONE.f1, r0: -0.3, r1: 0.3, h: 0.1 },
+          { f0: 0.06, f1: 0.26, r0: 0.55, r1: HALF_W, h: 0.18 },
+          { f0: 2.45, f1: 2.65, r0: -HALF_W, r1: -0.62, h: 0.15, pedestal: true },
+          { f0: 2.45, f1: 2.65, r0: 0.62, r1: HALF_W, h: 0.15, pedestal: true },
+        ],
+        pits: [
+          // the stepping stone (a platform) stands in the middle of this one
+          { f0: 0.3, f1: STONE.f1 + G, r0: -HALF_W, r1: HALF_W, kind: "spikes" },
+          { f0: 1.05, f1: 1.05 + G, r0: -HALF_W, r1: HALF_W, kind: "lava" },
+        ],
+        // dart traps: a lane across the floor at f, shooting from the wall on `side` (-1 left, +1 right);
+        // a dart hits within 0.08 m of the lane, so there's safe floor between the lane and the lava
+        traps: [{ f: 0.18, side: -1 }, { f: 0.87, side: 1 }],
+        // well past the portcullis (2.2), so they're in view when you come through
+        crystals: [{ f: 2.45, r: -0.45, h: 0.3 }, { f: 2.45, r: 0.45, h: 0.3 }, { f: 2.7, r: 0, h: 0.38 }, { f: 2.55, r: -0.76, h: 0.45 }],
+        items: () => [
+          { kind: "potion", f: 0.16, r: 0.72, base: 0.18 },
+          // high above the stepping stone: jump from the stone to reach it
+          { kind: "bigGem", f: (STONE.f0 + STONE.f1) / 2, r: 0, base: 0.34, float: true },
+          { kind: "gem", f: 0.3 + G / 2, r: 0.6, base: 0.1, float: true },
+          { kind: "gem", f: 1.05 + G / 2, r: -0.4, base: 0.1, float: true },
+          { kind: "gem", f: 2.55, r: 0.76, base: 0.15 },
+        ],
+        bossHp: 1.3,
+        rage: 0.75,
+        relic: "the Heart of LynXP",
+        intro: "Level 2 -- the dart hall: jump the pits and the darts!",
+        chamber2: "Chamber 2 -- watch the glyphs, then step on them in order",
+      },
+    };
+    let level = firstLevel;
+    let lv = LEVELS[level];
+    let platforms = lv.platforms;
+    let pits = lv.pits;
+    let grid = lv.grid;
+    let gateF = lv.gateF;
+    const tileCenter = (i, j) => ({ f: grid.f0 + (i + 0.5) * T, r: grid.r0 + (j + 0.5) * T });
 
     let anchor = null; // {x, y, th}: temple origin in the world
-    let state = "title"; // title | playing | dead | won
+    let state = "title"; // title | playing | dead | levelDone | won
     let stateTime = 0;
     let elapsed = 0;
+    let levelElapsed = 0;
+    let levelBonus = 0;
+    let traps = []; // level 2 dart traps: {f, side, t, dart: null | {r, hit}}
+    let seq = []; // level 2 memory floor: tile indices to step on, in order
+    let seqPos = 0;
+    let seqPhase = "wait"; // wait | show | input
+    let seqT = 0;
+    let seqShown = -1;
     let score = 0;
     let hearts = maxHearts;
     let deaths = 0;
@@ -332,15 +421,28 @@ Lynx.games = Lynx.games || {};
     }
 
     function newGame() {
+      score = 0;
+      hearts = maxHearts;
+      deaths = 0;
+      elapsed = 0;
+      startLevel(firstLevel);
+    }
+
+    // Lay out a level in front of the robot, where it stands now.
+    function startLevel(n) {
+      level = n;
+      lv = LEVELS[n];
+      platforms = lv.platforms;
+      pits = lv.pits;
+      grid = lv.grid;
+      gateF = lv.gateF;
       anchor = {
         x: ar.pose.x - START_F * Math.cos(ar.pose.theta),
         y: ar.pose.y - START_F * Math.sin(ar.pose.theta),
         th: ar.pose.theta,
       };
-      score = 0;
       hearts = maxHearts;
-      deaths = 0;
-      elapsed = 0;
+      levelElapsed = 0;
       chamber = 1;
       batsReleased = false;
       scarabsSent = 0;
@@ -354,34 +456,51 @@ Lynx.games = Lynx.games || {};
       fireballs = [];
       rings = [];
       pendingRings = [];
-      items = [
-        { kind: "potion", f: 0.745, r: -0.7, base: 0.15 },
-        { kind: "bigGem", f: 0.97, r: -0.7, base: 0.32 },
-        { kind: "gem", f: 0.69, r: 0.72, base: 0.2 },
-        // over the pits: grab them mid-jump
-        { kind: "gem", f: 0.38 + G / 2, r: 0.3, base: 0.1, float: true },
-        { kind: "gem", f: 0.9 + G / 2, r: 0.45, base: 0.1, float: true },
-      ];
-      // glyph floor: all lit, then scrambled by random presses (so it's solvable)
-      lit = new Array(N * N).fill(true);
-      do {
-        const picks = new Set();
-        while (picks.size < d.presses) picks.add(Math.floor(Math.random() * N * N));
-        lit.fill(true);
-        picks.forEach((k) => flip(Math.floor(k / N), k % N));
-      } while (lit.every(Boolean));
-      boss = { hp: d.bossHp, maxHp: d.bossHp, state: "sleep", attackT: 3, attackN: 0, openT: 0, hit: 0, t: 0, rect: null };
+      items = lv.items();
+      traps = lv.traps.map((t, k) => ({ ...t, t: (d.dartEvery * (k + 1)) / (lv.traps.length + 1), dart: null }));
+      if (lv.puzzle === "lights") {
+        // glyph floor: all lit, then scrambled by random presses (so it's solvable)
+        lit = new Array(N * N).fill(true);
+        do {
+          const picks = new Set();
+          while (picks.size < d.presses) picks.add(Math.floor(Math.random() * N * N));
+          lit.fill(true);
+          picks.forEach((k) => flip(Math.floor(k / N), k % N));
+        } while (lit.every(Boolean));
+      } else {
+        // memory floor: a random order of glyphs, never the same one twice in a row
+        seq = [];
+        while (seq.length < d.seq) {
+          const k = Math.floor(Math.random() * N * N);
+          if (k !== seq[seq.length - 1]) seq.push(k);
+        }
+        seqPos = 0;
+        seqPhase = "wait";
+        seqT = 1.5;
+        seqShown = -1;
+        lit = new Array(N * N).fill(false);
+      }
+      const hp = Math.round(d.bossHp * lv.bossHp);
+      boss = { hp, maxHp: hp, state: "sleep", attackT: 3, attackN: 0, openT: 0, hit: 0, t: 0, rect: null };
       spawnCrystals();
       state = "playing";
       stateTime = 0;
       invulnerable = 1;
       wasAirborne = false;
-      say("Chamber 1 -- the hall of pits: jump!");
+      say(lv.intro);
       Lynx.sfx.play("levelup");
     }
 
     function spawnCrystals() {
-      crystals = CRYSTAL_SPOTS.map((c) => ({ ...c, hp: 3, alive: true, spin: Math.random() * 6, rect: null }));
+      crystals = lv.crystals.map((c) => ({ ...c, hp: 3, alive: true, spin: Math.random() * 6, rect: null }));
+    }
+
+    // memory floor: show the order again from the start
+    function replaySequence(wait) {
+      seqPos = 0;
+      seqPhase = "wait";
+      seqT = wait;
+      seqShown = -1;
     }
 
     // lights-out: a glyph and its four neighbours flip
@@ -428,17 +547,25 @@ Lynx.games = Lynx.games || {};
         boss.attackT = 3;
         spawnCrystals();
       }
+      if (lv.puzzle === "sequence" && !gateOpen) replaySequence(1.5);
+      traps.forEach((t) => (t.dart = null));
       state = "playing";
       stateTime = 0;
       invulnerable = 2;
       say("Back on your feet (-500)");
     }
 
-    function win() {
-      state = "won";
+    // The level's relic is taken: on to the next level, or the end.
+    function relicTaken() {
       stateTime = 0;
-      const timeBonus = Math.max(0, Math.round(3000 - elapsed * 10));
-      score += timeBonus + hearts * 300;
+      levelBonus = Math.max(0, Math.round(3000 - levelElapsed * 10)) + hearts * 300;
+      score += levelBonus;
+      if (level < LAST_LEVEL) {
+        state = "levelDone";
+        Lynx.sfx.play("levelup");
+        return;
+      }
+      state = "won";
       rankMsg = "";
       Lynx.sfx.play("found");
       Lynx.submitScore("temple", score).then((rank) => {
@@ -451,6 +578,7 @@ Lynx.games = Lynx.games || {};
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title" || (state === "won" && stateTime > 2)) newGame();
+      else if (state === "levelDone" && stateTime > 2) startLevel(level + 1);
       else if (state === "dead" && stateTime > 1.5) carryOn();
       else firePressed = true;
     });
@@ -509,7 +637,7 @@ Lynx.games = Lynx.games || {};
           puffs.push({ x: w.x, y: w.y, h: 0.2, t: 0, big: true });
           Lynx.sfx.play("explode");
           items.push({ kind: "eye", f: BOSS.f - 0.15, r: BOSS.r, base: 0 });
-          say("The guardian crumbles! Take the Eye of LynXP", "#ffd84a");
+          say(`The guardian crumbles! Take ${lv.relic}`, "#ffd84a");
         }
         return;
       }
@@ -549,7 +677,7 @@ Lynx.games = Lynx.games || {};
         standingOn = null;
         if (pits.some((p) => inRect(me, p))) ground = -PIT_D;
       }
-      if (!gateOpen && me.f > GATE_F - 0.02 && me.f < LEN) solid = solid || "gate";
+      if (!gateOpen && me.f > gateF - 0.02 && me.f < LEN) solid = solid || "gate";
       outside = Math.abs(me.r) > HALF_W + 0.05 || me.f < -0.2 || me.f > LEN + 0.03;
       ar.setGround(ground);
     }
@@ -568,7 +696,12 @@ Lynx.games = Lynx.games || {};
       }
       if (cand === onTile) return;
       onTile = cand;
-      if (cand === "off" || gateOpen) return;
+      if (gateOpen) return;
+      if (lv.puzzle === "sequence") {
+        pressSequence(cand);
+        return;
+      }
+      if (cand === "off") return;
       const [i, j] = cand.split(",").map(Number);
       flip(i, j);
       Lynx.sfx.play("click");
@@ -580,13 +713,102 @@ Lynx.games = Lynx.games || {};
       }
     }
 
+    // Memory floor: a foot came down on tile "i,j" (or left the floor: "off").
+    function pressSequence(cand) {
+      if (cand === "off") {
+        // stepping off the floor shows the order again
+        if (seqPhase === "input" && chamber >= 2) {
+          replaySequence(0.8);
+          say("Watch again...", "#ffd84a");
+        }
+        return;
+      }
+      if (seqPhase !== "input") return; // no pressing while it's showing
+      const [i, j] = cand.split(",").map(Number);
+      const k = i * N + j;
+      if (k === seq[seqPos]) {
+        seqPos++;
+        Lynx.sfx.play("beep");
+        if (seqPos === seq.length) {
+          gateOpen = true;
+          score += 1000;
+          Lynx.sfx.play("gate");
+          say("The portcullis rises! (+1000)", "#50ff78");
+        }
+        return;
+      }
+      Lynx.sfx.play("fail");
+      say("Wrong glyph -- something stirs... watch again", "#ff6060");
+      spawnScarab();
+      replaySequence(1.5);
+    }
+
+    function updateSequence(dt) {
+      if (lv.puzzle !== "sequence" || chamber < 2 || gateOpen) return;
+      if (seqPhase === "wait") {
+        seqT -= dt;
+        if (seqT <= 0) {
+          seqPhase = "show";
+          seqT = 0;
+          seqShown = -1;
+        }
+      } else if (seqPhase === "show") {
+        seqT += dt;
+        const idx = Math.floor(seqT / SEQ_STEP_S);
+        if (idx >= seq.length) {
+          seqPhase = "input";
+          seqPos = 0;
+          say("Your turn: step on the glyphs in that order", "#ffd84a");
+        } else if (idx !== seqShown) {
+          seqShown = idx;
+          Lynx.sfx.play("click");
+        }
+      }
+    }
+
+    // The glyph the memory floor is showing right now (tile index), or -1.
+    function seqLit() {
+      if (seqPhase !== "show") return -1;
+      const idx = Math.floor(seqT / SEQ_STEP_S);
+      return idx < seq.length && seqT - idx * SEQ_STEP_S < SEQ_ON_S ? seq[idx] : -1;
+    }
+
+    // Dart traps shoot low across the hall; stand in a lane when a dart passes
+    // and it hits you, unless you're in the air (or up on a block).
+    function updateTraps(dt, me) {
+      traps.forEach((trap) => {
+        if (chamber === 1) trap.t -= dt;
+        if (trap.t <= 0) {
+          trap.t += d.dartEvery;
+          trap.dart = { r: trap.side * HALF_W, hit: false };
+          Lynx.sfx.play("squirt");
+        }
+        const dart = trap.dart;
+        if (!dart) return;
+        dart.r -= trap.side * DART_SPEED * d.speed * dt;
+        if (Math.abs(dart.r) > HALF_W + 0.01) {
+          trap.dart = null;
+          return;
+        }
+        if (!dart.hit && Math.abs(me.f - trap.f) < 0.08 && Math.abs(me.r - dart.r) < 0.07 && ar.feet() < DART_H + 0.03) {
+          dart.hit = true;
+          hurt("A dart! Jump when they fly");
+        }
+      });
+    }
+
+    function spawnScarab() {
+      const corner = toWorld(Math.random() < 0.5 ? grid.f0 - 0.05 : grid.f1 + 0.05, (Math.random() < 0.5 ? -1 : 1) * (HALF_W - 0.1));
+      scarabs.push({ x: corner.x, y: corner.y, hp: 1, phase: 0, hit: 0, retreat: 0, rect: null });
+    }
+
     function updateItems(me) {
       const feet = ar.feet();
       items = items.filter((it) => {
         const near = Math.hypot(me.f - it.f, me.r - it.r) < (it.kind === "eye" ? 0.2 : 0.15);
         if (!near || feet < it.base - 0.03 || feet > it.base + 0.3) return true;
         if (it.kind === "eye") {
-          win();
+          relicTaken();
           return false;
         }
         if (it.kind === "potion") {
@@ -673,20 +895,20 @@ Lynx.games = Lynx.games || {};
           spawnBat(rand(1.0, 1.3), rand(-0.5, 0.5));
         }
       }
-      if (chamber >= 2 && !gateOpen && scarabsSent < d.scarabs && scarabs.length === 0) {
+      // the glyph floor's scarabs (on the memory floor they come for mistakes instead)
+      if (lv.puzzle === "lights" && chamber >= 2 && !gateOpen && scarabsSent < d.scarabs && scarabs.length === 0) {
         scarabTimer -= dt;
         if (scarabTimer <= 0) {
           scarabTimer = d.scarabQuiet;
           scarabsSent++;
-          const corner = toWorld(Math.random() < 0.5 ? grid.f0 - 0.05 : grid.f1 + 0.05, (Math.random() < 0.5 ? -1 : 1) * (HALF_W - 0.1));
-          scarabs.push({ x: corner.x, y: corner.y, hp: 1, phase: 0, hit: 0, retreat: 0, rect: null });
+          spawnScarab();
         }
       }
     }
 
     function updateBoss(dt, me) {
       if (boss.state === "sleep") {
-        if (gateOpen && me.f > GATE_F + 0.08 && !solid) {
+        if (gateOpen && me.f > gateF + 0.08 && !solid) {
           boss.state = "shielded";
           chamber = 3;
           Lynx.sfx.play("growl");
@@ -716,7 +938,7 @@ Lynx.games = Lynx.games || {};
       // attacks, faster as it weakens
       boss.attackT -= dt;
       if (boss.attackT <= 0) {
-        const rage = boss.hp < boss.maxHp / 2;
+        const rage = boss.hp < boss.maxHp * lv.rage;
         boss.attackT = d.attackEvery * (0.6 + (0.4 * boss.hp) / boss.maxHp);
         const kind = boss.attackN++ % 3;
         if (kind === 1) {
@@ -769,7 +991,7 @@ Lynx.games = Lynx.games || {};
       const dBoss = Math.hypot(me.f - BOSS.f, me.r - BOSS.r);
       rings = rings.filter((ring) => {
         ring.r += RING_SPEED * d.speed * dt;
-        if (!ring.hit && me.f > GATE_F && Math.abs(dBoss - ring.r) < 0.05 && ar.feet() < 0.06) {
+        if (!ring.hit && me.f > gateF && Math.abs(dBoss - ring.r) < 0.05 && ar.feet() < 0.06) {
           ring.hit = true;
           hurt("Jump over the shockwaves!");
         }
@@ -793,6 +1015,7 @@ Lynx.games = Lynx.games || {};
       if (state !== "playing") return;
 
       elapsed += dt;
+      levelElapsed += dt;
       invulnerable = Math.max(0, invulnerable - dt);
       if (firePressed || Lynx.input.fireHeld) tryFire();
       firePressed = false;
@@ -809,11 +1032,14 @@ Lynx.games = Lynx.games || {};
         if (chamber === 1 && me.f > grid.f0 - 0.1) {
           chamber = 2;
           scarabTimer = 10; // a quiet start to look at the puzzle
-          say("Chamber 2 -- light every glyph", "#ffd84a");
+          traps.forEach((t) => (t.dart = null));
+          say(lv.chamber2, "#ffd84a");
         }
         updateGlyphs(me);
         updateItems(me);
       }
+      updateTraps(dt, me);
+      updateSequence(dt);
       updateEnemies(dt, me);
       updateBoss(dt, me);
       updateProjectiles(dt, me);
@@ -896,21 +1122,55 @@ Lynx.games = Lynx.games || {};
 
     function drawGlyphs() {
       const me = toLocal(ar.pose.x, ar.pose.y);
+      const memory = lv.puzzle === "sequence";
+      const showing = memory ? seqLit() : -1;
       for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
-          const on = lit[i * N + j];
+          const k = i * N + j;
+          // memory floor: the glyph being shown is lit; ones already stepped on
+          // in the right order glow green
+          const done = memory && !gateOpen && seqPhase === "input" && seq.slice(0, seqPos).includes(k);
+          const on = memory ? gateOpen || k === showing : lit[k];
           const f0 = grid.f0 + i * T;
           const r0 = grid.r0 + j * T;
           const inset = 0.012;
           const q = polyScreen([w3(f0 + inset, r0 + inset, 0.002), w3(f0 + T - inset, r0 + inset, 0.002), w3(f0 + T - inset, r0 + T - inset, 0.002), w3(f0 + inset, r0 + T - inset, 0.002)], 2);
           if (!q) continue;
           const here = onTile === `${i},${j}` && me.f >= f0 && me.f <= f0 + T && me.r >= r0 && me.r <= r0 + T;
-          fillPoly(q, on ? "rgba(255,200,60,0.42)" : "rgba(25,20,45,0.6)", here ? "#28c8ff" : on ? "#ffd84a" : "#6a5a90", here ? 3 : 1.5);
+          const fill = on ? "rgba(255,200,60,0.42)" : done ? "rgba(60,200,100,0.35)" : "rgba(25,20,45,0.6)";
+          fillPoly(q, fill, here ? "#28c8ff" : on ? "#ffd84a" : done ? "#50ff78" : "#6a5a90", here ? 3 : 1.5);
           const c = tileCenter(i, j);
           GLYPHS[(i * 7 + j * 3) % GLYPHS.length].forEach((pl) =>
             line3(pl.map(([u, v]) => [c.f - v * T, c.r + u * T, 0.003]), on ? "#fff4c0" : "rgba(160,140,220,0.8)", on ? 2.5 : 1.5, 0.03));
         }
       }
+    }
+
+    // Dart traps: a faint lane across the floor, a glowing hole in the wall
+    // just before a dart flies, and the dart itself.
+    function drawTraps() {
+      traps.forEach((trap) => {
+        line3([[trap.f, -HALF_W, 0.002], [trap.f, HALF_W, 0.002]], "rgba(220,90,60,0.35)", 2, 0.1);
+        const warn = chamber === 1 && trap.t < 0.6;
+        const hole = toWorld(trap.f, trap.side * (HALF_W - 0.005));
+        if (camZ(hole.x, hole.y, DART_H) >= NEAR) {
+          const p = ar.project(hole.x, hole.y, DART_H);
+          if (p) {
+            ar.queue(p.depth - 0.01, () => {
+              ar.glow(p.x, p.y, Math.max(3, 0.03 * p.ppm), warn ? [[0, "rgba(255,90,40,0.95)"], [1, "rgba(255,40,0,0)"]] : [[0, "rgba(20,10,5,0.9)"], [1, "rgba(20,10,5,0)"]]);
+            }, pointAt(hole.x, hole.y, DART_H, DART_H));
+          }
+        }
+        if (trap.dart) {
+          const r = trap.dart.r;
+          const tail = r + trap.side * 0.08;
+          const mid = toWorld(trap.f, r);
+          const depth = camZ(mid.x, mid.y, DART_H);
+          if (depth >= NEAR) {
+            ar.queue(depth, () => line3([[trap.f, tail, DART_H], [trap.f, r, DART_H]], "#d8c8a0", 3, 0.02), pointAt(mid.x, mid.y, DART_H, DART_H));
+          }
+        }
+      });
     }
 
     function drawRings() {
@@ -926,7 +1186,7 @@ Lynx.games = Lynx.games || {};
             const a = (k / n) * 2 * Math.PI;
             const f = BOSS.f + ring.r * Math.cos(a);
             const r = BOSS.r + ring.r * Math.sin(a);
-            const inside = f > GATE_F && f < LEN && Math.abs(r) < HALF_W;
+            const inside = f > gateF && f < LEN && Math.abs(r) < HALF_W;
             const w = toWorld(f, r);
             const p = inside && camZ(w.x, w.y, h) >= NEAR ? ar.project(w.x, w.y, h) : null;
             if (!p) {
@@ -970,15 +1230,15 @@ Lynx.games = Lynx.games || {};
     }
 
     function drawGate() {
-      const mid = toWorld(GATE_F, 0);
+      const mid = toWorld(gateF, 0);
       if (camZ(mid.x, mid.y, 0.1) < -0.5) return;
       const p = ar.project(mid.x, mid.y, 0.1);
       ar.queue(p ? p.depth : camZ(mid.x, mid.y, 0.1), () => {
         const lift = gateLift;
         if (lift >= 0.3) return;
-        for (let r = -HALF_W + 0.05; r < HALF_W; r += 0.1) line3([[GATE_F, r, lift], [GATE_F, r, lift + 0.26]], "#2e2e34", 4, 0.05);
-        [0.06, 0.18].forEach((h) => line3([[GATE_F, -HALF_W, lift + h], [GATE_F, HALF_W, lift + h]], "#3c3c44", 4, 0.1));
-      }, extent(GATE_F - 0.01, GATE_F + 0.01, -HALF_W, HALF_W, gateLift, gateLift + 0.26));
+        for (let r = -HALF_W + 0.05; r < HALF_W; r += 0.1) line3([[gateF, r, lift], [gateF, r, lift + 0.26]], "#2e2e34", 4, 0.05);
+        [0.06, 0.18].forEach((h) => line3([[gateF, -HALF_W, lift + h], [gateF, HALF_W, lift + h]], "#3c3c44", 4, 0.1));
+      }, extent(gateF - 0.01, gateF + 0.01, -HALF_W, HALF_W, gateLift, gateLift + 0.26));
     }
 
     function drawSprite(obj, spr, x, y, base, heightM, opts = {}) {
@@ -1001,7 +1261,7 @@ Lynx.games = Lynx.games || {};
       items.forEach((it) => {
         const w = toWorld(it.f, it.r);
         const bob = Math.sin(stateTime * 3 + it.f * 7) * 0.012;
-        const spr = img[it.kind];
+        const spr = it.kind === "eye" && level === 2 ? img.heart : img[it.kind];
         const size = it.kind === "eye" ? 0.1 : it.kind === "potion" ? 0.06 : 0.05;
         drawSprite(it, spr, w.x, w.y, it.base + 0.03 + bob, size, {
           before: (r) => ar.glow(r.cx, r.y + r.h / 2, r.w * 1.3, [[0, "rgba(255,255,220,0.7)"], [1, "rgba(255,255,200,0)"]]),
@@ -1030,7 +1290,7 @@ Lynx.games = Lynx.games || {};
       });
       if (boss.state !== "dead") {
         const w = toWorld(BOSS.f, BOSS.r);
-        drawSprite(boss, img.guardian, w.x, w.y, 0, 0.45, {
+        drawSprite(boss, img[`guardian${level}`], w.x, w.y, 0, 0.45, {
           after: (rect) => {
             if (boss.state === "shielded") {
               ar.glow(rect.cx, rect.y + rect.h / 2, rect.h * 0.75, [[0, "rgba(80,160,255,0)"], [0.75, "rgba(80,160,255,0.18)"], [1, "rgba(120,200,255,0)"]]);
@@ -1061,15 +1321,23 @@ Lynx.games = Lynx.games || {};
     }
 
     function objective() {
-      if (chamber === 1) return { text: "Cross the pits (J / gamepad A / ⤒ = jump)", at: tileCenter((N - 1) / 2, (N - 1) / 2), h: 0 };
-      if (!gateOpen) return { text: "Light every glyph -- each step flips its neighbours too", at: tileCenter((N - 1) / 2, (N - 1) / 2), h: 0 };
-      if (boss.state === "sleep") return { text: "Go through the portcullis", at: { f: GATE_F + 0.3, r: 0 }, h: 0.1 };
+      const mid = tileCenter((N - 1) / 2, (N - 1) / 2);
+      if (chamber === 1) {
+        const text = traps.length ? "Cross the pits, jump the darts (J / gamepad A / ⤒ = jump)" : "Cross the pits (J / gamepad A / ⤒ = jump)";
+        return { text, at: mid, h: 0 };
+      }
+      if (!gateOpen && lv.puzzle === "sequence") {
+        if (seqPhase !== "input") return { text: "Watch the glyphs light up, one by one...", at: mid, h: 0 };
+        return { text: `Step on the glyphs in that order (${seqPos}/${seq.length}) -- step off the floor to see it again`, at: mid, h: 0 };
+      }
+      if (!gateOpen) return { text: "Light every glyph -- each step flips its neighbours too", at: mid, h: 0 };
+      if (boss.state === "sleep") return { text: "Go through the portcullis", at: { f: gateF + 0.3, r: 0 }, h: 0.1 };
       if (boss.state === "shielded") {
         const c = crystals.find((x) => x.alive);
         return { text: "Shoot the crystals (jump to reach them)", at: c || BOSS, h: c ? c.h : 0.2 };
       }
       if (boss.state === "open") return { text: `Shoot the guardian! ${Math.ceil(boss.openT)}s`, at: BOSS, h: 0.2 };
-      return { text: "Take the Eye of LynXP", at: { f: BOSS.f - 0.15, r: BOSS.r }, h: 0.05 };
+      return { text: `Take ${lv.relic}`, at: { f: BOSS.f - 0.15, r: BOSS.r }, h: 0.05 };
     }
 
     function draw() {
@@ -1081,6 +1349,7 @@ Lynx.games = Lynx.games || {};
         drawFloor();
         pits.forEach(drawPit);
         drawGlyphs();
+        drawTraps();
         drawRings();
         drawWalls();
         drawGate();
@@ -1116,12 +1385,13 @@ Lynx.games = Lynx.games || {};
           crystals.forEach((c) => c.alive && boss.state !== "sleep" && blips.push({ ...toWorld(c.f, c.r), color: "#60c0ff" }));
           items.forEach((it) => blips.push({ ...toWorld(it.f, it.r), color: "#ffd84a", r: 2.5 }));
           fireballs.forEach((b) => blips.push({ x: b.x, y: b.y, color: "#ffa020", r: 2 }));
+          traps.forEach((t) => t.dart && blips.push({ ...toWorld(t.f, t.dart.r), color: "#d8c8a0", r: 2 }));
           ar.radar(blips, 1.5);
         }
         ar.crosshair("rgba(0,0,0,0.6)", 19, 5);
         ar.crosshair("#ffffff", 17, 6);
         drawGuns();
-        ar.text(`TEMPLE OF LYNXP · chamber ${chamber}`, v.x + 14, v.y + 66, { size: 16, color: "#ffd84a" });
+        ar.text(`TEMPLE OF LYNXP · level ${level} · chamber ${chamber}`, v.x + 14, v.y + 66, { size: 16, color: "#ffd84a" });
         ar.text(o.text, v.x + 14, v.y + 88, { size: 14 });
         if (boss.state !== "sleep" && boss.state !== "dead") {
           const bw = Math.min(200, v.w * 0.3);
@@ -1155,16 +1425,24 @@ Lynx.games = Lynx.games || {};
         ar.flash("#000", 0.45);
         ar.banner("TEMPLE OF LYNXP", "Press FIRE to enter", { color: "#ffd84a" });
         ar.text("Jump pits (J / gamepad A / ⤒), climb for treasure, solve the glyph floor, defeat the guardian.", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
-        ar.text("The temple is laid out in front of the robot: about 2 m wide and 3 m deep.", v.cx, v.cy + v.h * 0.26, { size: 13, align: "center" });
+        const where = firstLevel < LAST_LEVEL ? `${LAST_LEVEL - firstLevel + 1} levels, each` : `Level ${firstLevel} is`;
+        ar.text(`${where} laid out in front of the robot: about 2 m wide and 3 m deep.`, v.cx, v.cy + v.h * 0.26, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.32, { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "dead") {
         ar.flash("#000", 0.5);
         ar.banner("YOU DIED", `Score ${score}`);
         if (stateTime > 1.5) ar.text("Press FIRE to get up again (-500)", v.cx, v.cy + v.h * 0.22, { size: 14, align: "center" });
+      } else if (state === "levelDone") {
+        ar.flash("#000", 0.45);
+        ar.banner(`LEVEL ${level} COMPLETE`, `${lv.relic.replace(/^the /, "The ")} is yours · bonus ${levelBonus} · score ${score}`, { color: "#ffd84a" });
+        ar.text(`Next: level ${level + 1}, ${LEVELS[level + 1].name}. It is laid out afresh in front of the robot:`, v.cx, v.cy + v.h * 0.18, { size: 14, align: "center" });
+        ar.text("place it with about 2 m x 3 m of free floor ahead.", v.cx, v.cy + v.h * 0.23, { size: 14, align: "center" });
+        if (stateTime > 2) ar.text("Press FIRE to descend", v.cx, v.cy + v.h * 0.3, { size: 16, align: "center", color: "#ffd84a" });
       } else if (state === "won") {
         ar.flash("#000", 0.4);
         const s = Math.floor(elapsed);
-        ar.banner("THE EYE IS YOURS", `Score ${score} · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} · ${deaths} deaths`, { color: "#ffd84a" });
+        const title = firstLevel < LAST_LEVEL ? "THE TEMPLE IS CONQUERED" : "THE HEART IS YOURS";
+        ar.banner(title, `Score ${score} · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} · ${deaths} deaths`, { color: "#ffd84a" });
         if (rankMsg) ar.text(rankMsg, v.cx, v.cy + v.h * 0.18, { size: 16, align: "center", color: "#ffd84a" });
         if (stateTime > 2) ar.text("Press FIRE to play again", v.cx, v.cy + v.h * 0.25, { size: 14, align: "center" });
       }
@@ -1182,6 +1460,8 @@ Lynx.games = Lynx.games || {};
         killScarabs: () => (scarabs = []),
         killBats: () => (bats = []),
         solveGlyphs: () => {
+          // memory floor: the order to step in
+          if (lv.puzzle === "sequence") return seq.map((k) => [Math.floor(k / N), k % N]);
           // the presses that light every glyph (brute force), as "i,j" tiles
           for (let m = 0; m < 1 << (N * N); m++) {
             const save = lit.slice();
@@ -1194,11 +1474,14 @@ Lynx.games = Lynx.games || {};
         },
         tileCenter,
         crystals: () => crystals.filter((c) => c.alive).map((c) => ({ f: c.f, r: c.r, h: c.h })),
+        level: (n) => startLevel(n), // jump straight to a level (1 or 2)
       },
       snapshot: () => {
         const me = anchor ? toLocal(ar.pose.x, ar.pose.y) : null;
         return {
-          state, chamber, hearts, score, elapsed: +elapsed.toFixed(1),
+          state, level, chamber, hearts, score, elapsed: +elapsed.toFixed(1),
+          seq: lv.puzzle === "sequence" ? { phase: seqPhase, pos: seqPos, len: seq.length } : null,
+          darts: traps.filter((t) => t.dart).length,
           me: me && { f: +me.f.toFixed(3), r: +me.r.toFixed(3) },
           feet: +ar.feet().toFixed(3), ground: ar.ground, airborne: ar.airborne, solid, outside,
           lit: lit.map((x) => (x ? 1 : 0)).join(""), onTile, gateOpen,
