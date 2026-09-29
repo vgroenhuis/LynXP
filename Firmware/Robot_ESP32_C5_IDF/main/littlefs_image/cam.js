@@ -216,6 +216,15 @@ window.addEventListener("DOMContentLoaded", () => {
               heightM: data.cameraHeightMm / 1000,
               tiltRad: (data.cameraTiltDeg * Math.PI) / 180,
               vfovRad: (data.cameraVerticalFovDeg * Math.PI) / 180, // fallback only -- projection goes through Lynx.lens
+              // how the robot turns camera input into angles (see stepAim())
+              aim: typeof data.panMaxSpeedDegPerSec !== "number" ? null : {
+                panRateDeg: data.panMaxSpeedDegPerSec,
+                tiltRateDeg: data.tiltMaxSpeedDegPerSec,
+                tiltMinDeg: data.tiltMinAngleDeg,
+                tiltMaxDeg: data.tiltMaxAngleDeg,
+                quadratic: data.cameraJoystickCurve === 1,
+                servoFollows: data.servoFollowControlFrame !== false,
+              },
             };
           })
       )
@@ -340,6 +349,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (currentAr) currentAr.destroy();
     currentAr = null;
     Lynx.activeGame = null;
+    smoothAim = null;
     if (gameMode === "monster_hunt") {
       activeFireballs = [];
       monsters = [];
@@ -382,6 +392,10 @@ window.addEventListener("DOMContentLoaded", () => {
     currentAr = Lynx.createAr(calib);
     const game = startGame(currentAr, app[app.active], app) || {};
     Lynx.activeGame = game; // e.g. Lynx.activeGame.snapshot() from the console
+    // Games aim with the view led by your controls (see stepAim()), if the
+    // pan servo follows the control frame (otherwise controlTheta isn't
+    // where the camera points).
+    smoothAim = app.general.smoothAim !== false && calib.aim && calib.aim.servoFollows ? calib.aim : null;
     if (game.actionLabel) {
       actionBtn.textContent = game.actionLabel;
       actionBtn.style.display = "block";
@@ -431,6 +445,7 @@ window.addEventListener("DOMContentLoaded", () => {
 // /appdata/settings document) -- set in DOMContentLoaded above, with these
 // as fallback defaults. The rest stay internal tuning constants.
 let gameMode = "none"; // "none", "monster_hunt" (below), or the id of a running game_*.js / detect.js game
+let smoothAim = null; // calib.aim while a game runs with "Smooth aim" on, else null
 let fireballSpeedMps = 0.5;
 const FIREBALL_RADIUS_M = 0.08;
 const FIREBALL_START_DISTANCE_M = 0.2; // launched a short distance out, not exactly at the camera (a projection singularity)
@@ -925,8 +940,86 @@ function subscribeToPose(callback) {
     const pose = { x: m.x, y: m.y, theta: m.theta, ...servoAngles(m) };
     wsSamples.push({ t: m.t, pose });
     if (wsSamples.length > 30) wsSamples.shift();
+    if (typeof m.controlTheta === "number") correctAim(m, Math.min(...clockOffsets));
   });
   const wsFresh = () => performance.now() - wsLastArrival < 600 && wsSamples.length >= 2;
+
+  // Smooth aim (games): the view's heading and tilt follow YOUR controls, not
+  // the servos. The robot turns the camera input into a target heading
+  // (controlTheta: rate x panMaxSpeedDegPerSec, through the joystick curve)
+  // and a target tilt the same way, and the servos then chase those, with
+  // their wobble and lag. The page integrates the same input the same way,
+  // so the view moves exactly as the stick says, and is only pulled gently
+  // toward the robot's own targets (compared at the moment they were
+  // computed) so it can't drift off. Position still comes from odometry.
+  const AIM_TAU_S = 0.8; // how quickly a difference from the robot fades
+  const AIM_SNAP_RAD = 0.5; // bigger jumps (re-homing, a reboot) are taken at once
+  const AIM_LINK_MS = 40; // roughly how long an input takes to show up in the robot's targets
+  const aim = { yaw: null, tiltDeg: 0, lastMs: null, hist: [], errYaw: 0, errTilt: 0 };
+  const aimCurve = (v, a) => {
+    const x = Math.abs(v) > 0.03 ? v : 0; // CONTROL_FRAME_ROTATE_DEADZONE
+    return a.quadratic ? Math.sign(x) * x * x : x;
+  };
+
+  function stepAim(now, a) {
+    const input = Lynx.control.aimInput;
+    const dt = aim.lastMs === null ? 0 : Math.max(0, Math.min((now - aim.lastMs) / 1000, 0.1));
+    aim.lastMs = now;
+    // the robot drops a rate it hasn't heard again within 1 s
+    const rot = now - input.rotAt < 1000 ? input.rot : 0;
+    const tilt = now - input.tiltAt < 1000 ? input.tilt : 0;
+    aim.yaw += ((aimCurve(rot, a) * a.panRateDeg * Math.PI) / 180) * dt;
+    aim.tiltDeg = Math.max(a.tiltMinDeg, Math.min(a.tiltMaxDeg, aim.tiltDeg + aimCurve(tilt, a) * a.tiltRateDeg * dt));
+    const k = 1 - Math.exp(-dt / AIM_TAU_S);
+    const dy = aim.errYaw * k;
+    const dTilt = aim.errTilt * k;
+    aim.yaw += dy;
+    aim.tiltDeg += dTilt;
+    aim.errYaw -= dy;
+    aim.errTilt -= dTilt;
+    // keep the history consistent with the correction just applied
+    aim.hist.forEach((h) => {
+      h.yaw += dy;
+      h.tiltDeg += dTilt;
+    });
+    aim.hist.push({ ms: now, yaw: aim.yaw, tiltDeg: aim.tiltDeg });
+    while (aim.hist.length > 1 && aim.hist[0].ms < now - 2000) aim.hist.shift();
+  }
+
+  function correctAim(m, clockOffset) {
+    if (aim.yaw === null) {
+      aim.yaw = m.controlTheta;
+      aim.tiltDeg = m.tiltAngleDeg;
+      aim.errYaw = aim.errTilt = 0;
+      return;
+    }
+    // where the view was when the robot computed these targets
+    const at = m.t + clockOffset - AIM_LINK_MS;
+    let h = aim.hist[0];
+    for (const e of aim.hist) if (e.ms <= at) h = e;
+    if (!h) return;
+    const errYaw = wrapToPi(m.controlTheta - h.yaw);
+    const errTilt = m.tiltAngleDeg - h.tiltDeg;
+    if (Math.abs(errYaw) > AIM_SNAP_RAD) {
+      aim.yaw += errYaw;
+      aim.hist.forEach((e) => (e.yaw += errYaw));
+      aim.errYaw = 0;
+    } else aim.errYaw = errYaw;
+    aim.errTilt = errTilt;
+  }
+
+  // The pose handed to the games: smooth-aim heading/tilt (as a camera
+  // heading: chassis heading = camera heading, pan 0), measured position.
+  function withSmoothAim(pose) {
+    if (!smoothAim || aim.yaw === null) {
+      aim.lastMs = null;
+      aim.hist.length = 0;
+      if (!smoothAim) aim.yaw = null;
+      return pose;
+    }
+    stepAim(performance.now(), smoothAim);
+    return { ...pose, theta: wrapToPi(aim.yaw), servoAngleDeg: 0, tiltAngleDeg: aim.tiltDeg };
+  }
 
   function wsPoseAt() {
     const target = performance.now() - Math.min(...clockOffsets) - overlayDelayMs();
@@ -962,7 +1055,7 @@ function subscribeToPose(callback) {
 
   function animate() {
     if (wsFresh()) {
-      const pose = wsPoseAt();
+      const pose = withSmoothAim(wsPoseAt());
       poseSubscribers.slice().forEach((cb) => cb(pose));
     } else if (nextPose) {
       const t = Math.min((performance.now() - nextPoseReceivedAtMs) / POSE_POLL_INTERVAL_MS, 1);

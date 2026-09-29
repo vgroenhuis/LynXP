@@ -205,6 +205,11 @@ Lynx.games = Lynx.games || {};
       return [[cx - a, cy - a], [cx + a, cy - a], [cx + a, cy + a], [cx - a, cy + a]].map(([x, y]) => toWorld(x, y));
     }
 
+    // Board frame for exact draw ordering (ar.queue's box): f = column, r =
+    // row (tiles), h = height (m); cam set at the start of each frame.
+    const frame = { cam: { f: 0, r: 0, h: 0 } };
+    const cellBox = (cx, cy, half, h0, h1) => ({ frame, f0: cx - half, f1: cx + half, r0: cy - half, r1: cy + half, h0, h1 });
+
     // A box standing on a tile: sides facing the camera, then the top.
     function box(cx, cy, h, top, side, inset = 0.04) {
       const base = tileCorners(cx, cy, inset);
@@ -227,7 +232,7 @@ Lynx.games = Lynx.games || {};
           const q = proj(base.map((w) => [w.x, w.y, h]));
           if (q) poly(q, top, "rgba(0,0,0,0.35)");
         }
-      });
+      }, cellBox(cx, cy, 0.5 - inset, 0, h));
     }
 
     // An upright panel along a tile's diagonal ('/' or '\').
@@ -239,7 +244,7 @@ Lynx.games = Lynx.games || {};
       ar.queue(p.depth, () => {
         const q = proj([[a.x, a.y, 0.01], [b.x, b.y, 0.01], [b.x, b.y, h], [a.x, a.y, h]]);
         if (q) poly(q, fill, edge, 2);
-      });
+      }, cellBox(cx, cy, 0.42, 0.01, h));
     }
 
     function floorTile(cx, cy, fill, stroke, inset = 0.06, width = 1.5) {
@@ -248,6 +253,9 @@ Lynx.games = Lynx.games || {};
     }
 
     function drawBoard() {
+      const cw = ar.cameraWorld();
+      const cb = toBoard(cw.x, cw.y);
+      frame.cam = { f: cb.x, r: cb.y, h: cw.h };
       // tile grid on the floor
       for (let y = 0; y < g.H; y++) {
         for (let x = 0; x < g.W; x++) {
@@ -273,7 +281,7 @@ Lynx.games = Lynx.games || {};
             if (p) {
               ar.queue(p.depth - 0.001, () => {
                 ar.glow(p.x, p.y, Math.max(8, 0.12 * p.ppm), [[0, core.COLOR_CSS[want]], [1, "rgba(0,0,0,0)"]], ok ? 1 : 0.35);
-              });
+              }, cellBox(x, y, 0, WALL_H + 0.02, WALL_H + 0.02));
             }
           } else if (ch === "m" || ch === "M") panel(x, y, ch === "m" ? "/" : "\\", BLOCK_H, "rgba(200,220,255,0.75)", "#e0f0ff");
           else if (ch === "z" || ch === "Z") panel(x, y, ch === "z" ? "/" : "\\", BLOCK_H, "rgba(200,255,255,0.35)", "#80ffff");
