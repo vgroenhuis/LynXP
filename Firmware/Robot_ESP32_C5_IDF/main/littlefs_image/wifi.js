@@ -63,6 +63,7 @@ function initWifiManager(root) {
   let last = null;
   let pendingScanSeq = null; // set while waiting for a user-requested scan to finish
   let camScanWaiting = false; // a camera scan was requested from this page
+  const openApLists = new Set(); // SSIDs whose access point list is unfolded (kept across refreshes)
 
   function li(...children) {
     const item = document.createElement("li");
@@ -111,7 +112,8 @@ function initWifiManager(root) {
     // -- status line --
     let status;
     if (s.connected) {
-      status = `Connected to ${s.ssid} · ${s.ip} · ${s.rssi} dBm${s.on5GHz ? " (5 GHz)" : ""}`;
+      const ap = s.bssid ? ` · access point ${s.bssid}` : "";
+      status = `Connected to ${s.ssid} · ${s.ip} · ${s.rssi} dBm · ch ${s.channel}${s.on5GHz ? " (5 GHz)" : ""}${ap}`;
     } else if (s.connecting) {
       status = `Connecting to ${s.connectingSsid}...`;
     } else if (s.saved.length === 0) {
@@ -168,10 +170,20 @@ function initWifiManager(root) {
       else tags.push(span("not in range", "wifi-tag wifi-tag-dim"));
       if (seen && seen.has5 && !seen.has24) tags.push(span("5 GHz only", "wifi-tag wifi-tag-warn"));
       if (net.open) tags.push(span("open", "wifi-tag wifi-tag-dim"));
+      const pinned = s.pinned && s.pinned.ssid === net.ssid ? s.pinned : null;
+      if (pinned) tags.push(span(`access point ${pinned.bssid}${pinned.channel ? ` (ch ${pinned.channel})` : ""}`, "wifi-tag wifi-tag-ok"));
 
       const name = span(net.ssid, "wifi-ssid");
       const actions = document.createElement("span");
       actions.className = "wifi-actions";
+      if (pinned) {
+        actions.appendChild(
+          button("Automatic", () => {
+            post("/wifi/pin", { ssid: net.ssid, bssid: "" }).then((r) => say(r.message, !r.ok)).then(refresh).catch(() => say("Request sent."));
+          })
+        );
+        actions.lastChild.title = "Let LynXP pick the strongest access point again";
+      }
       if (!isCurrent) {
         actions.appendChild(
           button("Connect", () => {
@@ -227,8 +239,46 @@ function initWifiManager(root) {
         if (net.secure) el.password.focus();
         say(net.has5 && !net.has24 ? "Note: 5 GHz only -- LynXP can use it, but the camera (2.4 GHz only) can't." : "");
       });
+      if (savedSet.has(net.ssid) && net.aps && net.aps.length) row.appendChild(apList(net));
       return row;
     });
+
+    // A saved network's individual access points (big networks have many,
+    // on different channels): pick one to stick to it.
+    function apList(net) {
+      const details = document.createElement("details");
+      details.className = "wifi-aps";
+      details.open = openApLists.has(net.ssid);
+      details.addEventListener("click", (e) => e.stopPropagation()); // not "use this network"
+      details.addEventListener("toggle", () => (details.open ? openApLists.add(net.ssid) : openApLists.delete(net.ssid)));
+      const summary = document.createElement("summary");
+      summary.textContent = `${net.aps.length} access point${net.aps.length > 1 ? "s" : ""}`;
+      details.appendChild(summary);
+      const list = document.createElement("ul");
+      list.className = "wifi-list";
+      net.aps.forEach((ap) => {
+        const main = document.createElement("span");
+        main.className = "wifi-main";
+        main.append(span(ap.bssid, "wifi-bssid"), span(`${bars(ap.rssi)} ${ap.rssi} dBm`, "wifi-tag"), span(`ch ${ap.channel}${ap.channel > 14 ? " (5 GHz)" : ""}`, "wifi-tag wifi-tag-dim"));
+        const isCurrent = s.connected && s.ssid === net.ssid && s.bssid === ap.bssid;
+        const isPinned = s.pinned && s.pinned.ssid === net.ssid && s.pinned.bssid === ap.bssid;
+        if (isCurrent) main.append(span("connected", "wifi-tag wifi-tag-ok"));
+        if (isPinned) main.append(span("chosen", "wifi-tag wifi-tag-ok"));
+        const actions = document.createElement("span");
+        actions.className = "wifi-actions";
+        if (!isPinned) {
+          actions.appendChild(
+            button("Use", () => {
+              if (s.connected && !confirm(`Move LynXP to access point ${ap.bssid} (channel ${ap.channel})? This page may lose its connection for a moment.`)) return;
+              post("/wifi/pin", { ssid: net.ssid, bssid: ap.bssid, channel: ap.channel }).then((r) => say(r.message, !r.ok)).catch(() => say("Request sent."));
+            })
+          );
+        }
+        list.appendChild(li(main, actions));
+      });
+      details.appendChild(list);
+      return details;
+    }
     const scanNote = s.scanning ? "Scanning..." : "No networks found yet -- press Scan.";
     el.nearby.replaceChildren(...(nearbyRows.length ? nearbyRows : [li(span(scanNote, "wifi-dim"))]));
 

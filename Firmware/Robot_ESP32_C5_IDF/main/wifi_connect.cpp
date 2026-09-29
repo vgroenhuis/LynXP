@@ -59,6 +59,7 @@ constexpr uint32_t RETRY_INTERVAL_MS = 3000;
 constexpr uint32_t RETRY_INTERVAL_WITH_AP_MS = 30000;
 constexpr size_t SCAN_MAX = 32;
 constexpr uint16_t SCAN_RECORDS_MAX = 64;
+constexpr size_t SCAN_APS_MAX = 48;
 // Channels that may only be listened to, not probed (5 GHz radar/DFS
 // channels): long enough to catch at least one beacon (typically every
 // ~102 ms). Left at 0 these were effectively never scanned at all.
@@ -99,6 +100,28 @@ size_t g_camScanCount = 0;
 int64_t g_camScanAtUs = 0;
 bool g_scanning = false;
 uint32_t g_scanSeq = 0;
+WifiApEntry g_aps[SCAN_APS_MAX];     // every access point of the last scan, strongest first
+size_t g_apCount = 0;
+// The pinned access point (see wifi_pin_ap()); g_pinSsid "" = none.
+char g_pinSsid[33] = "";
+uint8_t g_pinBssid[6] = {};
+uint8_t g_pinChannel = 0;
+bool g_repin = false;                 // just pinned: move onto it if connected elsewhere
+
+bool pin_applies(const char *ssid) {
+    Lock lock;
+    return g_pinSsid[0] != '\0' && std::strcmp(g_pinSsid, ssid) == 0;
+}
+
+void save_pin() {
+    nvs_handle_t h;
+    if (nvs_open("wifinets", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, "pinSsid", g_pinSsid);
+    nvs_set_blob(h, "pinBssid", g_pinBssid, sizeof(g_pinBssid));
+    nvs_set_u8(h, "pinCh", g_pinChannel);
+    nvs_commit(h);
+    nvs_close(h);
+}
 
 void copy_str(char *dst, size_t dstLen, const char *src) {
     size_t n = strnlen(src, dstLen - 1);
@@ -128,9 +151,20 @@ void apply_radio_policy() {
         nvs_get_u8(h, "prefer5", &prefer5);
         nvs_erase_key(h, "country"); // left over from builds that had a country setting
         nvs_commit(h);
+        size_t len = sizeof(g_pinSsid);
+        size_t blobLen = sizeof(g_pinBssid);
+        if (nvs_get_str(h, "pinSsid", g_pinSsid, &len) != ESP_OK || nvs_get_blob(h, "pinBssid", g_pinBssid, &blobLen) != ESP_OK ||
+            blobLen != sizeof(g_pinBssid)) {
+            g_pinSsid[0] = '\0';
+        }
+        nvs_get_u8(h, "pinCh", &g_pinChannel);
         nvs_close(h);
     }
     g_prefer5 = prefer5 != 0;
+    if (g_pinSsid[0]) {
+        ESP_LOGI(TAG, "Pinned access point for %s: %02x:%02x:%02x:%02x:%02x:%02x (channel %u)", g_pinSsid, g_pinBssid[0],
+                 g_pinBssid[1], g_pinBssid[2], g_pinBssid[3], g_pinBssid[4], g_pinBssid[5], g_pinChannel);
+    }
 }
 
 int ap_client_count() {
@@ -217,6 +251,8 @@ void do_scan() {
 
     WifiScanEntry merged[SCAN_MAX];
     size_t mergedCount = 0;
+    static WifiApEntry aps[SCAN_APS_MAX]; // only this task scans; static keeps ~1.2 KB off its stack
+    size_t apCount = 0;
 
     // Mode 3: scan with the radio in 2.4 GHz-only band mode (drops a 5 GHz
     // connection; the manager reconnects afterwards).
@@ -275,7 +311,15 @@ void do_scan() {
                     std::memcpy(e->bssid5, records[i].bssid, sizeof(e->bssid5));
                 }
                 if (is5) e->has5 = true; else e->has24 = true;
+                if (apCount < SCAN_APS_MAX) {
+                    WifiApEntry &a = aps[apCount++];
+                    copy_str(a.ssid, sizeof(a.ssid), ssid);
+                    std::memcpy(a.bssid, records[i].bssid, sizeof(a.bssid));
+                    a.rssi = records[i].rssi;
+                    a.channel = records[i].primary;
+                }
             }
+            std::sort(aps, aps + apCount, [](const WifiApEntry &a, const WifiApEntry &b) { return a.rssi > b.rssi; });
             std::sort(merged, merged + mergedCount,
                       [](const WifiScanEntry &a, const WifiScanEntry &b) { return a.rssi > b.rssi; });
         }
@@ -290,6 +334,8 @@ void do_scan() {
     if (err == ESP_OK) {
         std::memcpy(g_scan, merged, mergedCount * sizeof(WifiScanEntry));
         g_scanCount = mergedCount;
+        std::memcpy(g_aps, aps, apCount * sizeof(WifiApEntry));
+        g_apCount = apCount;
         g_scanSeq++;
     }
     g_scanning = false;
@@ -324,7 +370,9 @@ bool pick_best(char *outSsid, size_t outLen, const WifiScanEntry **pin5) {
     return true;
 }
 
-bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr) {
+// usePin: join the pinned access point if this is its network (see
+// wifi_pin_ap()); the caller retries with false if that fails.
+bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin = true) {
     WifiCredential cred;
     if (!wifi_networks_find(ssid, &cred)) return false;
 
@@ -343,7 +391,14 @@ bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr) {
     // rather than whichever answers first.
     cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-    if (pin5 != nullptr) {
+    if (usePin && pin_applies(cred.ssid)) {
+        Lock lock;
+        cfg.sta.bssid_set = true;
+        std::memcpy(cfg.sta.bssid, g_pinBssid, sizeof(cfg.sta.bssid));
+        cfg.sta.channel = g_pinChannel;
+        ESP_LOGI(TAG, "  (the chosen access point %02x:%02x:%02x:%02x:%02x:%02x, channel %u)", g_pinBssid[0], g_pinBssid[1],
+                 g_pinBssid[2], g_pinBssid[3], g_pinBssid[4], g_pinBssid[5], g_pinChannel);
+    } else if (pin5 != nullptr) {
         cfg.sta.bssid_set = true;
         std::memcpy(cfg.sta.bssid, pin5->bssid5, sizeof(cfg.sta.bssid));
         cfg.sta.channel = pin5->channel5;
@@ -398,9 +453,10 @@ void manager_task(void *) {
             }
             scanRequested = false;
 
-            // A pinned 5 GHz attempt that fails falls back to letting the
-            // driver pick any access point of that network.
-            if (haveTarget && (attempt(target, pin5) || (pin5 != nullptr && attempt(target)))) {
+            // A pinned attempt (the chosen access point, or the 5 GHz one)
+            // that fails falls back to letting the driver pick any access
+            // point of that network.
+            if (haveTarget && (attempt(target, pin5) || ((pin5 != nullptr || pin_applies(target)) && attempt(target, nullptr, false)))) {
                 connectedSinceUs = esp_timer_get_time();
                 continue;
             }
@@ -435,6 +491,17 @@ void manager_task(void *) {
                 if (!switchNetwork) g_preferredSsid[0] = '\0';
             }
             bool forgotten = !wifi_networks_find(current, nullptr);
+            // An access point of this very network was just chosen: move
+            // onto it unless we're already there.
+            bool repin = false;
+            {
+                Lock lock;
+                if (g_repin && !switchNetwork && std::strcmp(g_pinSsid, current) == 0) {
+                    wifi_ap_record_t info;
+                    repin = esp_wifi_sta_get_ap_info(&info) != ESP_OK || std::memcmp(info.bssid, g_pinBssid, sizeof(g_pinBssid)) != 0;
+                }
+                g_repin = false;
+            }
             // The band preference changed: move if the policy now picks a
             // different network, or a 5 GHz access point we're not on.
             bool rebalance = false;
@@ -447,8 +514,13 @@ void manager_task(void *) {
                 bool on5 = esp_wifi_sta_get_ap_info(&info) == ESP_OK && info.primary > 14;
                 rebalance = pick_best(best, sizeof(best), &pin5) && (std::strcmp(best, current) != 0 || (pin5 != nullptr && !on5));
             }
-            if (switchNetwork || forgotten || rebalance) {
-                ESP_LOGI(TAG, "Leaving %s (%s)", current, forgotten ? "forgotten" : rebalance ? "band preference" : "switching networks");
+            if (switchNetwork || forgotten || rebalance || repin) {
+                ESP_LOGI(TAG, "Leaving %s (%s)", current,
+                         forgotten ? "forgotten" : rebalance ? "band preference" : repin ? "chosen access point" : "switching networks");
+                if (repin) {
+                    Lock lock;
+                    copy_str(g_preferredSsid, sizeof(g_preferredSsid), current); // rejoin right away, no scan first
+                }
                 esp_wifi_disconnect(); // STA_DISCONNECTED clears g_connected; the loop then connects to the preferred/best one
                 xEventGroupWaitBits(s_events, BIT_DISCONNECTED, pdTRUE, pdFALSE, pdMS_TO_TICKS(3000));
                 g_connected = false;
@@ -585,6 +657,7 @@ void wifi_get_status(WifiStatus *out) {
         if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
             out->rssi = info.rssi;
             out->channel = info.primary;
+            std::memcpy(out->bssid, info.bssid, sizeof(out->bssid));
             out->connectedOn5Ghz = info.primary > 14;
         }
     }
@@ -673,4 +746,48 @@ void wifi_request_connect(const char *ssid) {
 
 void wifi_networks_changed() {
     xEventGroupSetBits(s_events, BIT_RECHECK);
+}
+
+size_t wifi_get_scan_aps(WifiApEntry *out, size_t max) {
+    Lock lock;
+    size_t n = std::min(max, g_apCount);
+    std::memcpy(out, g_aps, n * sizeof(WifiApEntry));
+    return n;
+}
+
+bool wifi_pin_ap(const char *ssid, const uint8_t bssid[6], uint8_t channel) {
+    if (!wifi_networks_find(ssid, nullptr)) return false;
+    {
+        Lock lock;
+        copy_str(g_pinSsid, sizeof(g_pinSsid), ssid);
+        std::memcpy(g_pinBssid, bssid, sizeof(g_pinBssid));
+        g_pinChannel = channel;
+        save_pin();
+        g_repin = true;
+        // On another network (or none): go there now; attempt() uses the pin.
+        if (std::strcmp(g_connectedSsid, ssid) != 0 || !g_connected) copy_str(g_preferredSsid, sizeof(g_preferredSsid), ssid);
+    }
+    ESP_LOGI(TAG, "Chosen access point for %s: %02x:%02x:%02x:%02x:%02x:%02x (channel %u)", ssid, bssid[0], bssid[1], bssid[2],
+             bssid[3], bssid[4], bssid[5], channel);
+    xEventGroupSetBits(s_events, BIT_RECHECK);
+    return true;
+}
+
+void wifi_unpin_ap() {
+    Lock lock;
+    if (g_pinSsid[0] == '\0') return;
+    g_pinSsid[0] = '\0';
+    std::memset(g_pinBssid, 0, sizeof(g_pinBssid));
+    g_pinChannel = 0;
+    save_pin();
+    ESP_LOGI(TAG, "Access point choice cleared (automatic)");
+}
+
+bool wifi_get_pinned_ap(char *ssid, uint8_t bssid[6], uint8_t *channel) {
+    Lock lock;
+    if (g_pinSsid[0] == '\0') return false;
+    copy_str(ssid, 33, g_pinSsid);
+    std::memcpy(bssid, g_pinBssid, sizeof(g_pinBssid));
+    *channel = g_pinChannel;
+    return true;
 }

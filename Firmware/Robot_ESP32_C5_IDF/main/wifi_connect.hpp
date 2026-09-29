@@ -47,6 +47,7 @@ struct WifiStatus {
     char ip[16];
     int rssi;               // dBm, 0 if not connected
     int channel;            // primary channel of the access point joined, 0 if not connected
+    uint8_t bssid[6];       // that access point's address (all 0 if not connected)
     bool connectedOn5Ghz;
     bool connecting;
     char connectingSsid[33];
@@ -71,6 +72,28 @@ struct WifiScanEntry {
     uint8_t channel5;
     uint8_t bssid5[6];
 };
+
+// One access point (BSS) heard in the robot's last scan. Big networks (e.g.
+// iotroam on a campus) have many, on different channels, and the strongest
+// isn't always the best -- one on a crowded channel can drop out.
+struct WifiApEntry {
+    char ssid[33];
+    uint8_t bssid[6];
+    int8_t rssi;
+    uint8_t channel;
+};
+// Copies up to max access points, strongest first; returns how many.
+size_t wifi_get_scan_aps(WifiApEntry *out, size_t max);
+
+// Stick to one access point of a saved network: used whenever the robot
+// joins that network (falling back to any of its access points if this one
+// can't be reached), and switched to right away. channel 0 = unknown.
+// Persisted; one pin at a time. False if ssid isn't a saved network.
+bool wifi_pin_ap(const char *ssid, const uint8_t bssid[6], uint8_t channel);
+// Back to automatic (strongest access point); the connection stays as is.
+void wifi_unpin_ap();
+// The pinned access point, if any (ssid: 33 bytes).
+bool wifi_get_pinned_ap(char *ssid, uint8_t bssid[6], uint8_t *channel);
 
 // Prefer networks (and, for dual-band SSIDs, access points) on 5 GHz --
 // usually far less congested. Off by default: then 2.4 GHz-capable networks

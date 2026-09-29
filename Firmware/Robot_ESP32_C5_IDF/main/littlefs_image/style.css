@@ -966,6 +966,31 @@ button {
   cursor: pointer;
 }
 
+/* A saved network's access points, folded under its row in "Nearby networks". */
+.wifi-list li:has(> .wifi-aps) {
+  flex-wrap: wrap;
+}
+
+.wifi-aps {
+  flex-basis: 100%;
+  margin: 2px 0 0 14px;
+  font-size: 0.9rem;
+  cursor: default;
+}
+
+.wifi-aps summary {
+  cursor: pointer;
+  color: #555;
+}
+
+.wifi-aps li:last-child {
+  border-bottom: none;
+}
+
+.wifi-bssid {
+  font-family: monospace;
+}
+
 .wifi-pickable:hover {
   background: #eef3fb;
 }

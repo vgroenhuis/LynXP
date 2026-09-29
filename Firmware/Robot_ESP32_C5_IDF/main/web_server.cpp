@@ -671,11 +671,25 @@ bool parse_wifi_body(httpd_req_t *req, cJSON **rootOut, const char **ssid, const
     return true;
 }
 
+void format_bssid(char out[18], const uint8_t b[6]) {
+    std::snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x", b[0], b[1], b[2], b[3], b[4], b[5]);
+}
+
+bool parse_bssid(const char *s, uint8_t out[6]) {
+    unsigned v[6];
+    if (s == nullptr || std::sscanf(s, "%2x:%2x:%2x:%2x:%2x:%2x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) return false;
+    for (int i = 0; i < 6; i++) out[i] = (uint8_t) v[i];
+    return true;
+}
+
 esp_err_t handle_wifi_status(httpd_req_t *req) {
     WifiStatus st;
     wifi_get_status(&st);
     static WifiScanEntry scan[32]; // httpd is a single task -- static keeps ~1.3 KB off its stack
     size_t scanCount = wifi_get_scan_results(scan, 32);
+    static WifiApEntry aps[48];
+    size_t apCount = wifi_get_scan_aps(aps, 48);
+    char bssid[18];
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "connected", st.connected);
@@ -683,6 +697,18 @@ esp_err_t handle_wifi_status(httpd_req_t *req) {
     cJSON_AddStringToObject(root, "ip", st.ip);
     cJSON_AddNumberToObject(root, "rssi", st.rssi);
     cJSON_AddNumberToObject(root, "channel", st.channel);
+    format_bssid(bssid, st.bssid);
+    cJSON_AddStringToObject(root, "bssid", st.connected ? bssid : "");
+    char pinSsid[33];
+    uint8_t pinBssid[6];
+    uint8_t pinChannel;
+    if (wifi_get_pinned_ap(pinSsid, pinBssid, &pinChannel)) {
+        cJSON *pin = cJSON_AddObjectToObject(root, "pinned");
+        cJSON_AddStringToObject(pin, "ssid", pinSsid);
+        format_bssid(bssid, pinBssid);
+        cJSON_AddStringToObject(pin, "bssid", bssid);
+        cJSON_AddNumberToObject(pin, "channel", pinChannel);
+    }
     cJSON_AddBoolToObject(root, "on5GHz", st.connectedOn5Ghz);
     cJSON_AddBoolToObject(root, "connecting", st.connecting);
     cJSON_AddStringToObject(root, "connectingSsid", st.connectingSsid);
@@ -726,9 +752,49 @@ esp_err_t handle_wifi_status(httpd_req_t *req) {
         cJSON_AddNumberToObject(item, "channel", scan[i].channel);
         cJSON_AddBoolToObject(item, "robotHears", scan[i].robotHears);
         if (scan[i].camRssi) cJSON_AddNumberToObject(item, "camRssi", scan[i].camRssi);
+        // this network's individual access points, strongest first
+        cJSON *apList = cJSON_AddArrayToObject(item, "aps");
+        for (size_t k = 0; k < apCount; k++) {
+            if (std::strcmp(aps[k].ssid, scan[i].ssid) != 0) continue;
+            cJSON *ap = cJSON_CreateObject();
+            format_bssid(bssid, aps[k].bssid);
+            cJSON_AddStringToObject(ap, "bssid", bssid);
+            cJSON_AddNumberToObject(ap, "rssi", aps[k].rssi);
+            cJSON_AddNumberToObject(ap, "channel", aps[k].channel);
+            cJSON_AddItemToArray(apList, ap);
+        }
         cJSON_AddItemToArray(nearby, item);
     }
     return send_json(req, root);
+}
+
+// POST /wifi/pin {"ssid": "...", "bssid": "aa:bb:cc:dd:ee:ff", "channel": 40}
+// sticks to that access point of a saved network (see wifi_pin_ap());
+// no/empty bssid = back to automatic.
+esp_err_t handle_wifi_pin(httpd_req_t *req) {
+    char body[160];
+    if (read_post_body(req, body, sizeof(body)) < 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad request body");
+        return ESP_OK;
+    }
+    cJSON *root = cJSON_Parse(body);
+    const cJSON *ssid = root ? cJSON_GetObjectItemCaseSensitive(root, "ssid") : nullptr;
+    const cJSON *bssidItem = root ? cJSON_GetObjectItemCaseSensitive(root, "bssid") : nullptr;
+    const cJSON *channel = root ? cJSON_GetObjectItemCaseSensitive(root, "channel") : nullptr;
+    uint8_t bssid[6];
+    esp_err_t res;
+    if (!cJSON_IsString(bssidItem) || bssidItem->valuestring[0] == '\0') {
+        wifi_unpin_ap();
+        res = send_wifi_result(req, true, "Back to automatic: LynXP picks the strongest access point.");
+    } else if (!cJSON_IsString(ssid) || !parse_bssid(bssidItem->valuestring, bssid)) {
+        res = send_wifi_result(req, false, "Expected {\"ssid\", \"bssid\": \"aa:bb:cc:dd:ee:ff\"}.");
+    } else if (!wifi_pin_ap(ssid->valuestring, bssid, cJSON_IsNumber(channel) ? (uint8_t) channel->valueint : 0)) {
+        res = send_wifi_result(req, false, "Save this network first, then choose one of its access points.");
+    } else {
+        res = send_wifi_result(req, true, "Switching to that access point...");
+    }
+    cJSON_Delete(root);
+    return res;
 }
 
 esp_err_t handle_wifi_scan(httpd_req_t *req) {
@@ -927,6 +993,7 @@ esp_err_t handle_wifi_add_wrapper(httpd_req_t *req) { return handle_wifi_add(req
 esp_err_t handle_wifi_remove_wrapper(httpd_req_t *req) { return handle_wifi_remove(req); }
 esp_err_t handle_wifi_connect_wrapper(httpd_req_t *req) { return handle_wifi_connect(req); }
 esp_err_t handle_wifi_prefs_wrapper(httpd_req_t *req) { return handle_wifi_prefs(req); }
+esp_err_t handle_wifi_pin_wrapper(httpd_req_t *req) { return handle_wifi_pin(req); }
 esp_err_t handle_pose_reset_post_wrapper(httpd_req_t *req) { return handle_pose_reset_post(req); }
 esp_err_t handle_waypoints_get_wrapper(httpd_req_t *req) { return handle_waypoints_get(req); }
 esp_err_t handle_waypoints_post_wrapper(httpd_req_t *req) { return handle_waypoints_post(req); }
@@ -1005,6 +1072,10 @@ void web_server_init() {
     wifiPrefsUri.uri = "/wifi/prefs";
     wifiPrefsUri.handler = handle_wifi_prefs_wrapper;
     httpd_register_uri_handler(g_server, &wifiPrefsUri);
+    httpd_uri_t wifiPinUri = wifiConnectUri;
+    wifiPinUri.uri = "/wifi/pin";
+    wifiPinUri.handler = handle_wifi_pin_wrapper;
+    httpd_register_uri_handler(g_server, &wifiPinUri);
     httpd_register_uri_handler(g_server, &poseResetUri);
     httpd_register_uri_handler(g_server, &waypointsGetUri);
     httpd_register_uri_handler(g_server, &waypointsPostUri);
