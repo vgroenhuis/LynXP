@@ -292,7 +292,7 @@ sensors, etc.) without using ESP32 pins.
   - GPA0–GPA3: TB6612FNG AIN1, AIN2, BIN1, BIN2 (outputs). Pull-downs on these four lines so both
     motors are stopped while the MCP23017 is in reset or not yet configured.
   - 8-position DIP switch (inputs, see §9).
-  - Large user switches/buttons (inputs).
+  - 4 large user buttons (inputs).
   - GPA7: PCA9685 OE (output, §6).
   - GPB7: speaker amplifier shutdown/mute (output, §11.2).
   - User LEDs (as needed).
@@ -332,12 +332,12 @@ All three options on the board, electrically in parallel (only one used at a tim
 - **Main power switch** (large, see §2.2): multi-pole, breaking CC1/CC2 and sleeping/waking the PD
   controller. No other power or enable switches (no motor-enable or servo-power switch), to avoid
   a switch being forgotten in the wrong state.
-- **Must**: at least **3–4 large user switches/buttons** (e.g. 12 mm tactile buttons with caps or
-  toggle switches) on native GPIO or MCP23017, free for firmware/minigame use. There is no
+- **Must**: **4 large user buttons** (e.g. 12 mm tactile buttons with caps) on native GPIO or
+  MCP23017, free for firmware/minigame use. There is no
   dedicated QR button any more; screen selection (including the QR code) is done with the
   potentiometer next to the OLED (§5.1).
 - **Must**: at least one **8-position DIP switch** on the MCP23017 (e.g. robot ID, mode flags).
-- **Must**: **space for labels** next to every user switch, DIP position, spare servo, spare
+- **Must**: **space for labels** next to every user button, DIP position, spare servo, spare
   header and exposed rail: white solder-mask/silkscreen fields that can be written on with a
   permanent marker, large enough for a short word.
 - Reset (EN) and BOOT buttons (small is fine).
@@ -417,7 +417,7 @@ pins in §4.2 become free GPIOs. If included, the following applies:
   hole gets a standoff cylinder of the correct height (clearing the through-hole pins on the
   bottom side) as part of the 3D-printed frame/mount, delivered as CAD (Solidworks + STEP)
   together with the PCB.
-- USB-C ports, main power switch, large user switches and DIP switch reachable with the robot
+- USB-C ports, main power switch, large user buttons and DIP switch reachable with the robot
   assembled (board edge / top side). The POWER port faces the powerbank.
 - The on-board OLED visible and the camera connector placed so the cable reaches the pan-tilt head.
 - A 3D model (STEP) of the assembled PCB must be delivered for integration in the Solidworks
