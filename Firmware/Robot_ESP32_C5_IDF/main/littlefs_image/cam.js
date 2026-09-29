@@ -403,6 +403,10 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   Promise.all([calibPromise, Lynx.loadAppSettings()]).then(([calib, app]) => {
+    aimParams = calib.aim && calib.aim.servoFollows ? calib.aim : null;
+    // Absolute aim runs in the pose loop, so keep that going even with no
+    // overlay or game listening (with the socket up it adds no requests).
+    if (aimParams) subscribeToPose(() => {});
     Lynx.sfx.volume = app.general.volume;
     setupModeSelect(calib, app);
     startActive(calib, app);
@@ -446,6 +450,7 @@ window.addEventListener("DOMContentLoaded", () => {
 // as fallback defaults. The rest stay internal tuning constants.
 let gameMode = "none"; // "none", "monster_hunt" (below), or the id of a running game_*.js / detect.js game
 let smoothAim = null; // calib.aim while a game runs with "Smooth aim" on, else null
+let aimParams = null; // calib.aim once loaded, if the pan servo follows the control frame (absolute aim, see stepAim())
 let fireballSpeedMps = 0.5;
 const FIREBALL_RADIUS_M = 0.08;
 const FIREBALL_START_DISTANCE_M = 0.2; // launched a short distance out, not exactly at the camera (a projection singularity)
@@ -944,32 +949,49 @@ function subscribeToPose(callback) {
   });
   const wsFresh = () => performance.now() - wsLastArrival < 600 && wsSamples.length >= 2;
 
-  // Smooth aim (games): the view's heading and tilt follow YOUR controls, not
-  // the servos. The robot turns the camera input into a target heading
-  // (controlTheta: rate x panMaxSpeedDegPerSec, through the joystick curve)
-  // and a target tilt the same way, and the servos then chase those, with
-  // their wobble and lag. The page integrates the same input the same way,
-  // so the view moves exactly as the stick says, and is only pulled gently
-  // toward the robot's own targets (compared at the moment they were
-  // computed) so it can't drift off. Position still comes from odometry.
-  const AIM_TAU_S = 0.8; // how quickly a difference from the robot fades
+  // Absolute aim: the page, not the robot, turns the camera input into where
+  // the camera points. The turn/tilt rates (keyboard, gamepad, touch
+  // joysticks) are integrated here -- rate x panMaxSpeedDegPerSec through
+  // the joystick curve, as the robot used to -- and the resulting heading
+  // (the control frame's direction, controlTheta) and tilt go to the robot
+  // as an "aim" message; the servos then chase them. So a short tap turns
+  // the camera exactly as far as it turns the view, however the network
+  // bunches the messages up (with rates, the robot turned for as long as it
+  // saw the key down). While this page isn't steering, it follows the
+  // robot's own targets (another browser, re-homing), and big jumps snap.
+  //
+  // Smooth aim (games, a setting): the game's view uses these same angles
+  // instead of the servos' measured ones -- steady, no servo wobble.
+  // Position still comes from odometry.
+  const AIM_TAU_S = 0.8; // how quickly a difference from the robot fades while not steering
   const AIM_SNAP_RAD = 0.5; // bigger jumps (re-homing, a reboot) are taken at once
-  const AIM_LINK_MS = 40; // roughly how long an input takes to show up in the robot's targets
-  const aim = { yaw: null, tiltDeg: 0, lastMs: null, hist: [], errYaw: 0, errTilt: 0 };
+  const AIM_LINK_MS = 40; // roughly how long a target takes to show up in the robot's broadcast
+  const AIM_SEND_MS = 33; // ~30 Hz while the aim moves
+  const AIM_HOLD_MS = 300; // keep steering this long after the input stops (the last target gets out)
+  const aim = { yaw: null, tiltDeg: 0, lastMs: null, hist: [], errYaw: 0, errTilt: 0, activeAt: -1e9, sentAt: -1e9, sent: null };
   const aimCurve = (v, a) => {
     const x = Math.abs(v) > 0.03 ? v : 0; // CONTROL_FRAME_ROTATE_DEADZONE
     return a.quadratic ? Math.sign(x) * x * x : x;
   };
+  const aimSteering = (now) => now - aim.activeAt < AIM_HOLD_MS;
+  // Absolute aim is on while this loop keeps it up to date (it stops with
+  // the tab hidden) -- otherwise the rates go to the robot as before.
+  Lynx.control.absoluteAim = () => aimParams !== null && aim.yaw !== null && aim.lastMs !== null && performance.now() - aim.lastMs < 250;
 
   function stepAim(now, a) {
     const input = Lynx.control.aimInput;
     const dt = aim.lastMs === null ? 0 : Math.max(0, Math.min((now - aim.lastMs) / 1000, 0.1));
     aim.lastMs = now;
-    // the robot drops a rate it hasn't heard again within 1 s
+    // a held key/stick is resent every ~150 ms; one not heard for 1 s is released
     const rot = now - input.rotAt < 1000 ? input.rot : 0;
     const tilt = now - input.tiltAt < 1000 ? input.tilt : 0;
+    if (aimCurve(rot, a) !== 0 || aimCurve(tilt, a) !== 0) aim.activeAt = now;
     aim.yaw += ((aimCurve(rot, a) * a.panRateDeg * Math.PI) / 180) * dt;
     aim.tiltDeg = Math.max(a.tiltMinDeg, Math.min(a.tiltMaxDeg, aim.tiltDeg + aimCurve(tilt, a) * a.tiltRateDeg * dt));
+    if (aimSteering(now)) {
+      aim.errYaw = aim.errTilt = 0; // this page is the one steering
+      sendAim(now);
+    }
     const k = 1 - Math.exp(-dt / AIM_TAU_S);
     const dy = aim.errYaw * k;
     const dTilt = aim.errTilt * k;
@@ -984,6 +1006,16 @@ function subscribeToPose(callback) {
     });
     aim.hist.push({ ms: now, yaw: aim.yaw, tiltDeg: aim.tiltDeg });
     while (aim.hist.length > 1 && aim.hist[0].ms < now - 2000) aim.hist.shift();
+  }
+
+  // The current target to the robot, at most ~30 Hz and only if it moved.
+  function sendAim(now) {
+    if (now - aim.sentAt < AIM_SEND_MS) return;
+    const s = aim.sent;
+    if (s && Math.abs(wrapToPi(aim.yaw - s.yaw)) < 0.001 && Math.abs(aim.tiltDeg - s.tiltDeg) < 0.05) return;
+    Lynx.control.send({ type: "aim", heading: +wrapToPi(aim.yaw).toFixed(4), tilt: +aim.tiltDeg.toFixed(2) });
+    aim.sentAt = now;
+    aim.sent = { yaw: aim.yaw, tiltDeg: aim.tiltDeg };
   }
 
   function correctAim(m, clockOffset) {
@@ -1004,20 +1036,19 @@ function subscribeToPose(callback) {
       aim.yaw += errYaw;
       aim.hist.forEach((e) => (e.yaw += errYaw));
       aim.errYaw = 0;
-    } else aim.errYaw = errYaw;
-    aim.errTilt = errTilt;
+    } else if (!aimSteering(performance.now())) {
+      aim.errYaw = errYaw;
+      aim.errTilt = errTilt;
+    }
   }
 
-  // The pose handed to the games: smooth-aim heading/tilt (as a camera
-  // heading: chassis heading = camera heading, pan 0), measured position.
-  function withSmoothAim(pose) {
-    if (!smoothAim || aim.yaw === null) {
-      aim.lastMs = null;
-      aim.hist.length = 0;
-      if (!smoothAim) aim.yaw = null;
-      return pose;
-    }
-    stepAim(performance.now(), smoothAim);
+  // Every frame: keep the aim up to date (and steering the robot); games
+  // with smooth aim get its heading/tilt (as a camera heading: chassis
+  // heading = camera heading, pan 0) with the measured position.
+  function withAim(pose) {
+    if (!aimParams || aim.yaw === null) return pose;
+    stepAim(performance.now(), aimParams);
+    if (!smoothAim) return pose;
     return { ...pose, theta: wrapToPi(aim.yaw), servoAngleDeg: 0, tiltAngleDeg: aim.tiltDeg };
   }
 
@@ -1055,7 +1086,7 @@ function subscribeToPose(callback) {
 
   function animate() {
     if (wsFresh()) {
-      const pose = withSmoothAim(wsPoseAt());
+      const pose = withAim(wsPoseAt());
       poseSubscribers.slice().forEach((cb) => cb(pose));
     } else if (nextPose) {
       const t = Math.min((performance.now() - nextPoseReceivedAtMs) / POSE_POLL_INTERVAL_MS, 1);

@@ -23,6 +23,8 @@ float controlJoyX = 0;
 float controlJoyY = 0;
 float controlFrameThetaRad = 0.0f;
 float controlFrameRotateInput = 0.0f;
+volatile float aimTargetOmegaRadPerSec = 0.0f;
+volatile unsigned long lastAimMsgMs = 0;
 
 float goalX_m = 0.0f;
 float goalY_m = 0.0f;
@@ -238,7 +240,11 @@ void applyServoTrackingConstraints(float targetVelRevPerSec[2]) {
     // chassis at a large, steady headingDiff relative to the control frame)
     // would trip the assist and have the base auto-rotate out from under
     // the driver instead of strafing as commanded.
-    bool rotateActive = std::fabs(controlFrameRotateInput) > CONTROL_FRAME_ROTATE_DEADZONE;
+    bool rateActive = std::fabs(controlFrameRotateInput) > CONTROL_FRAME_ROTATE_DEADZONE;
+    // An absolute aim target on the move counts the same (see aimTargetOmegaRadPerSec).
+    float aimOmega = aimTargetOmegaRadPerSec;
+    bool aimActive = millis_now() - lastAimMsgMs < AIM_ACTIVE_MS && std::fabs(aimOmega) > 0.05f;
+    bool rotateActive = rateActive || aimActive;
     float assistOmega = 0.0f;
 
     // 2. Speed-based assist: the chassis can physically spin faster than
@@ -255,7 +261,8 @@ void applyServoTrackingConstraints(float targetVelRevPerSec[2]) {
         // the joystick's own configured rate -- not the chassis's physical
         // max), or this would over/under-estimate how fast the reference is
         // actually being pushed.
-        float commandedOmega = applyJoystickCurve(controlFrameRotateInput) * (settings.panMaxSpeedDegPerSec * (float) M_PI / 180.0f);
+        float commandedOmega = rateActive ? applyJoystickCurve(controlFrameRotateInput) * (settings.panMaxSpeedDegPerSec * (float) M_PI / 180.0f)
+                                          : aimOmega;
         if (commandedOmega > maxOmega) {
             assistOmega = commandedOmega - maxOmega;
         } else if (commandedOmega < -maxOmega) {

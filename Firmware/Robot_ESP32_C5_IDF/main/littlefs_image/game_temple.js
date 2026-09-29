@@ -149,6 +149,7 @@ Lynx.games = Lynx.games || {};
     const LEVELS = {
       1: {
         name: "the upper temple",
+        startF: START_F, // where the robot stands when the level is laid out
         gateF: 2.07, // the portcullis
         grid: makeGrid(1.575),
         puzzle: "lights",
@@ -181,6 +182,8 @@ Lynx.games = Lynx.games || {};
       },
       2: {
         name: "the lower temple",
+        // in the entrance, clear of the first dart lane (0.18 +- 0.08), so no dart hits you right at the start
+        startF: -0.05,
         gateF: 2.2,
         grid: makeGrid(1.7),
         puzzle: "sequence",
@@ -437,8 +440,8 @@ Lynx.games = Lynx.games || {};
       grid = lv.grid;
       gateF = lv.gateF;
       anchor = {
-        x: ar.pose.x - START_F * Math.cos(ar.pose.theta),
-        y: ar.pose.y - START_F * Math.sin(ar.pose.theta),
+        x: ar.pose.x - lv.startF * Math.cos(ar.pose.theta),
+        y: ar.pose.y - lv.startF * Math.sin(ar.pose.theta),
         th: ar.pose.theta,
       };
       hearts = maxHearts;

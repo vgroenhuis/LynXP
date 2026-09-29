@@ -23,6 +23,16 @@ extern float controlFrameThetaRad;
 extern float controlFrameRotateInput;
 constexpr float CONTROL_FRAME_ROTATE_DEADZONE = 0.03f; // ignores near-center touch/mouse noise
 
+// Absolute aim (ws_broadcast.cpp's "aim" message): the first-person page
+// integrates the camera input itself and sends the heading/tilt to point at,
+// so a short tap turns the camera exactly as far as the page's view, however
+// the network bunches the messages up. How fast that target is moving
+// (rad/s, smoothed) stands in for the rate input's commanded omega in
+// applyServoTrackingConstraints(); lastAimMsgMs says whether it's current.
+extern volatile float aimTargetOmegaRadPerSec;
+extern volatile unsigned long lastAimMsgMs;
+constexpr unsigned long AIM_ACTIVE_MS = 300; // the page sends ~30 Hz while the aim moves
+
 // Applies settings.cameraJoystickCurve to a raw signed joystick deflection
 // fraction in [-1, 1] (linear: unchanged; quadratic: sign(value)*value^2,
 // same max but gentler near center -- a common FPS camera-look feel).

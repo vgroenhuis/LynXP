@@ -188,6 +188,29 @@ void handle_ws_message(int fd, const char *body) {
         // never sends that release.
         controlFrameRotateInput = std::clamp((float) getNum("value"), -1.0f, 1.0f);
         lastControlFrameRotateMsgMs = millis_now();
+    } else if (std::strcmp(type, "aim") == 0) {
+        // Absolute camera aim from the first-person page (see
+        // aimTargetOmegaRadPerSec's doc comment): heading = the control
+        // frame's direction (rad, odometry frame), tilt = the tilt angle (deg).
+        // Replaces any rate input rather than adding to it.
+        unsigned long nowMs = millis_now();
+        float heading = wrapToPi((float) getNum("heading"));
+        float dt = (nowMs - lastAimMsgMs) / 1000.0f;
+        float omega = (lastAimMsgMs != 0 && dt > 0.005f && dt < 0.5f) ? wrapToPi(heading - controlFrameThetaRad) / dt : 0.0f;
+        aimTargetOmegaRadPerSec = 0.5f * aimTargetOmegaRadPerSec + 0.5f * omega; // the page's send timing jitters
+        lastAimMsgMs = nowMs;
+        controlFrameThetaRad = heading;
+        controlFrameRotateInput = 0.0f;
+        lastControlFrameRotateMsgMs = nowMs;
+        tiltRateInput = 0.0f;
+        lastTiltRateMsgMs = nowMs;
+        float tilt = std::clamp((float) getNum("tilt"), settings.tiltMinAngleDeg, settings.tiltMaxAngleDeg);
+        if (tilt != currentTiltAngleDeg) {
+            currentTiltAngleDeg = tilt;
+            lastTiltActiveMs = nowMs;
+            tiltServoIdle = false;
+            writeTiltServoPulse();
+        }
     } else if (std::strcmp(type, "calibrate_deadzone") == 0) {
         switchModeIfNeeded(DEADZONE_CALIBRATION);
         startDeadzoneCalibrationFlag = true;

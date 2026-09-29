@@ -92,17 +92,27 @@ window.Lynx = window.Lynx || {};
   // them (keyboard, gamepad, touch joysticks): the camera page's smooth-aim
   // view integrates these the same way the robot does.
   const aimInput = { rot: 0, tilt: 0, rotAt: 0, tiltAt: 0 };
+  // Which rate is running on the robot (sent non-zero, no zero after it yet)
+  // -- its release must get through even if absolute aim took over meanwhile.
+  const rateRunning = { control_frame_rotate: false, tilt_rate: false };
 
   Lynx.control = {
     send(obj) {
       ensureStarted();
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify(obj));
       const v = Math.max(-1, Math.min(1, Number(obj.value) || 0));
+      const isAimRate = obj.type === "control_frame_rotate" || obj.type === "tilt_rate";
       if (obj.type === "control_frame_rotate") Object.assign(aimInput, { rot: v, rotAt: performance.now() });
       else if (obj.type === "tilt_rate") Object.assign(aimInput, { tilt: v, tiltAt: performance.now() });
+      // Absolute aim (the camera page, see cam.js stepAim()): the rates stay
+      // here and the page sends where to point instead.
+      if (isAimRate && Lynx.control.absoluteAim() && !(v === 0 && rateRunning[obj.type])) return;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(obj));
+        if (isAimRate) rateRunning[obj.type] = v !== 0;
+      }
     },
     aimInput,
+    absoluteAim: () => false, // cam.js replaces this once it can aim
     start: ensureStarted,
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
     onMessage(type, cb) {
