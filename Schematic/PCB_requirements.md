@@ -21,8 +21,8 @@ committing to the layout.
 | 5 V buck converter | OT253-B47 module | Buck converter on the PCB |
 | 3.3 V supply | Devkit LDO | Regulator on the PCB |
 | Motor driver | TB6612FNG module | **TB6612FNG** chip on the PCB |
-| Servo and motor PWM | ESP32 LEDC | **PCA9685** 16-channel PWM driver (new) |
-| Extra GPIO | — | **MCP23017** 16-bit I/O expander (new) |
+| Servo and motor PWM | ESP32 LEDC | **PCA9685** 16-channel PWM driver |
+| Extra GPIO | — | **MCP23017** 16-bit I/O expander |
 | Analog inputs | — | **8-channel I²C ADC** for add-on sensors (new, see §5.2) |
 | Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
@@ -31,7 +31,7 @@ committing to the layout.
 | Headlights | — | Two headlight outputs with connectors (new, see §11.1) |
 | Microphone, speaker | — | **Optional**: on-board I²S microphone and speaker amplifier (new, see §11.2) |
 
-Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LED.
+Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LED, headlights, optional speaker/mic.
 
 ---
 
