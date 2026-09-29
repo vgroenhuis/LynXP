@@ -23,7 +23,7 @@ committing to the layout.
 | Motor driver | TB6612FNG module | **TB6612FNG** chip on the PCB |
 | Servo and motor PWM | ESP32 LEDC | **PCA9685** 16-channel PWM driver (new) |
 | Extra GPIO | — | **MCP23017** 16-bit I/O expander (new) |
-| Analog inputs | — | **8-channel I²C ADC** for student add-on sensors (new, see §5.2) |
+| Analog inputs | — | **8-channel I²C ADC** for add-on sensors (new, see §5.2) |
 | Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
 | OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED panel on the PCB** (see §5.1) |
