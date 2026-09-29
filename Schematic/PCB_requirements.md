@@ -48,8 +48,9 @@ Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LE
   on the board.
 - **Must** connect the HUSB238 I²C (address 0x08) to the main I²C bus so firmware can read the
   contract and optionally request another PDO.
-- If the powerbank can only deliver 9 V, the "12 V" rail simply carries 9 V. Everything on this rail
-  must therefore work from 5 V up to 20 V (see 2.5).
+- The negotiated voltage is distributed as rail **V_BUS** (12 V by default). Its voltage depends on
+  the selected/negotiated PDO (e.g. 9 V if the powerbank cannot deliver 12 V, or 15 V if selected).
+  Everything on V_BUS must therefore work from 5 V up to 20 V.
 
 ### 2.2 On/off switch that wakes the powerbank (important)
 Many powerbanks (including the Anker Zolo) switch their output off after a period of low current,
@@ -86,12 +87,12 @@ re-inserting the cable works; switching the load does not.
 ### 2.4 Protection
 - **Must**: TVS diode on VBUS rated for the maximum selectable PD voltage (≥ 20 V standoff if 20 V
   can be selected).
-- **Must**: fuse (PTC or eFuse) on the 12 V rail sized for the total budget (~2.5–3 A at 12 V for a
+- **Must**: fuse (PTC or eFuse) on V_BUS sized for the total budget (~2.5–3 A at 12 V for a
   30 W powerbank *(verify powerbank PDO list)*).
 - **Should**: ESD protection on CC lines.
 
 ### 2.5 Current sensing (INA260)
-- **Must** place an INA260 (integrated shunt, high-side) in series with the 12 V rail directly after
+- **Must** place an INA260 (integrated shunt, high-side) in series with V_BUS directly after
   the PD output switch, so it measures the complete robot consumption.
 - I²C address: **0x40** (firmware `INA260_I2C_ADDR`), A0 and A1 hardwired to GND.
 - ALERT pin left unconnected.
@@ -102,9 +103,9 @@ re-inserting the cable works; switching the load does not.
 
 | Rail | Source | Minimum rating | Notes |
 |---|---|---|---|
-| **12 V** (VBUS after PD, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
-| **5 V** logic | Buck from 12 V | 3 A | Camera, nOOds, exposed |
-| **V_SERVO** (5 V) | Separate buck from 12 V | 3 A continuous | 8 servo headers |
+| **V_BUS** (12 V default; USB VBUS after PD load switch, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
+| **5 V** logic | Buck from V_BUS | 3 A | Camera, nOOds, exposed |
+| **V_SERVO** (5 V default) | Separate buck from V_BUS | 3 A continuous | 8 servo headers |
 | **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O, encoders |
 
 - Bucks **must** accept 5–20 V input with margin (≥ 28 V abs. max) because the rail follows the PD
@@ -116,16 +117,17 @@ re-inserting the cable works; switching the load does not.
   from 5 V with ≥ 1 A rating or a small buck.
 - When only the programming USB port is connected, the 5 V/3.3 V logic **must** run from USB VBUS
   through an ORing diode / ideal diode, without back-feeding into the buck output or the PD side.
-  V_SERVO and 12 V stay unpowered in that case.
-- **Must**: power-good LED on each rail (12 V, 5 V, V_SERVO, 3.3 V).
+  V_SERVO and V_BUS stay unpowered in that case.
+- **Must**: power-good LED on each rail (V_BUS, 5 V, V_SERVO, 3.3 V).
 - **Should**: test points on every rail and GND.
 
 ### 3.1 Exposed power
-- **Must** expose **GND, 3.3 V, 5 V and 12 V** (and **should** V_SERVO) both on:
+- **Must** expose **GND, 3.3 V, 5 V and V_BUS** (and **should** V_SERVO) both on:
   - **screw terminals** (5.0 mm or 3.5 mm pitch, one terminal per rail + at least two GND), and
   - **2.54 mm female headers** (several pins per rail, e.g. a 2×N or 4×1 block per rail).
 - Silkscreen voltage next to every pin. Use distinct connector colours or clear markings to avoid
-  plugging a 3.3 V device into 12 V.
+  plugging a 3.3 V device into V_BUS. Silkscreen names V_BUS and V_SERVO with their
+  default voltage (e.g. "V_BUS (12 V)").
 
 ---
 
@@ -296,7 +298,7 @@ sensors, etc.) without using ESP32 pins.
 ## 8. Motors
 
 ### 8.1 Driver
-- **Must**: TB6612FNG on the PCB, VM = 12 V rail, VCC = 3.3 V, STBY pulled up to 3.3 V (always
+- **Must**: TB6612FNG on the PCB, VM = V_BUS, VCC = 3.3 V, STBY pulled up to 3.3 V (always
   enabled, as the current firmware assumes; no switch).
 - Channel A = RIGHT motor, channel B = LEFT motor (matches firmware).
 - Generous copper and thermal vias for the TB6612FNG (1.2 A continuous / 3.2 A peak per channel).
