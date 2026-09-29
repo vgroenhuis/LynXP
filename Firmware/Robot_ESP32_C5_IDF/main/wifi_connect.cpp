@@ -591,6 +591,12 @@ void wifi_connect_start() {
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
+    // No modem sleep (the station default is WIFI_PS_MIN_MODEM): with it, the
+    // radio dozes between the access point's beacons and incoming packets
+    // wait at the AP and arrive in bursts -- a quick key tap's "turn" and
+    // "stop" could reach the control loop together, so the camera barely
+    // moved. Costs some battery; the camera board runs this way too.
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     xTaskCreate(manager_task, "wifi_mgr", 4096, nullptr, tskIDLE_PRIORITY + 1, nullptr);
 
