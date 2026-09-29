@@ -6,8 +6,11 @@
 //   W / S        drive forward / back          A / D   strafe left / right
 //   Left/Right   turn the camera (and robot)   Up/Down tilt the camera
 //   Q / E        same as Left / Right          Shift   half speed
-//   Space        fire / action                 1-3     pick weapon
-//   Tab          next weapon
+//   Z / Ctrl     fire / action (hold = auto)   1-3     pick weapon
+//   Space        jump in games with jumping,   Tab     next weapon
+//                else fire / action (like gamepad A; J jumps too)
+// (Ctrl + W is the browser's "close tab", which a page can't block -- Z is
+// the safer fire key while driving.)
 //
 // and a gamepad (Gamepad API, "standard" layout -- e.g. a GameSir G8 phone
 // controller): left stick drives/strafes, right stick turns/tilts the
@@ -136,7 +139,7 @@ window.Lynx = window.Lynx || {};
   Lynx.onAction = (name, cb) => listeners[name].push(cb);
   Lynx.clearActions = () => Object.values(listeners).forEach((l) => (l.length = 0));
   Lynx.fireAction = () => listeners.fire.forEach((cb) => cb());
-  // Virtual jump (J key, gamepad A/B, or a game's touch button) -- only games
+  // Virtual jump (Space / J, gamepad A/B, or a game's touch button) -- only games
   // that support it listen. A listener returns whether jumping applies right
   // now (e.g. playing, not on a title screen); jumpAction() returns whether
   // any did, so gamepad A can fall back to fire when it doesn't.
@@ -190,14 +193,38 @@ window.Lynx = window.Lynx || {};
     return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
   }
 
+  const FIRE_KEYS = new Set(["KeyZ", "ControlLeft", "ControlRight"]);
+  const fireKeysDown = new Set(); // fire keys held (plus "Space" while it's firing rather than jumping)
+  let spaceFires = false;
+  const updateFireHeld = () => (Lynx.input.fireHeld = fireKeysDown.size > 0);
+
   Lynx.enableKeyboardControls = () => {
     window.addEventListener("keydown", (e) => {
-      if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTyping(e) || e.metaKey || e.altKey) return;
+      if (FIRE_KEYS.has(e.code)) {
+        e.preventDefault();
+        Lynx.sfx.unlock();
+        fireKeysDown.add(e.code);
+        updateFireHeld();
+        if (!e.repeat) Lynx.fireAction();
+        return;
+      }
+      // Ctrl is a fire key, so driving has to work with it held -- but any
+      // other Ctrl combination stays the browser's.
+      if (e.ctrlKey && !MOVEMENT_KEYS.has(e.code)) return;
       Lynx.sfx.unlock();
       if (e.code === "Space") {
+        // Jump where jumping applies; otherwise fire / action (title
+        // screens, games without jumping) -- same as gamepad A.
         e.preventDefault();
-        Lynx.input.fireHeld = true;
-        if (!e.repeat) Lynx.fireAction();
+        if (!e.repeat) {
+          spaceFires = !Lynx.jumpAction();
+          if (spaceFires) {
+            fireKeysDown.add("Space");
+            updateFireHeld();
+            Lynx.fireAction();
+          }
+        }
         return;
       }
       if (/^Digit[1-9]$/.test(e.code)) {
@@ -221,12 +248,18 @@ window.Lynx = window.Lynx || {};
       }
     });
     window.addEventListener("keyup", (e) => {
-      if (e.code === "Space") Lynx.input.fireHeld = false;
+      if (FIRE_KEYS.has(e.code) || e.code === "Space") {
+        fireKeysDown.delete(e.code);
+        if (e.code === "Space") spaceFires = false;
+        updateFireHeld();
+      }
       if (held.delete(e.code)) computeAndSend(false);
     });
     // Letting go of everything if focus leaves mid-press -- otherwise the
     // keyup never arrives and the robot keeps driving on the last heartbeat.
     const releaseAll = () => {
+      fireKeysDown.clear();
+      spaceFires = false;
       Lynx.input.fireHeld = false;
       if (held.size === 0) return;
       held.clear();

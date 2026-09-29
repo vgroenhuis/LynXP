@@ -1326,7 +1326,7 @@ Lynx.games = Lynx.games || {};
     function objective() {
       const mid = tileCenter((N - 1) / 2, (N - 1) / 2);
       if (chamber === 1) {
-        const text = traps.length ? "Cross the pits, jump the darts (J / gamepad A / ⤒ = jump)" : "Cross the pits (J / gamepad A / ⤒ = jump)";
+        const text = traps.length ? "Cross the pits, jump the darts (Space / gamepad A / ⤒ = jump)" : "Cross the pits (Space / gamepad A / ⤒ = jump)";
         return { text, at: mid, h: 0 };
       }
       if (!gateOpen && lv.puzzle === "sequence") {
@@ -1427,7 +1427,7 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("TEMPLE OF LYNXP", "Press FIRE to enter", { color: "#ffd84a" });
-        ar.text("Jump pits (J / gamepad A / ⤒), climb for treasure, solve the glyph floor, defeat the guardian.", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text("Jump pits (Space / gamepad A / ⤒), climb for treasure, solve the glyph floor, defeat the guardian.", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         const where = firstLevel < LAST_LEVEL ? `${LAST_LEVEL - firstLevel + 1} levels, each` : `Level ${firstLevel} is`;
         ar.text(`${where} laid out in front of the robot: about 2 m wide and 3 m deep.`, v.cx, v.cy + v.h * 0.26, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.32, { size: 14, align: "center", color: "#ffd84a" });

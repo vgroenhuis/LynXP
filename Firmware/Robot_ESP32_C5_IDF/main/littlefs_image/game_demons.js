@@ -814,7 +814,7 @@ Lynx.games = Lynx.games || {};
 
       if (state === "title") {
         ar.flash("#000", 0.45);
-        ar.banner("DOOM", "Press FIRE to start  (Space / \u{1F525} button)");
+        ar.banner("DOOM", "Press FIRE to start  (Z / Space / \u{1F525} button)");
         ar.text("WASD drive · arrows / Q E look · 1-3 or Tab weapons · drive over pickups", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd040" });
       } else if (state === "intermission") {
