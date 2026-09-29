@@ -179,7 +179,7 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | UART0 TX / RX | 11 / 12 *(verify)* |
 | I²S BCLK / WS (optional microphone and amplifier, §11.2) | 5 / 6 |
 | I²S DIN (microphone) / DOUT (amplifier) | 8 / 10 |
-| Addressable status LED | 7 |
+| Addressable status LED + RGB LED strip header (§11) | 7 |
 
 Any GPIOs left over (e.g. GPIO27, formerly the QR button) go to a 2.54 mm female header.
 
@@ -359,7 +359,7 @@ All three options on the board, electrically in parallel (only one used at a tim
 | 3 | CAM_TX | D0 (GPIO1, TX) | GPIO4 (UART1 RX) |
 | 4 | CAM_RX | D1 (GPIO2, RX) | GPIO28 (UART1 TX) |
 
-- 115200 baud, 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the UART lines.
+- 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the UART lines.
 - Place the connector so the cable has room to follow the pan/tilt motion; provide a strain-relief
   point (hole for a cable tie) next to it.
 - Budget ≥ 500 mA on the 5 V rail for the camera.
@@ -370,8 +370,16 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 ## 11. Other connectors and indicators
 
-- Addressable status LED (WS2812/SK6812) on a free GPIO; **may** also add a 3-pin header to chain
-  more.
+- Addressable status LED (WS2812/SK6812) on GPIO7.
+- **Must**: **3-pin header for an addressable RGB LED strip** (WS2812/SK6812), pins **5 V, DATA,
+  GND** (silkscreen order and arrow for data direction), e.g. JST-XH 2.5 mm or 2.54 mm header.
+  - DATA is the continuation of the on-board status LED chain (status LED DOUT → strip DIN), so
+    no extra GPIO is needed; the strip LEDs follow the status LED in the chain.
+  - GPIO7 is level-shifted from 3.3 V to 5 V (e.g. 74AHCT1G125) before the status LED, which runs
+    from 5 V; its DOUT then drives the strip at 5 V levels. ~330 Ω series resistor on DATA at the
+    header; bulk capacitor (≥ 100 µF) on 5 V at the header.
+  - Powered from the 5 V rail; strip length is limited by the 5 V budget (§3), to be noted on the
+    silkscreen or in the documentation.
 - nOOds LED 2-pin connector (see §6).
 - Female header breakout of all free ESP32 GPIOs, MCP23017 spare pins and PCA9685 channels 8, 9 and 13–15,
   each group with GND and supply pins next to it.
