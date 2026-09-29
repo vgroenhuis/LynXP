@@ -85,6 +85,9 @@ extern "C" void app_main(void) {
     // Both tasks now exist -- subscribe them to the task watchdog and start
     // measuring their tick timing/stack usage.
     watchdog_system_init(control_task_get_handle(), ws_broadcast_get_poll_task_handle());
+    // Before watchdog_last_reboot_was_hang() below: it reads why the health
+    // watchdog restarted the previous boot, if it did.
+    watchdog_health_start(control_task_get_handle());
     diagnostics_register_tasks(ws_broadcast_get_poll_task_handle(), WS_POLL_TASK_STACK_BYTES,
                                 control_task_get_handle(), CONTROL_TASK_STACK_BYTES);
 

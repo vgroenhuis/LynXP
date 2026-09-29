@@ -38,3 +38,16 @@ bool watchdog_last_reboot_was_hang();
 // panel -- shown regardless of whether it was a hang, so the operator can
 // always see why the robot last restarted.
 const char *watchdog_last_reboot_reason_string();
+
+// Health watchdog, for hangs the task watchdog can't see: the control and
+// poll tasks keep running, but internal RAM has run out (the web server
+// crawls, the QR code can't be built) or everything below them is starved.
+// A small high-priority task restarts the robot, recording why (shown as
+// the last reboot reason), when internal RAM stays nearly empty for 10 s,
+// or the OLED task -- the lowest-priority loop, so the canary for
+// starvation -- hasn't run for 20 s. Paused while an OTA upload has the
+// control task suspended (uploads legitimately starve the OLED). Call once
+// from app_main() after the control task exists.
+void watchdog_health_start(TaskHandle_t ctrlTask);
+// Called by the OLED task on every loop iteration.
+void watchdog_oled_heartbeat();

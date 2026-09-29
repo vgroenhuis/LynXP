@@ -23,6 +23,23 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # from under the assumptions motors.cpp/encoders.cpp make.
 # CONFIG_PM_ENABLE is not set
 
+# --- PSRAM ---
+# The N16R8 module has 8 MB of (quad) PSRAM. Without it the heap is the
+# ~190 KB of internal SRAM, which ran down to ~2 KB free (web server slow,
+# QR code failing, crashes). With it, malloc() spills over into PSRAM, and
+# the WiFi/lwIP buffers live there, leaving internal RAM for what must be
+# internal (DMA, ISRs, task stacks). IGNORE_NOTFOUND: still boot (internal
+# RAM only) if the PSRAM can't be brought up, rather than boot-looping.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
 # --- FreeRTOS ---
 CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y

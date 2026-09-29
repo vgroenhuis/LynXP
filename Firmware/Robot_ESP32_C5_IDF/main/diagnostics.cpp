@@ -90,11 +90,14 @@ void diagnostics_get_snapshot(DiagnosticsSnapshot *out) {
     out->heapUsedBytes = (uint32_t) info.total_allocated_bytes;
     out->heapFreeBytes = (uint32_t) info.total_free_bytes;
     out->heapArenaBytes = out->heapUsedBytes + out->heapFreeBytes;
-    // All-time low-water mark -- a materially more useful number than the
-    // Pico's fixed linker-symbol ceiling: it directly answers "how close
-    // did we ever actually come to running out", not just "how big is the
-    // pool".
-    out->heapCeilingBytes = esp_get_minimum_free_heap_size();
+    // All-time low-water mark of internal RAM -- it directly answers "how
+    // close did we ever actually come to running out". (Not
+    // esp_get_minimum_free_heap_size(): with PSRAM that counts the PSRAM
+    // too, hiding exactly the pool that runs short.)
+    out->heapCeilingBytes = (uint32_t) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    out->psramTotalBytes = (uint32_t) heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    out->psramFreeBytes = (uint32_t) heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    out->psramMinFreeBytes = (uint32_t) heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
 
     if (g_core0Task != nullptr) {
         // A TRUE historical high-water mark (tracked continuously by

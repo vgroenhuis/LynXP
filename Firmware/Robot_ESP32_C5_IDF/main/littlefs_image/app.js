@@ -415,27 +415,29 @@ function formatBytes(b) {
 
 function updateSysStats(msg) {
   const el = document.getElementById("sys-stats");
-  // heapCeilingBytes is the real "how much room is left" number: the true
-  // limit the heap could grow to. heapArenaBytes is just how much of that
-  // has been claimed so far (grows on demand) - a high used/arena ratio is
-  // normal and NOT a low-memory warning; used/ceiling is the one that
-  // actually matters.
-  const heapCeilingPct = msg.heapCeilingBytes > 0 ? ((msg.heapUsedBytes / msg.heapCeilingBytes) * 100).toFixed(0) : "0";
-  const core0StackPct = ((msg.core0StackUsedBytes / msg.core0StackTotalBytes) * 100).toFixed(0);
-  const core1StackPct = ((msg.core1StackUsedBytes / msg.core1StackTotalBytes) * 100).toFixed(0);
+  // Internal RAM is the pool that can run out: heapArenaBytes is its whole
+  // (fixed) size, heapCeilingBytes its lowest free point since boot. PSRAM
+  // (if in use) takes over ordinary allocations once internal RAM is short.
+  const pct = (a, b) => (b > 0 ? ((a / b) * 100).toFixed(0) : "0");
+  const core0StackPct = pct(msg.core0StackUsedBytes, msg.core0StackTotalBytes);
+  const core1StackPct = pct(msg.core1StackUsedBytes, msg.core1StackTotalBytes);
+  const psram = msg.psramTotalBytes > 0
+    ? `${formatBytes(msg.psramTotalBytes - msg.psramFreeBytes)} / ${formatBytes(msg.psramTotalBytes)} (${pct(msg.psramTotalBytes - msg.psramFreeBytes, msg.psramTotalBytes)}%), lowest free ${formatBytes(msg.psramMinFreeBytes)}`
+    : "not in use";
   const rows = [
     ["Core0 loop rate (network/HTTP)", `${msg.core0Hz.toFixed(0)} Hz`],
     ["Core0 tick time (avg / max)", `${msg.core0TickAvgUs} µs / ${msg.core0TickMaxUs} µs`],
     ["Core1 loop rate (1kHz control loop)", `${msg.core1Hz.toFixed(1)} Hz`],
     ["Core1 tick time (avg / max)", `${msg.core1TickAvgUs} µs / ${msg.core1TickMaxUs} µs`],
-    ["Heap used / room to grow into", `${formatBytes(msg.heapUsedBytes)} / ${formatBytes(msg.heapCeilingBytes)} (${heapCeilingPct}%)`],
-    ["Heap claimed so far (arena)", `${formatBytes(msg.heapArenaBytes)} claimed, ${formatBytes(msg.heapFreeBytes)} of that unused`],
-    ["Core0 stack used / total", `${formatBytes(msg.core0StackUsedBytes)} / ${formatBytes(msg.core0StackTotalBytes)} (${core0StackPct}%)`],
-    ["Core1 stack used / total", `${formatBytes(msg.core1StackUsedBytes)} / ${formatBytes(msg.core1StackTotalBytes)} (${core1StackPct}%)`],
-    ["Total RAM", formatBytes(msg.totalRamBytes)],
+    ["Internal RAM heap used / total", `${formatBytes(msg.heapUsedBytes)} / ${formatBytes(msg.heapArenaBytes)} (${pct(msg.heapUsedBytes, msg.heapArenaBytes)}%)`],
+    ["Internal RAM free now / lowest since boot", `${formatBytes(msg.heapFreeBytes)} / ${formatBytes(msg.heapCeilingBytes)}`],
+    ["PSRAM used / total", psram],
+    ["Core0 stack peak / total", `${formatBytes(msg.core0StackUsedBytes)} / ${formatBytes(msg.core0StackTotalBytes)} (${core0StackPct}%)`],
+    ["Core1 stack peak / total", `${formatBytes(msg.core1StackUsedBytes)} / ${formatBytes(msg.core1StackTotalBytes)} (${core1StackPct}%)`],
+    ["Total internal RAM", formatBytes(msg.totalRamBytes)],
   ];
   el.innerHTML =
-    `<caption>Stack figures are the current depth when sampled, not a historical peak. The heap "arena" grows on demand as needed - it's not a fixed pool, so a high claimed/unused ratio there is normal.</caption>` +
+    `<caption>Stack figures are each task's peak since boot. "Lowest since boot" near zero means the robot nearly ran out of internal RAM (slow web pages, failed QR code, crashes).</caption>` +
     `<tbody>${rows.map(([label, value]) => `<tr><th scope="row">${label}</th><td>${value}</td></tr>`).join("")}</tbody>`;
 }
 

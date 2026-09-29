@@ -4,6 +4,7 @@
 #include "qr_display.hpp"
 #include "ina260.hpp"
 #include "uart_link.hpp"
+#include "watchdog.hpp"
 
 extern "C" {
 #include "ssd1306.h"
@@ -249,6 +250,8 @@ void oled_task_body(void *arg) {
     const int64_t startMs = now_ms();
     size_t reinitsDone = 0;
     while (true) {
+        watchdog_oled_heartbeat(); // the health watchdog's starvation canary
+
         if (reinitsDone < sizeof(REINIT_AT_MS) / sizeof(REINIT_AT_MS[0]) && now_ms() - startMs >= REINIT_AT_MS[reinitsDone]) {
             wake_panel();
             std::memset(s_sentValid, 0, sizeof(s_sentValid)); // resend every page

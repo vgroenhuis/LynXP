@@ -39,6 +39,12 @@ struct DiagnosticsSnapshot {
     uint32_t core1StackTotalBytes;
 
     uint32_t totalRamBytes;
+
+    // External PSRAM heap (all 0 if PSRAM isn't in use); psramMinFreeBytes
+    // is its all-time low point, like heapCeilingBytes for internal RAM.
+    uint32_t psramTotalBytes;
+    uint32_t psramFreeBytes;
+    uint32_t psramMinFreeBytes;
 };
 
 // Registers the task handles + declared stack sizes (in bytes, matching

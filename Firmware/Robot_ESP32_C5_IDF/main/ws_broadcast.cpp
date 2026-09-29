@@ -711,7 +711,7 @@ void ws_poll_task(void *arg) {
             lastSysStatsSendMs = nowMs;
             DiagnosticsSnapshot snap;
             diagnostics_get_snapshot(&snap);
-            char json[560];
+            char json[680];
             int len = snprintf(json, sizeof(json),
                 "{\"type\":\"sysstats\","
                 "\"core0Hz\":%.1f,\"core0TickAvgUs\":%u,\"core0TickMaxUs\":%u,"
@@ -719,14 +719,16 @@ void ws_poll_task(void *arg) {
                 "\"heapArenaBytes\":%u,\"heapUsedBytes\":%u,\"heapFreeBytes\":%u,\"heapCeilingBytes\":%u,"
                 "\"core0StackUsedBytes\":%u,\"core0StackTotalBytes\":%u,"
                 "\"core1StackUsedBytes\":%u,\"core1StackTotalBytes\":%u,"
-                "\"totalRamBytes\":%u}",
+                "\"totalRamBytes\":%u,"
+                "\"psramTotalBytes\":%u,\"psramFreeBytes\":%u,\"psramMinFreeBytes\":%u}",
                 (double) snap.core0HzMeasured, (unsigned) snap.core0TickAvgUs, (unsigned) snap.core0TickMaxUs,
                 (double) snap.core1HzMeasured, (unsigned) snap.core1TickAvgUs, (unsigned) snap.core1TickMaxUs,
                 (unsigned) snap.heapArenaBytes, (unsigned) snap.heapUsedBytes, (unsigned) snap.heapFreeBytes,
                 (unsigned) snap.heapCeilingBytes,
                 (unsigned) snap.core0StackUsedBytes, (unsigned) snap.core0StackTotalBytes,
                 (unsigned) snap.core1StackUsedBytes, (unsigned) snap.core1StackTotalBytes,
-                (unsigned) snap.totalRamBytes);
+                (unsigned) snap.totalRamBytes,
+                (unsigned) snap.psramTotalBytes, (unsigned) snap.psramFreeBytes, (unsigned) snap.psramMinFreeBytes);
             if (len > 0 && (size_t) len < sizeof(json)) {
                 broadcast_ws(server, json, (size_t) len);
             }
