@@ -2,8 +2,8 @@
 // the golden one in each level holds a new, better pistol (water pistol ->
 // laser -> double pistol -> lightning gun -> rainbow cannon), the others
 // coins or a heart. Monsters crawl toward you; clear every crate and every
-// monster to finish the level. In-game texts are Dutch (the game was made
-// for a Dutch player).
+// monster to finish the level. (Made for a Dutch player, first with Dutch
+// texts; now English like the other games.)
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -15,11 +15,11 @@ Lynx.games = Lynx.games || {};
   const MAX_HEARTS = 9;
 
   const WEAPONS = [
-    { name: "Waterpistool", dmg: 1, cooldown: 0.45, pellets: 1, color: "#40b0ff", sound: "squirt" },
-    { name: "Laserpistool", dmg: 2, cooldown: 0.35, pellets: 1, color: "#ff3040", sound: "laser" },
-    { name: "Dubbelpistool", dmg: 2, cooldown: 0.35, pellets: 2, color: "#ffd020", sound: "pistol" },
-    { name: "Bliksemgeweer", dmg: 2, cooldown: 0.14, pellets: 1, color: "#a0f0ff", sound: "zap", auto: true },
-    { name: "Regenboogkanon", dmg: 6, cooldown: 0.5, pellets: 1, color: "rainbow", sound: "rainbow", splashM: 0.5 },
+    { name: "Water pistol", dmg: 1, cooldown: 0.45, pellets: 1, color: "#40b0ff", sound: "squirt" },
+    { name: "Laser pistol", dmg: 2, cooldown: 0.35, pellets: 1, color: "#ff3040", sound: "laser" },
+    { name: "Double pistol", dmg: 2, cooldown: 0.35, pellets: 2, color: "#ffd020", sound: "pistol" },
+    { name: "Lightning gun", dmg: 2, cooldown: 0.14, pellets: 1, color: "#a0f0ff", sound: "zap", auto: true },
+    { name: "Rainbow cannon", dmg: 6, cooldown: 0.5, pellets: 1, color: "rainbow", sound: "rainbow", splashM: 0.5 },
   ];
   const RAINBOW = ["#ff3030", "#ff9020", "#ffe020", "#40e040", "#30a0ff", "#a040ff"];
 
@@ -187,7 +187,7 @@ Lynx.games = Lynx.games || {};
       state = "playing";
       stateTime = 0;
       invulnerable = 1;
-      say(`LEVEL ${level}`, "Schiet de blokken open!", "#ffd84a");
+      say(`LEVEL ${level}`, "Shoot the crates open!", "#ffd84a");
       Lynx.sfx.play("levelup");
     }
 
@@ -205,7 +205,7 @@ Lynx.games = Lynx.games || {};
       const p = Lynx.randomAround(ar.pose.x, ar.pose.y, Math.max(1.4, areaM - 0.2), areaM + 0.6);
       const hp = Math.round(def.hp * diff.hp * (1 + 0.2 * (level - 1)));
       monsters.push({ type, x: p.x, y: p.y, hp, maxHp: hp, hit: 0, phase: Math.random() * 6, wobble: Math.random() * 6, alive: true, rect: null });
-      if (type === "boss") say("DE GROTE BAAS!", "Schiet hem vaak!", "#d060ff");
+      if (type === "boss") say("THE BIG BOSS!", "Shoot it a lot!", "#d060ff");
       Lynx.sfx.play(type === "boss" ? "growl" : "boing");
     }
 
@@ -287,7 +287,7 @@ Lynx.games = Lynx.games || {};
       puffs.push({ x: m.x, y: m.y, h: MONSTER[m.type].fly + MONSTER[m.type].heightM / 2, t: 0, big: m.type === "boss" });
       if (m.type === "boss") {
         loot.push({ kind: "heart", x: m.x, y: m.y, h: 0.05, t: 0 });
-        say("BAAS VERSLAGEN!", "+1500", "#d060ff");
+        say("BOSS BEATEN!", "+1500", "#d060ff");
       }
     }
 
@@ -296,7 +296,7 @@ Lynx.games = Lynx.games || {};
         owned = Math.max(owned, l.index + 1);
         weapon = l.index;
         score += 200;
-        say("NIEUW PISTOOL!", WEAPONS[l.index].name, "#40ff80");
+        say("NEW GUN!", WEAPONS[l.index].name, "#40ff80");
         Lynx.sfx.play("power");
       } else if (l.kind === "heart") {
         hearts = Math.min(MAX_HEARTS, hearts + 1);
@@ -304,7 +304,7 @@ Lynx.games = Lynx.games || {};
       } else if (l.kind === "bonus") {
         score += 500;
         hearts = Math.min(MAX_HEARTS, hearts + 1);
-        say("SUPER BONUS!", "+500 en een hartje", "#ffd84a");
+        say("SUPER BONUS!", "+500 and a heart", "#ffd84a");
         Lynx.sfx.play("found");
       } else {
         score += 25;
@@ -325,12 +325,12 @@ Lynx.games = Lynx.games || {};
       else if (which === "prev") weapon = (weapon - 1 + owned) % owned;
       else if (which - 1 < owned) weapon = which - 1;
     });
-    Lynx.touchButtons().add("\u{1F52B} Wissel", () => (weapon = (weapon + 1) % owned));
+    Lynx.touchButtons().add("\u{1F52B} Switch", () => (weapon = (weapon + 1) % owned));
     // Optional virtual jumping (off by default): spring over crawling
     // monsters (bats fly too high for that).
     if (cfg.jump) {
       Lynx.onAction("jump", () => state === "playing" && (ar.jump(), true));
-      Lynx.touchButtons().add("\u2912 Spring", () => Lynx.jumpAction());
+      Lynx.touchButtons().add("\u2912 Jump", () => Lynx.jumpAction());
     }
 
     // -- update ----------------------------------------------------------------------------
@@ -401,7 +401,7 @@ Lynx.games = Lynx.games || {};
             rankMsg = "";
             Lynx.sfx.play("lose");
             Lynx.submitScore("david", score).then((rank) => {
-              rankMsg = rank ? `#${rank} op het scorebord van de robot!` : "";
+              rankMsg = rank ? `#${rank} on this robot's scoreboard!` : "";
               if (rank === 1) best = score;
             });
           }
@@ -431,7 +431,7 @@ Lynx.games = Lynx.games || {};
         state = "cleared";
         stateTime = 0;
         score += 300 * level;
-        say(`LEVEL ${level} GEHAALD!`, `+${300 * level} punten`, "#40ff80");
+        say(`LEVEL ${level} DONE!`, `+${300 * level} points`, "#40ff80");
         Lynx.sfx.play("found");
       }
     }
@@ -576,7 +576,7 @@ Lynx.games = Lynx.games || {};
       if (invulnerable > 0 && state === "playing" && Math.floor(invulnerable * 8) % 2 === 0) ar.flash("#ffffff", 0.08);
 
       // HUD -- kept clear of the Menu/Overlays headers (top corners), the
-      // radar (top center) and the Wissel/Schiet buttons (bottom right).
+      // radar (top center) and the Switch/Fire buttons (bottom right).
       const hudY = v.y + v.h - 16;
       ar.text("❤".repeat(Math.max(0, hearts)), v.x + 14, hudY - 30, { size: 22, color: "#ff3050" });
       ar.text(`SCORE ${score}`, v.x + 14, hudY, { size: 20, color: "#ffd84a" });
@@ -584,7 +584,7 @@ Lynx.games = Lynx.games || {};
         const cratesLeft = crates.filter((c) => !c.open).length;
         const monstersLeft = monsters.length + spawnQueue.length;
         ar.text(`LEVEL ${level}`, v.x + 14, v.y + 66, { size: 18, color: "#ffd84a" });
-        ar.text(`blokken ${cratesLeft} · monsters ${monstersLeft}`, v.x + 14, v.y + 88, { size: 14 });
+        ar.text(`crates ${cratesLeft} · monsters ${monstersLeft}`, v.x + 14, v.y + 88, { size: 14 });
         ar.text(WEAPONS[weapon].name, v.x + v.w - 14, v.y + 66, { size: 16, align: "right", color: WEAPONS[weapon].color === "rainbow" ? "#ffe020" : WEAPONS[weapon].color });
       }
 
@@ -593,14 +593,14 @@ Lynx.games = Lynx.games || {};
       }
       if (state === "title") {
         ar.flash("#000", 0.45);
-        ar.banner("DAVID", "Druk op VUUR om te beginnen", { color: "#ffd84a" });
-        ar.text("Schiet de blokken open · in het gouden blok zit een nieuw pistool · versla de monsters", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
-        if (best !== null) ar.text(`Beste score op deze robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd84a" });
+        ar.banner("DAVID", "Press FIRE to start", { color: "#ffd84a" });
+        ar.text("Shoot the crates open · the golden crate holds a new gun · beat the monsters", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "over") {
         ar.flash("#000", 0.45);
         ar.banner("GAME OVER", `Score ${score} · level ${level}`);
         if (rankMsg) ar.text(rankMsg, v.cx, v.cy + v.h * 0.18, { size: 16, align: "center", color: "#ffd84a" });
-        if (stateTime > 1.5) ar.text("Druk op VUUR om opnieuw te spelen", v.cx, v.cy + v.h * 0.25, { size: 14, align: "center" });
+        if (stateTime > 1.5) ar.text("Press FIRE to play again", v.cx, v.cy + v.h * 0.25, { size: 14, align: "center" });
       }
     }
 
@@ -610,7 +610,7 @@ Lynx.games = Lynx.games || {};
     });
 
     return {
-      actionLabel: "\u{1F52B} Schiet",
+      actionLabel: "\u{1F52B} Fire",
       snapshot: () => ({
         state, level, score, hearts, weapon: WEAPONS[weapon].name, owned,
         crates: crates.map((c) => ({ x: +c.x.toFixed(2), y: +c.y.toFixed(2), hp: c.hp, golden: c.golden, open: c.open })),

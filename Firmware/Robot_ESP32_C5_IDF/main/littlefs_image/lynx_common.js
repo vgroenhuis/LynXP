@@ -54,18 +54,19 @@ window.Lynx = window.Lynx || {};
       name: "David",
       icon: "\u{1F4E6}",
       blurb:
-        "Schiet de blokken op de vloer open: in het gouden blok zit steeds een nieuw, beter pistool " +
-        "(waterpistool, laserpistool, dubbelpistool, bliksemgeweer, regenboogkanon). Versla daarmee de monsters " +
-        "en haal zoveel mogelijk levels!",
+        "Shoot open the crates on the floor: the golden one always holds a new, better gun " +
+        "(water pistol, laser pistol, double pistol, lightning gun, rainbow cannon). Use them to beat the monsters " +
+        "and get through as many levels as you can!",
       settings: [
-        { key: "difficulty", label: "Moeilijkheid", type: "select", def: "normaal",
-          options: [["makkelijk", "Makkelijk"], ["normaal", "Normaal"], ["moeilijk", "Moeilijk"]] },
-        { key: "hearts", label: "Hartjes", type: "number", def: 5, min: 1, max: 9, step: 1 },
-        { key: "areaM", label: "Speelveld (straal)", type: "number", unit: "m", def: 2, min: 1, max: 5, step: 0.25 },
-        { key: "aimAssist", label: "Hulp bij richten", type: "checkbox", def: true },
-        { key: "jump", label: "Springen (J / gamepad A)", type: "checkbox", def: false },
+        // the option keys stay Dutch (stored settings use them); the game started out in Dutch
+        { key: "difficulty", label: "Difficulty", type: "select", def: "normaal",
+          options: [["makkelijk", "Easy"], ["normaal", "Normal"], ["moeilijk", "Hard"]] },
+        { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
+        { key: "areaM", label: "Play area (radius)", type: "number", unit: "m", def: 2, min: 1, max: 5, step: 0.25 },
+        { key: "aimAssist", label: "Aim assist", type: "checkbox", def: true },
+        { key: "jump", label: "Virtual jumping (J / gamepad A)", type: "checkbox", def: false },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
-        { key: "arrows", label: "Pijlen naar blokken en monsters", type: "checkbox", def: true },
+        { key: "arrows", label: "Arrows to crates and monsters", type: "checkbox", def: true },
       ],
       boards: [{ key: "david", title: "David", better: "higher", format: "points" }],
     },
