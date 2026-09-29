@@ -113,10 +113,13 @@ window.Lynx = window.Lynx || {};
       blurb:
         "A Tomb Raider-style adventure in a 2 x 3 m temple on your floor. Jump spike pits and lava (virtual jumping), " +
         "climb stone blocks for treasure, solve the glyph floor to raise the portcullis, " +
-        "then defeat the guardian: shoot its crystals, jump its shockwaves, dodge its fireballs.",
+        "then defeat the guardian: shoot its crystals, jump its shockwaves, dodge its fireballs. " +
+        "Level 2 goes deeper: dart traps, a memory floor and the obsidian guardian.",
       settings: [
         { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
           options: [["easy", "Easy (narrow pits)"], ["normal", "Normal"], ["hard", "Hard (4x4 glyph floor)"]] },
+        { key: "startLevel", label: "Start at level", type: "select", def: "1",
+          options: [["1", "1 -- the upper temple"], ["2", "2 -- the lower temple"]] },
         { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
         { key: "aimAssist", label: "Aim assist", type: "checkbox", def: true },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
