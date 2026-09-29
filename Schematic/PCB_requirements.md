@@ -375,8 +375,9 @@ All three options on the board, electrically in parallel (only one used at a tim
   GND** (silkscreen order and arrow for data direction), e.g. JST-XH 2.5 mm or 2.54 mm header.
   - DATA is the continuation of the on-board status LED chain (status LED DOUT → strip DIN), so
     no extra GPIO is needed; the strip LEDs follow the status LED in the chain.
-  - Data line level-shifted from 3.3 V to 5 V (e.g. 74AHCT1G125) and a ~330 Ω series resistor
-    at the header; bulk capacitor (≥ 100 µF) on 5 V at the header.
+  - GPIO7 is level-shifted from 3.3 V to 5 V (e.g. 74AHCT1G125) before the status LED, which runs
+    from 5 V; its DOUT then drives the strip at 5 V levels. ~330 Ω series resistor on DATA at the
+    header; bulk capacitor (≥ 100 µF) on 5 V at the header.
   - Powered from the 5 V rail; strip length is limited by the 5 V budget (§3), to be noted on the
     silkscreen or in the documentation.
 - nOOds LED 2-pin connector (see §6).
