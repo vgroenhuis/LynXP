@@ -38,7 +38,8 @@ Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LE
 ## 2. Power input: USB-PD (HUSB238)
 
 ### 2.1 Negotiation
-- **Must** have a USB-C receptacle (power only; CC1, CC2, VBUS, GND) for the powerbank, labelled
+- **Must** have a USB-C receptacle (power only; CC1, CC2, VBUS, GND) for the powerbank; its VBUS net is named
+  **VBUS_PD**. The connector is labelled
   **"POWER"** on the silkscreen, clearly different from the programming port.
 - **Must** use the HUSB238 as PD sink controller. Default request: **12 V** (the GM37 motors are
   12 V motors; LynXP One ran them at 9 V).
@@ -59,12 +60,12 @@ re-inserting the cable works; switching the load does not.
 
 - **Must**: the main on/off switch breaks the **CC1 and CC2** lines between the USB-C receptacle and
   the HUSB238 (one pole per CC line). Switching OFF looks like a cable unplug to the powerbank (it
-  removes VBUS itself); switching ON is a fresh attach, which wakes the powerbank.
+  removes VBUS_PD itself); switching ON is a fresh attach, which wakes the powerbank.
 - **Must**: the same switch also puts the **PD controller to sleep when OFF and wakes it when ON**,
   so that every switch-on starts the PD controller from its initial state and it renegotiates the
-  contract, instead of keeping stale state alive on residual VBUS/bulk-capacitor charge or on
+  contract, instead of keeping stale state alive on residual VBUS_PD/bulk-capacitor charge or on
   voltage back-fed from the programming USB port. Implement with an extra pole on the main switch,
-  e.g. driving the PD controller's enable/sleep pin, or cutting its supply combined with a VBUS
+  e.g. driving the PD controller's enable/sleep pin, or cutting its supply combined with a VBUS_PD
   discharge path so it gets a clean power-on reset *(verify which mechanism the HUSB238 supports;
   a comparable PD sink controller with a proper enable pin is acceptable if the HUSB238 has none)*.
 - The main switch is therefore a multi-pole switch (e.g. 3PDT/4PDT slide or toggle). There must be
@@ -80,12 +81,12 @@ re-inserting the cable works; switching the load does not.
   no CC handshake and cannot be woken or switched this way.
 
 ### 2.3 Inrush and capacitance
-- USB-C limits sink bulk capacitance on VBUS before a contract is established (≤10 µF *(verify)*).
+- USB-C limits sink bulk capacitance on VBUS_PD before a contract is established (≤10 µF *(verify)*).
   Large bulk capacitors (motor/servo rails) **must** sit behind a load switch/PMOS that only closes
   once the HUSB238 reports a valid contract (as the Adafruit breakout does), with soft-start.
 
 ### 2.4 Protection
-- **Must**: TVS diode on VBUS rated for the maximum selectable PD voltage (≥ 20 V standoff if 20 V
+- **Must**: TVS diode on VBUS_PD rated for the maximum selectable PD voltage (≥ 20 V standoff if 20 V
   can be selected).
 - **Must**: fuse (PTC or eFuse) on V_BUS sized for the total budget (~2.5–3 A at 12 V for a
   30 W powerbank *(verify powerbank PDO list)*).
@@ -103,11 +104,14 @@ re-inserting the cable works; switching the load does not.
 
 | Rail | Source | Minimum rating | Notes |
 |---|---|---|---|
-| **V_BUS** (12 V default; USB VBUS after PD load switch, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
+| **V_BUS** (12 V default; VBUS_PD after PD load switch, INA260, fuse) | HUSB238 | 3 A | Motors (TB6612 VM), buck inputs, exposed |
 | **5 V** logic | Buck from V_BUS | 3 A | Camera, nOOds, exposed |
 | **V_SERVO** (5 V default) | Separate buck from V_BUS | 3 A continuous | 8 servo headers |
 | **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O, encoders |
 
+- Net names: **VBUS_PD** = raw VBUS pin of the POWER connector; **VBUS_PROG** = raw VBUS pin of
+  the PROG connector; **V_BUS** = main rail (VBUS_PD after load switch, INA260 and fuse). Bare
+  "VBUS" is not used as a net name.
 - Bucks **must** accept 5–20 V input with margin (≥ 28 V abs. max) because the rail follows the PD
   voltage.
 - Servos **should** get their own buck, separate from logic 5 V, so servo stall currents
@@ -115,7 +119,8 @@ re-inserting the cable works; switching the load does not.
   low-ESR).
 - 3.3 V regulator must handle ESP32-C5 Wi-Fi peaks (≥ 500 mA peak for the module alone); an LDO
   from 5 V with ≥ 1 A rating or a small buck.
-- When only the programming USB port is connected, the 5 V/3.3 V logic **must** run from USB VBUS
+- When only the programming USB port is connected, the 5 V/3.3 V logic **must** run from **VBUS_PROG** (the
+  programming port's VBUS)
   through an ORing diode / ideal diode, without back-feeding into the buck output or the PD side.
   V_SERVO and V_BUS stay unpowered in that case.
 - **Must**: power-good LED on each rail (V_BUS, 5 V, V_SERVO, 3.3 V).
