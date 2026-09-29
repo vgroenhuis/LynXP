@@ -286,6 +286,15 @@ Lynx.games = Lynx.games || {};
       c.stroke();
     }
 
+    // Temple frame for exact draw ordering (ar.queue's box); cam is set at
+    // the start of each frame.
+    const frame = { cam: { f: 0, r: 0, h: 0 } };
+    const extent = (f0, f1, r0, r1, h0, h1) => ({ frame, f0, f1, r0, r1, h0, h1 });
+    const pointAt = (wx, wy, h0, h1) => {
+      const l = toLocal(wx, wy);
+      return extent(l.f, l.f, l.r, l.r, h0, h1);
+    };
+
     // A stone block from (f0..f1, r0..r1), h0..h1: the sides that face the
     // camera, then the top if it's below the camera. Queued by depth.
     function box(q, h0, h1, col) {
@@ -311,7 +320,7 @@ Lynx.games = Lynx.games || {};
           const p = polyScreen([w3(q.f0, q.r0, h1), w3(q.f1, q.r0, h1), w3(q.f1, q.r1, h1), w3(q.f0, q.r1, h1)], 3);
           if (p) fillPoly(p, col.top, col.line);
         }
-      });
+      }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
     const SANDSTONE = { top: "#d8b878", side: "#a88848", dark: "#806430", line: "rgba(40,25,10,0.55)", mortar: true };
     const BLOCK = { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true };
@@ -955,7 +964,7 @@ Lynx.games = Lynx.games || {};
           ar.queue(p.depth - 0.01, () => {
             const flick = 0.85 + 0.15 * Math.sin(stateTime * 17 + f * 5 + side);
             ar.glow(p.x, p.y, 0.09 * p.ppm * flick, [[0, "rgba(255,240,160,0.95)"], [0.35, "rgba(255,150,40,0.6)"], [1, "rgba(255,100,0,0)"]]);
-          });
+          }, pointAt(w.x, w.y, 0.19, 0.19));
         });
       }
     }
@@ -969,7 +978,7 @@ Lynx.games = Lynx.games || {};
         if (lift >= 0.3) return;
         for (let r = -HALF_W + 0.05; r < HALF_W; r += 0.1) line3([[GATE_F, r, lift], [GATE_F, r, lift + 0.26]], "#2e2e34", 4, 0.05);
         [0.06, 0.18].forEach((h) => line3([[GATE_F, -HALF_W, lift + h], [GATE_F, HALF_W, lift + h]], "#3c3c44", 4, 0.1));
-      });
+      }, extent(GATE_F - 0.01, GATE_F + 0.01, -HALF_W, HALF_W, gateLift, gateLift + 0.26));
     }
 
     function drawSprite(obj, spr, x, y, base, heightM, opts = {}) {
@@ -983,7 +992,7 @@ Lynx.games = Lynx.games || {};
         if (opts.before) opts.before(rect);
         ar.drawSprite(spr, rect, { flip: opts.flip, tint: obj.hit > 0 ? "rgba(255,255,255,0.7)" : null });
         if (opts.after) opts.after(rect);
-      });
+      }, pointAt(x, y, base, base + heightM));
     }
 
     function drawActors() {
@@ -1017,7 +1026,7 @@ Lynx.games = Lynx.games || {};
           ar.glow(p.x, p.y, s * 2.2, [[0, "rgba(160,220,255,0.8)"], [1, "rgba(80,160,255,0)"]]);
           const k = Math.abs(Math.cos(c.spin));
           fillPoly([{ x: p.x, y: p.y - s }, { x: p.x + s * 0.6 * k + 1, y: p.y }, { x: p.x, y: p.y + s }, { x: p.x - s * 0.6 * k - 1, y: p.y }], c.hit > 0 ? "#ffffff" : "#60c0ff", "#e0f4ff", 1.5);
-        });
+        }, extent(c.f, c.f, c.r, c.r, c.h, c.h));
       });
       if (boss.state !== "dead") {
         const w = toWorld(BOSS.f, BOSS.r);
@@ -1038,7 +1047,7 @@ Lynx.games = Lynx.games || {};
       fireballs.forEach((b) => {
         const p = camZ(b.x, b.y, b.h) >= NEAR ? ar.project(b.x, b.y, b.h) : null;
         if (!p) return;
-        ar.queue(p.depth, () => ar.glow(p.x, p.y, Math.max(5, 0.05 * p.ppm), [[0, "rgba(255,255,200,1)"], [0.4, "rgba(255,150,30,0.9)"], [1, "rgba(255,60,0,0)"]]));
+        ar.queue(p.depth, () => ar.glow(p.x, p.y, Math.max(5, 0.05 * p.ppm), [[0, "rgba(255,255,200,1)"], [0.4, "rgba(255,150,30,0.9)"], [1, "rgba(255,60,0,0)"]]), pointAt(b.x, b.y, b.h, b.h));
       });
     }
 
@@ -1066,6 +1075,9 @@ Lynx.games = Lynx.games || {};
     function draw() {
       const v = ar.view;
       if (anchor) {
+        const cw = ar.cameraWorld();
+        const cl = toLocal(cw.x, cw.y);
+        frame.cam = { f: cl.f, r: cl.r, h: cw.h };
         drawFloor();
         pits.forEach(drawPit);
         drawGlyphs();

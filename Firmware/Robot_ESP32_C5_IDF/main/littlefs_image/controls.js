@@ -88,11 +88,21 @@ window.Lynx = window.Lynx || {};
     }, 300);
   }
 
+  // The camera turn / tilt rates last sent (raw [-1,1], when), whoever sent
+  // them (keyboard, gamepad, touch joysticks): the camera page's smooth-aim
+  // view integrates these the same way the robot does.
+  const aimInput = { rot: 0, tilt: 0, rotAt: 0, tiltAt: 0 };
+
   Lynx.control = {
     send(obj) {
       ensureStarted();
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify(obj));
+      const v = Math.max(-1, Math.min(1, Number(obj.value) || 0));
+      if (obj.type === "control_frame_rotate") Object.assign(aimInput, { rot: v, rotAt: performance.now() });
+      else if (obj.type === "tilt_rate") Object.assign(aimInput, { tilt: v, tiltAt: performance.now() });
     },
+    aimInput,
     start: ensureStarted,
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
     onMessage(type, cb) {

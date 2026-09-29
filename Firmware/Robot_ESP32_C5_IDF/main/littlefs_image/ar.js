@@ -159,7 +159,12 @@ window.Lynx = window.Lynx || {};
       h: -Math.sin(ar.tilt),
     });
 
-    ar.queue = (depth, draw) => queueItems.push({ depth, draw });
+    // box (optional): the item's axis-aligned extent {frame, f0, f1, r0, r1,
+    // h0, h1} in a game's own floor frame, frame.cam = the camera's {f, r, h}
+    // in it this frame. Boxed items of the same frame are drawn in an exact
+    // order (see flush()) instead of just by their center's depth, which
+    // gets neighbouring blocks of different sizes wrong.
+    ar.queue = (depth, draw, box) => queueItems.push({ depth, draw, box });
 
     // -- world drawing helpers ------------------------------------------------
 
@@ -376,10 +381,69 @@ window.Lynx = window.Lynx || {};
 
     ar.onFrame = (cb) => frameCallbacks.push(cb);
 
+    // Must box a be drawn before box b (+1), after it (-1), or can't they
+    // overlap on screen (0)? Two separate boxes always have a plane between
+    // them along one of the axes; the one on the camera's side of that plane
+    // may cover the other, never the other way round.
+    const AXES = [["f0", "f1", "f"], ["r0", "r1", "r"], ["h0", "h1", "h"]];
+    function boxOrder(a, b) {
+      const cam = a.frame.cam;
+      for (const [lo, hi, c] of AXES) {
+        if (a[hi] <= b[lo] + 1e-6) {
+          const p = (a[hi] + b[lo]) / 2;
+          return cam[c] > p ? 1 : cam[c] < p ? -1 : 0;
+        }
+        if (b[hi] <= a[lo] + 1e-6) {
+          const p = (b[hi] + a[lo]) / 2;
+          return cam[c] < p ? 1 : cam[c] > p ? -1 : 0;
+        }
+      }
+      return 0; // they intersect: nothing exact to say
+    }
+
     ar.flush = () => {
-      queueItems.sort((a, b) => b.depth - a.depth);
       const items = queueItems;
       queueItems = [];
+      items.sort((a, b) => b.depth - a.depth); // painter's order: farthest first
+      if (items.filter((it) => it.box).length > 1) {
+        // Topological sort: boxes wait for the boxes they may cover; among
+        // the ones free to go, the farthest goes first (unboxed items just
+        // keep their depth order).
+        const n = items.length;
+        const after = items.map(() => []);
+        const waits = new Array(n).fill(0);
+        for (let i = 0; i < n; i++) {
+          const a = items[i].box;
+          if (!a) continue;
+          for (let j = i + 1; j < n; j++) {
+            const b = items[j].box;
+            if (!b || b.frame !== a.frame) continue;
+            const o = boxOrder(a, b);
+            if (o > 0) {
+              after[i].push(j);
+              waits[j]++;
+            } else if (o < 0) {
+              after[j].push(i);
+              waits[i]++;
+            }
+          }
+        }
+        const done = new Array(n).fill(false);
+        for (let k = 0; k < n; k++) {
+          let pick = -1;
+          for (let i = 0; i < n; i++) {
+            if (!done[i] && waits[i] === 0) {
+              pick = i;
+              break;
+            }
+          }
+          if (pick < 0) pick = done.indexOf(false); // a cycle (rare): break it by depth
+          done[pick] = true;
+          after[pick].forEach((j) => waits[j]--);
+          items[pick].draw();
+        }
+        return;
+      }
       items.forEach((it) => it.draw());
     };
 

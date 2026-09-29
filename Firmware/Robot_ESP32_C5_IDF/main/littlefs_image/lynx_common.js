@@ -204,6 +204,9 @@ window.Lynx = window.Lynx || {};
 
   Lynx.GENERAL_SETTINGS = [
     { key: "volume", label: "Sound volume", type: "number", def: 0.6, min: 0, max: 1, step: 0.1 },
+    // on: a game's view turns/tilts straight from your controls (steady aim);
+    // off: it follows the camera servos' measured angles (closer to the video)
+    { key: "smoothAim", label: "Smooth aim in games (view turns with your controls)", type: "checkbox", def: true },
   ];
 
   Lynx.findEntry = (id) => Lynx.CATALOG.find((e) => e.id === id) || Lynx.CATALOG[0];
