@@ -349,7 +349,6 @@ window.addEventListener("DOMContentLoaded", () => {
     if (currentAr) currentAr.destroy();
     currentAr = null;
     Lynx.activeGame = null;
-    smoothAim = null;
     if (gameMode === "monster_hunt") {
       activeFireballs = [];
       monsters = [];
@@ -392,10 +391,6 @@ window.addEventListener("DOMContentLoaded", () => {
     currentAr = Lynx.createAr(calib);
     const game = startGame(currentAr, app[app.active], app) || {};
     Lynx.activeGame = game; // e.g. Lynx.activeGame.snapshot() from the console
-    // Games aim with the view led by your controls (see stepAim()), if the
-    // pan servo follows the control frame (otherwise controlTheta isn't
-    // where the camera points).
-    smoothAim = app.general.smoothAim !== false && calib.aim && calib.aim.servoFollows ? calib.aim : null;
     if (game.actionLabel) {
       actionBtn.textContent = game.actionLabel;
       actionBtn.style.display = "block";
@@ -404,6 +399,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   Promise.all([calibPromise, Lynx.loadAppSettings()]).then(([calib, app]) => {
     aimParams = calib.aim && calib.aim.servoFollows ? calib.aim : null;
+    // The overlays and games point where the page aims (see withAim()),
+    // unless "Smooth aim" is off -- then the servos' measured angles.
+    aimView = app.general.smoothAim !== false;
     // Absolute aim runs in the pose loop, so keep that going even with no
     // overlay or game listening (with the socket up it adds no requests).
     if (aimParams) subscribeToPose(() => {});
@@ -449,7 +447,7 @@ window.addEventListener("DOMContentLoaded", () => {
 // /appdata/settings document) -- set in DOMContentLoaded above, with these
 // as fallback defaults. The rest stay internal tuning constants.
 let gameMode = "none"; // "none", "monster_hunt" (below), or the id of a running game_*.js / detect.js game
-let smoothAim = null; // calib.aim while a game runs with "Smooth aim" on, else null
+let aimView = true; // the general "Smooth aim" setting (see withAim())
 let aimParams = null; // calib.aim once loaded, if the pan servo follows the control frame (absolute aim, see stepAim())
 let fireballSpeedMps = 0.5;
 const FIREBALL_RADIUS_M = 0.08;
@@ -1042,14 +1040,39 @@ function subscribeToPose(callback) {
     }
   }
 
-  // Every frame: keep the aim up to date (and steering the robot); games
-  // with smooth aim get its heading/tilt (as a camera heading: chassis
-  // heading = camera heading, pan 0) with the measured position.
+  // The aim as it was at local time ms (history interpolated; newer than the
+  // history = now).
+  function aimAt(ms) {
+    const h = aim.hist;
+    if (!h.length || ms >= h[h.length - 1].ms) return { yaw: aim.yaw, tiltDeg: aim.tiltDeg };
+    if (ms <= h[0].ms) return h[0];
+    let i = h.length - 1;
+    while (i > 0 && h[i - 1].ms > ms) i--;
+    const a = h[i - 1];
+    const b = h[i];
+    const t = (ms - a.ms) / (b.ms - a.ms || 1);
+    return { yaw: a.yaw + (b.yaw - a.yaw) * t, tiltDeg: a.tiltDeg + (b.tiltDeg - a.tiltDeg) * t };
+  }
+
+  // Roughly how long the camera takes to point where the page aimed it: the
+  // "aim" message's trip plus the servo's own lag (debug_pan measurements,
+  // ~60-70 ms). The overlay delay setting adds the video's lag on top.
+  const AIM_SERVO_LAG_MS = 80;
+
+  // Every frame: keep the aim up to date (and steering the robot), and --
+  // with "Smooth aim" on -- hand the overlays and games that aim instead of
+  // the servos' measured angles: as it was one servo lag + overlay delay
+  // ago, so it moves with the video. Smooth every frame, where the measured
+  // angles only arrive 10x a second (a grid drawn from those jumped when a
+  // turn started and stopped). As a camera heading: chassis heading =
+  // camera heading, pan 0. Position still comes from odometry.
   function withAim(pose) {
     if (!aimParams || aim.yaw === null) return pose;
-    stepAim(performance.now(), aimParams);
-    if (!smoothAim) return pose;
-    return { ...pose, theta: wrapToPi(aim.yaw), servoAngleDeg: 0, tiltAngleDeg: aim.tiltDeg };
+    const now = performance.now();
+    stepAim(now, aimParams);
+    if (!aimView) return pose;
+    const seen = aimAt(now - AIM_SERVO_LAG_MS - overlayDelayMs());
+    return { ...pose, theta: wrapToPi(seen.yaw), servoAngleDeg: 0, tiltAngleDeg: seen.tiltDeg };
   }
 
   function wsPoseAt() {
