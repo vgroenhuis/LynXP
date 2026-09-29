@@ -336,7 +336,7 @@ All three options on the board, electrically in parallel (only one used at a tim
   MCP23017, free for firmware/minigame use. There is no
   dedicated QR button any more; screen selection (including the QR code) is done with the
   potentiometer next to the OLED (§5.1).
-- **Must**: at least one **8-position DIP switch** on the MCP23017 (e.g. robot ID, mode flags).
+- **Must**: at least one **4-position DIP switch** on the MCP23017 (e.g. robot ID, mode flags).
 - **Must**: **space for labels** next to every user button, DIP position, spare servo, spare
   header and exposed rail: white solder-mask/silkscreen fields that can be written on with a
   permanent marker, large enough for a short word.
