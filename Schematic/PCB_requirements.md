@@ -127,7 +127,8 @@ re-inserting the cable works; switching the load does not.
 - **Should**: test points on every rail and GND.
 
 ### 3.1 Exposed power
-- **Must** expose **GND, 3.3 V, 5 V and V_BUS** (and **should** V_SERVO) both on:
+- **Must** expose **all rails — V_BUS, V_SERVO, 5 V, 3.3 V — and GND**, so they can feed
+  additional external components, both on:
   - **screw terminals** (5.0 mm or 3.5 mm pitch, one terminal per rail + at least two GND), and
   - **2.54 mm female headers** (several pins per rail, e.g. a 2×N or 4×1 block per rail).
 - Silkscreen voltage next to every pin. Use distinct connector colours or clear markings to avoid
