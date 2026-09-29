@@ -382,21 +382,19 @@ window.Lynx = window.Lynx || {};
     ar.onFrame = (cb) => frameCallbacks.push(cb);
 
     // Must box a be drawn before box b (+1), after it (-1), or can't they
-    // overlap on screen (0)? Two separate boxes always have a plane between
-    // them along one of the axes; the one on the camera's side of that plane
-    // may cover the other, never the other way round.
+    // overlap on screen (0)? Two separate boxes always have a gap between
+    // them along one of the axes; the one on the camera's side of that gap
+    // may cover the other, never the other way round. With the camera IN the
+    // gap, no line of sight passes through both (along that axis it moves
+    // toward one of them only), so neither covers the other -- saying
+    // otherwise invents constraints that can form cycles (the camera
+    // standing between walls in a maze), which then get broken wrongly.
     const AXES = [["f0", "f1", "f"], ["r0", "r1", "r"], ["h0", "h1", "h"]];
     function boxOrder(a, b) {
       const cam = a.frame.cam;
       for (const [lo, hi, c] of AXES) {
-        if (a[hi] <= b[lo] + 1e-6) {
-          const p = (a[hi] + b[lo]) / 2;
-          return cam[c] > p ? 1 : cam[c] < p ? -1 : 0;
-        }
-        if (b[hi] <= a[lo] + 1e-6) {
-          const p = (b[hi] + a[lo]) / 2;
-          return cam[c] < p ? 1 : cam[c] > p ? -1 : 0;
-        }
+        if (a[hi] <= b[lo] + 1e-6) return cam[c] > b[lo] ? 1 : cam[c] < a[hi] ? -1 : 0;
+        if (b[hi] <= a[lo] + 1e-6) return cam[c] < b[hi] ? 1 : cam[c] > a[lo] ? -1 : 0;
       }
       return 0; // they intersect: nothing exact to say
     }
