@@ -416,7 +416,7 @@ pins in §4.2 become free GPIOs. If included, the following applies:
 - Board outline and mounting holes **must** fit the LynXP frame in place of the breadboard and
   module holders (see the CAD in [CAD/LynXP One Sept 2026](<../CAD/LynXP One Sept 2026>),
   e.g. `Frame_16x10` and `BreadboardHolder_Clamp`).
-- **Must**: board size at most **120 × 100 mm**; **80 × 100 mm** preferred.
+- **Must**: board size at most **160 × 100 mm**; smaller (e.g. **100 × 100 mm**) preferred.
 - **Must**: **single-sided assembly**: all SMD parts on the top side. The bottom side carries only
   through-hole solder joints.
 - **Must**: mounting holes **3.2 mm** diameter (M3), positioned on a **10 mm grid** so they line up
