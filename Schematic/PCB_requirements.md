@@ -28,7 +28,8 @@ committing to the layout.
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
 | OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED panel on the PCB** (see §5.1) |
 | nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
-| Headlights, microphone, speaker | — | Headlight outputs, on-board I²S microphone, speaker amplifier (new, see §11) |
+| Headlights | — | **Must**: two headlight outputs with connectors (new, see §11.1) |
+| Microphone, speaker | — | **Optional**: on-board I²S microphone and speaker amplifier (new, see §11.2) |
 
 Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LED.
 
@@ -171,7 +172,7 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | Screen-select potentiometer (§5.1) | GPIO1 (ADC1_CH0) |
 | UART0 TX / RX | 11 / 12 *(verify)* |
 | PCA9685 OE | 0 |
-| I²S BCLK / WS (shared by microphone and amplifier, §11.2) | 5 / 6 |
+| I²S BCLK / WS (optional microphone and amplifier, §11.2) | 5 / 6 |
 | I²S DIN (microphone) / DOUT (amplifier) | 8 / 9 |
 | Addressable status LED | 7 |
 | MCP23017 INT (INTA/INTB mirrored) | 10 |
@@ -378,12 +379,14 @@ All three options on the board, electrically in parallel (only one used at a tim
   1 W power LEDs can be used. A small constant-current LED driver instead of the resistor is
   acceptable.
 
-### 11.2 Microphone and speaker
-- **Must**: on-board **I²S MEMS microphone** (e.g. ICS-43434 or INMP441-compatible, available at
+### 11.2 Microphone and speaker (optional)
+Microphone and speaker are optional; include them if board space allows. If left out, the I²S
+pins in §4.2 become free GPIOs. If included, the following applies:
+- On-board **I²S MEMS microphone** (e.g. ICS-43434 or INMP441-compatible, available at
   JLCPCB/LCSC), top-port so it fits single-sided assembly. Placed at a board edge, away from the
   motor driver, bucks and speaker connector; keep the sound port free (no silkscreen/solder mask
   over it, no parts on top of it).
-- **Must**: **I²S class-D amplifier** (e.g. MAX98357A) powered from the 5 V rail, driving a
+- **I²S class-D amplifier** (e.g. MAX98357A) powered from the 5 V rail, driving a
   2-pin speaker connector (JST-PH 2.0 mm) for an off-board 4–8 Ω, 1–3 W speaker. Shutdown/mute
   pin to MCP23017 GPB7 (pulled to shutdown by default so the speaker is silent during boot).
 - Microphone and amplifier share I²S BCLK and WS; separate data lines (see §4.2). Pin choice must
