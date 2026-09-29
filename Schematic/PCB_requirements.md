@@ -28,7 +28,7 @@ committing to the layout.
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
 | OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED panel on the PCB** (see §5.1) |
 | nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
-| Headlights | — | **Must**: two headlight outputs with connectors (new, see §11.1) |
+| Headlights | — | Two headlight outputs with connectors (new, see §11.1) |
 | Microphone, speaker | — | **Optional**: on-board I²S microphone and speaker amplifier (new, see §11.2) |
 
 Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LED.
