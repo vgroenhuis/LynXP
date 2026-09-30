@@ -130,7 +130,7 @@ window.Lynx = window.Lynx || {};
         "############",
         "############", // 0
       ],
-      wall: "crypt",
+      wall: "moon", // each wing its own stone: you see at once where a portal took you
       tint: "rgba(20,30,60,0.35)",
     },
   ].map((w) => ({ ...w, map: w.map.slice().reverse() })); // [row i][col j]
@@ -177,8 +177,9 @@ window.Lynx = window.Lynx || {};
   const WALL_COL = {
     sandstone: { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true, tex: "sandstone" },
     crypt: { top: "#9a8866", side: "#6e5e44", dark: "#4e412e", line: "rgba(20,12,5,0.6)", mortar: true, tex: "crypt" },
+    moon: { top: "#8a90b8", side: "#62688e", dark: "#464a6a", line: "rgba(10,10,30,0.6)", mortar: true, tex: "moonstone" },
   };
-  const DOOR_COL = { top: "#b08840", side: "#8a6428", dark: "#5e4418", line: "rgba(40,24,4,0.9)", mortar: true }; // mortar: banded bronze
+  const DOOR_COL = { top: "#b08840", side: "#8a6428", dark: "#5e4418", line: "rgba(40,24,4,0.9)", door: true, doorH: WALL_H - 0.03, symbol: "gear", glyph: "#e8c060" }; // bronze, a gear on each leaf
   const POST_COL = { top: "#d0b060", side: "#9a7a30", dark: "#6a5220", line: "rgba(40,24,4,0.9)" };
   const DAIS_COL = { top: "#8090c0", side: "#5a6898", dark: "#3e4a70", line: "rgba(10,10,40,0.8)" };
   const GATE_BAR = "#b8c4e8";
@@ -729,7 +730,10 @@ window.Lynx = window.Lynx || {};
 
     function drawFloor() {
       const W = wings[wing];
-      W.floors.forEach((q) => fillRect(q, 0.001, W.tint, "rgba(90,70,40,0.3)"));
+      W.floors.forEach((q) => {
+        fillRect(q, 0.001, W.tint, "rgba(90,70,40,0.3)");
+        if (api.floorDetail) api.floorDetail(q);
+      });
       W.pits.forEach((q) => {
         fillRect(q, 0.002, "#1a1410", "rgba(120,90,60,0.9)", 2);
         for (let f = q.f0 + 0.03; f < q.f1; f += 0.06) {
@@ -791,6 +795,7 @@ window.Lynx = window.Lynx || {};
           if ((c.f - (p[0] + q[0]) / 2) * outF + (c.r - (p[1] + q[1]) / 2) * outR <= 0) return; // faces away
           const poly = api.polyScreen([api.w3(p[0], p[1], 0.01), api.w3(q[0], q[1], 0.01), api.w3(q[0], q[1], WALL_H - 0.02), api.w3(p[0], p[1], WALL_H - 0.02)], 3);
           if (poly) api.fillPoly(poly, i % 2 ? DOOR_COL.dark : DOOR_COL.side, DOOR_COL.line);
+          if (poly && api.doorFace && Math.hypot(q[0] - p[0], q[1] - p[1]) > DOOR_T * 1.5) api.doorFace(p, q, 0.01, WALL_H - 0.02, DOOR_COL);
         });
         const top = api.polyScreen(corners.map((p) => api.w3(p[0], p[1], WALL_H - 0.02)), 2);
         if (top) api.fillPoly(top, DOOR_COL.top, DOOR_COL.line);

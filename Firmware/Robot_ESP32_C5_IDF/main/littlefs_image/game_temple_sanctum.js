@@ -129,11 +129,13 @@ window.Lynx = window.Lynx || {};
 
   const SANDSTONE = { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true, tex: "sandstone" };
   const CRYPT = { top: "#9a8866", side: "#6e5e44", dark: "#4e412e", line: "rgba(20,12,5,0.6)", mortar: true, tex: "crypt" };
+  // the upper floor's walls: red stone, so you see at once which floor you're on
+  const UPPER = { top: "#b8745a", side: "#8a5038", dark: "#643826", line: "rgba(40,12,4,0.6)", mortar: true, tex: "redstone" };
   const STEP_COL = { top: "#d0b070", side: "#a08040", dark: "#7a5e2c", line: "rgba(40,25,10,0.7)", tex: "sandstone" };
   const DAIS_COL = { top: "#e0c060", side: "#b08830", dark: "#806018", line: "rgba(60,40,0,0.8)" };
   const DOOR_COL = {
-    red: { top: "#c03030", side: "#a02020", dark: "#801818", line: "rgba(40,0,0,0.8)" },
-    blue: { top: "#3050c0", side: "#2040a0", dark: "#183080", line: "rgba(0,0,40,0.8)" },
+    red: { top: "#c03030", side: "#a02020", dark: "#801818", line: "rgba(40,0,0,0.8)", door: true, doorH: WALL_H, symbol: "keyhole", glyph: "#ffd84a" },
+    blue: { top: "#3050c0", side: "#2040a0", dark: "#183080", line: "rgba(0,0,40,0.8)", door: true, doorH: WALL_H, symbol: "keyhole", glyph: "#ffd84a" },
   };
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -719,6 +721,7 @@ window.Lynx = window.Lynx || {};
       floorRects.forEach((q) => {
         fillRect(q, 0.001, above ? "#4a3a26" : "rgba(35,26,16,0.35)", above ? "rgba(20,12,4,0.7)" : "rgba(90,70,40,0.35)");
         if (above && api.texFloor) api.texFloor(q, 0.001, "darkflag", 0.15);
+        else if (!above && api.floorDetail) api.floorDetail(q);
       });
       // spike pit
       const pit = api.polyScreen(rectPoly(pitRect, 0.002), 3);
@@ -749,7 +752,7 @@ window.Lynx = window.Lynx || {};
 
     function queueUpperFloor() {
       const c = cam();
-      wallsDrawn[1].forEach((q) => api.box(q, FLOOR_H, FLOOR_H + WALL_H, SANDSTONE));
+      wallsDrawn[1].forEach((q) => api.box(q, FLOOR_H, FLOOR_H + WALL_H, UPPER));
       rimWalls[1].forEach((q) => api.fence(q, FLOOR_H, FLOOR_H + WALL_H));
       outerDrawn.filter((q) => q.h0 === FLOOR_H).forEach((q) => api.fence(q, FLOOR_H, FLOOR_H + WALL_H));
       doors.filter((o) => o.fl === 1).forEach(queueDoor);

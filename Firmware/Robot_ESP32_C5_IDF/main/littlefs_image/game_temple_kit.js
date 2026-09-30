@@ -293,17 +293,24 @@ window.Lynx = window.Lynx || {};
           e.turnT -= dt;
           if (e.turnT <= 0) {
             e.dir = -e.dir;
-            e.turnT = 0.45 + Math.random() * 0.85;
+            e.turnT = 0.9 + Math.random() * 1.1;
           }
           if (e.wait > 0) return;
           const df = me.f - e.f;
           const dr = me.r - e.r;
           const dist = Math.hypot(df, dr) || 1;
-          const side = 0.55 * d.speed * slow;
+          // sideways speed ramps (0.9 m/s^2) instead of flipping on the spot:
+          // same as game_temple.js's WISP_SIDE_* -- lead your shots
+          const side = 0.42 * d.speed * slow;
+          const dv = e.dir * side - (e.sv || 0);
+          e.sv = (e.sv || 0) + Math.sign(dv) * Math.min(Math.abs(dv), 0.9 * d.speed * dt);
           const close = e.retreat > 0 ? -0.18 : 0.06 * d.speed;
-          const vf = (df / dist) * close - (dr / dist) * e.dir * side;
-          const vr = (dr / dist) * close + (df / dist) * e.dir * side;
-          if (move(e, vf, vr, dt) < 0.3 * Math.hypot(vf, vr) * dt) e.dir = -e.dir; // blocked sideways: the other way
+          const vf = (df / dist) * close - (dr / dist) * e.sv;
+          const vr = (dr / dist) * close + (df / dist) * e.sv;
+          if (move(e, vf, vr, dt) < 0.3 * Math.hypot(vf, vr) * dt) {
+            if (e.sv !== 0) e.dir = e.sv > 0 ? -1 : 1; // blocked sideways: the other way, from a standstill
+            e.sv = 0;
+          }
           e.h += ((c.h - 0.04 - e.h) * 0.4 + Math.sin(e.phase) * 0.05) * dt;
           if (dist3 < TOUCH_M && e.retreat === 0) {
             api.hurt("A spirit's chill");

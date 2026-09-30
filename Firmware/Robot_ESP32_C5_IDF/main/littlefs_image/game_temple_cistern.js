@@ -102,7 +102,9 @@ window.Lynx = window.Lynx || {};
 
   const STONE = { top: "#c8b890", side: "#9a8a68", dark: "#6e6048", line: "rgba(30,20,8,0.9)", tex: "sandstone" }; // lighter than the walls: these move
   const WALL = { top: "#8a8272", side: "#625b4e", dark: "#474136", line: "rgba(15,12,8,0.6)", mortar: true, tex: "crypt" };
-  const DOOR = { top: "#6a7a8a", side: "#4a5a6a", dark: "#34404c", line: "rgba(5,10,20,0.8)" };
+  // the deep cistern's walls: sea-green stone, so you see at once which section you're in
+  const DEEP_WALL = { top: "#6a9290", side: "#4a6e6c", dark: "#34504e", line: "rgba(5,20,20,0.6)", mortar: true, tex: "seastone" };
+  const DOOR = { top: "#6a7a8a", side: "#4a5a6a", dark: "#34404c", line: "rgba(5,10,20,0.8)", door: true, doorH: 0.3, symbol: "wave", glyph: "#a8e0ff", stud: "rgba(200,230,255,0.6)" };
   const LIFT_COL = { top: "#b08848", side: "#86602a", dark: "#5e4418", line: "rgba(40,24,4,0.9)" };
   const DAIS = { top: "#80a0c0", side: "#587898", dark: "#3e5470", line: "rgba(10,20,40,0.8)" };
 
@@ -533,7 +535,10 @@ window.Lynx = window.Lynx || {};
       if (p) api.fillPoly(p, fill, stroke, width);
     }
     function drawFloor() {
-      K.mergeCells((i, j) => cell(sec, i, j) !== "#").forEach((q) => fillRect(q, 0.001, "rgba(30,34,30,0.35)", "rgba(90,90,70,0.3)"));
+      K.mergeCells((i, j) => cell(sec, i, j) !== "#").forEach((q) => {
+        fillRect(q, 0.001, "rgba(30,34,30,0.35)", "rgba(90,90,70,0.3)");
+        if (api.floorDetail) api.floorDetail(q);
+      });
       // water, where not bridged
       const ripple = 0.5 + 0.5 * Math.sin(time * 2);
       K.mergeCells((i, j) => cell(sec, i, j) === "w" && !bridged[sec][i][j]).forEach((q) => {
@@ -587,7 +592,7 @@ window.Lynx = window.Lynx || {};
     function draw() {
       const c = K.camLocal(api);
       drawFloor();
-      wallsDrawn[sec].forEach((q) => api.box(q, 0, 0.3, WALL));
+      wallsDrawn[sec].forEach((q) => api.box(q, 0, 0.3, sec === 1 ? DEEP_WALL : WALL));
       rimWalls[sec].forEach((q) => api.fence(q, 0, 0.3));
       outer[sec].forEach((q) => api.fence(q, 0, 0.3));
       liveBlocks(sec).forEach((b) => {

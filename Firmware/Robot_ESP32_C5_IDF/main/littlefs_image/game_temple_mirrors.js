@@ -82,7 +82,7 @@ window.Lynx = window.Lynx || {};
   ];
 
   const WALL = { top: "#b8a070", side: "#8a7248", dark: "#665234", line: "rgba(30,20,8,0.6)", mortar: true, tex: "sandstone" };
-  const DOOR = { top: "#c8a040", side: "#9a7a28", dark: "#6e5818", line: "rgba(40,24,4,0.9)" };
+  const DOOR = { top: "#c8a040", side: "#9a7a28", dark: "#6e5818", line: "rgba(40,24,4,0.9)", door: true, doorH: 0.3, symbol: "sun", glyph: "#fff0b0" };
   const PLINTH = { top: "#9a9080", side: "#746a5a", dark: "#554c40", line: "rgba(20,15,8,0.8)" };
   const GLASS = { top: "rgba(200,245,255,0.35)", side: "rgba(150,220,255,0.3)", dark: "rgba(110,180,230,0.3)", line: "rgba(230,250,255,0.8)" };
 
@@ -478,7 +478,10 @@ window.Lynx = window.Lynx || {};
 
     function draw() {
       const c = K.camLocal(api);
-      K.mergeCells((i, j) => cell(i, j) !== "#").forEach((q) => fillRect(q, 0.001, "rgba(40,32,20,0.3)", "rgba(110,90,60,0.3)"));
+      K.mergeCells((i, j) => cell(i, j) !== "#").forEach((q) => {
+        fillRect(q, 0.001, "rgba(40,32,20,0.3)", "rgba(110,90,60,0.3)");
+        if (api.floorDetail) api.floorDetail(q);
+      });
       wallsDrawn.forEach((q) => api.box(q, 0, 0.3, WALL));
       rimWalls.forEach((q) => api.fence(q, 0, 0.3));
       outer.forEach((q) => api.fence(q, 0, 0.3));

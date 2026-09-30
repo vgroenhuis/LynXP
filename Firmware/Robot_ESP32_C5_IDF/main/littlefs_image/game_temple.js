@@ -107,7 +107,12 @@ Lynx.games = Lynx.games || {};
     "c..cc..c..",
   ];
   const WISP_PAL = { c: "#3aa0d8", w: "#d8f4ff", k: "#08243a" };
-  const WISP_SIDE_SPEED = 0.55; // m/s across your line of sight: lead your shots
+  // Sideways across your line of sight: lead your shots. It speeds up and
+  // slows down (WISP_SIDE_ACCEL) instead of flipping direction on the spot,
+  // which made it near impossible to hit.
+  const WISP_SIDE_SPEED = 0.42; // m/s
+  const WISP_SIDE_ACCEL = 0.9; // m/s^2: a full turnaround takes ~1 s
+  const WISP_TURN_S = [0.9, 2.0]; // between changes of direction (random)
   const WISP_CLOSE_SPEED = 0.06; // m/s toward you: slow, so it never rushes you
   const SCARAB = [
     ".k......k.",
@@ -538,6 +543,19 @@ Lynx.games = Lynx.games || {};
       return extent(l.f, l.f, l.r, l.r, h0, h1);
     };
 
+    // Anything of a block in front of the lens? Its corners, not its middle:
+    // at the end of a long ledge, looking away from its middle, the middle is
+    // well behind you while the end you stand on is right in view.
+    function boxInFront(q, h0, h1) {
+      for (const f of [q.f0, q.f1]) {
+        for (const r of [q.r0, q.r1]) {
+          const w = toWorld(f, r);
+          if (camZ(w.x, w.y, h0) >= NEAR || camZ(w.x, w.y, h1) >= NEAR) return true;
+        }
+      }
+      return false;
+    }
+
     // A stone block from (f0..f1, r0..r1), h0..h1: the sides that face the
     // camera, then the top if it's below the camera. Queued by depth.
     function box(q, h0, h1, col) {
@@ -545,7 +563,7 @@ Lynx.games = Lynx.games || {};
       const me = toLocal(cw.x, cw.y);
       const mid = toWorld((q.f0 + q.f1) / 2, (q.r0 + q.r1) / 2);
       const depth = camZ(mid.x, mid.y, (h0 + h1) / 2);
-      if (depth < -0.3) return;
+      if (!boxInFront(q, h0, h1)) return;
       ar.queue(depth, () => {
         const faces = [];
         if (me.f < q.f0) faces.push([[q.f0, q.r0], [q.f0, q.r1], col.side]);
@@ -567,12 +585,18 @@ Lynx.games = Lynx.games || {};
           } else if (col.mortar && h1 - h0 > 0.1) {
             for (let h = h0 + 0.07; h < h1 - 0.02; h += 0.07) line3([[a[0], a[1], h], [b[0], b[1], h]], col.line, 1, 0.1);
           }
+          // a door: decorate its broad faces (not the edges of a thin slab)
+          if (col.door && Math.hypot(b[0] - a[0], b[1] - a[1]) >= 0.8 * Math.max(q.f1 - q.f0, q.r1 - q.r0)) doorFace(a, b, h0, h1, col);
         });
         if (cw.h > h1) {
           const p = polyScreen([w3(q.f0, q.r0, h1), w3(q.f1, q.r0, h1), w3(q.f1, q.r1, h1), w3(q.f0, q.r1, h1)], 3);
           if (p) {
             fillPoly(p, col.top, col.line);
+            // stone tops get flagstones; any other color its own color with
+            // slab joints and wear laid over it (col.topTex: which overlay,
+            // false for none)
             if (img) texFloor(q, h1, "flagstone");
+            else if (col.topTex !== false && (q.f1 - q.f0) * (q.r1 - q.r0) > 0.004) texFloor(q, h1, col.topTex || "slab");
           }
         }
         // a floating block seen from below (col.under: the color of its underside)
@@ -592,7 +616,7 @@ Lynx.games = Lynx.games || {};
       const me = toLocal(cw.x, cw.y);
       const mid = toWorld((q.f0 + q.f1) / 2, (q.r0 + q.r1) / 2);
       const depth = camZ(mid.x, mid.y, (h0 + h1) / 2);
-      if (depth < -0.3) return;
+      if (!boxInFront(q, h0, h1)) return;
       ar.queue(depth, () => {
         const faces = [];
         if (me.f < q.f0) faces.push([[q.f0, q.r0], [q.f0, q.r1]]);
@@ -604,12 +628,21 @@ Lynx.games = Lynx.games || {};
           if (p) fillPoly(p, GRATE.tint, null);
           const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
           const n = Math.max(1, Math.round(len / 0.05));
+          // copper bars ~7 mm thick (in pixels at each one's own distance)
+          const hm = (h0 + h1) / 2;
+          let nearestPpm = 0;
           for (let k = 0; k <= n; k++) {
             const f = a[0] + ((b[0] - a[0]) * k) / n;
             const r = a[1] + ((b[1] - a[1]) * k) / n;
-            line3([[f, r, h0], [f, r, h1]], GRATE.bar, k === 0 || k === n ? 3 : 1.5, 0.1);
+            const w = toWorld(f, r);
+            const s = camZ(w.x, w.y, hm) >= NEAR ? ar.project(w.x, w.y, hm) : null;
+            const ppm = s ? s.ppm : 400;
+            nearestPpm = Math.max(nearestPpm, ppm);
+            const barW = Math.max(2, Math.min(8, 0.007 * ppm));
+            line3([[f, r, h0], [f, r, h1]], GRATE.bar, k === 0 || k === n ? barW * 1.6 : barW, 0.1);
           }
-          [h0 + 0.01, (h0 + h1) / 2, h1].forEach((h) => line3([[a[0], a[1], h], [b[0], b[1], h]], GRATE.rail, 2.5, 0.1));
+          const railW = Math.max(3, Math.min(9, 0.009 * nearestPpm));
+          [h0 + 0.01, (h0 + h1) / 2, h1].forEach((h) => line3([[a[0], a[1], h], [b[0], b[1], h]], GRATE.rail, railW, 0.1));
         });
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
@@ -656,7 +689,10 @@ Lynx.games = Lynx.games || {};
     }
     // A floor rectangle at height h, textured where it's within reach of the
     // camera (beyond that the flat fill under it is enough). No-op if off.
-    function texFloor(q, h, name, shade = 0) {
+    // Cut into 0.3 m pieces (one texture tile), quartered close to the
+    // camera where the affine mapping needs smaller pieces. alpha: for the
+    // detail overlays (ar.js) laid over a see-through floor.
+    function texFloor(q, h, name, shade = 0, alpha = 1) {
       if (!texturesOn) return;
       const img = Lynx.texture(name);
       const cw = ar.cameraWorld();
@@ -667,23 +703,141 @@ Lynx.games = Lynx.games || {};
       const r0 = Math.max(q.r0, me.r - R);
       const r1 = Math.min(q.r1, me.r + R);
       if (f0 >= f1 || r0 >= r1) return;
-      const fs = cuts(f0, f1, 0.15);
-      const rs = cuts(r0, r1, 0.15);
+      const quad = (fa, fb, ra, rb) => {
+        const u0 = mod(ra * TEX_PPM, 128);
+        const v0 = mod(-fb * TEX_PPM, 128);
+        const u1 = u0 + (rb - ra) * TEX_PPM;
+        const v1 = v0 + (fb - fa) * TEX_PPM;
+        ar.texturedQuad([w3(fb, ra, h), w3(fb, rb, h), w3(fa, rb, h), w3(fa, ra, h)], img,
+          [{ u: u0, v: v0 }, { u: u1, v: v0 }, { u: u1, v: v1 }, { u: u0, v: v1 }]);
+      };
+      // (a faint overlay hides the affine warp: only right by the camera)
+      const nearM = alpha < 1 ? 0.4 : 0.8 + Math.abs(cw.h - h);
+      const c = ar.ctx;
+      const oldAlpha = c.globalAlpha;
+      c.globalAlpha = oldAlpha * alpha;
+      const fs = cuts(f0, f1, 0.3);
+      const rs = cuts(r0, r1, 0.3);
       for (let i = 0; i + 1 < fs.length; i++) {
         for (let j = 0; j + 1 < rs.length; j++) {
-          const u0 = mod(rs[j] * TEX_PPM, 128);
-          const v0 = mod(-fs[i + 1] * TEX_PPM, 128);
-          const u1 = u0 + (rs[j + 1] - rs[j]) * TEX_PPM;
-          const v1 = v0 + (fs[i + 1] - fs[i]) * TEX_PPM;
-          ar.texturedQuad([w3(fs[i + 1], rs[j], h), w3(fs[i + 1], rs[j + 1], h), w3(fs[i], rs[j + 1], h), w3(fs[i], rs[j], h)], img,
-            [{ u: u0, v: v0 }, { u: u1, v: v0 }, { u: u1, v: v1 }, { u: u0, v: v1 }]);
+          const df = Math.max(0, fs[i] - me.f, me.f - fs[i + 1]);
+          const dr = Math.max(0, rs[j] - me.r, me.r - rs[j + 1]);
+          if (Math.hypot(df, dr) > nearM) {
+            quad(fs[i], fs[i + 1], rs[j], rs[j + 1]);
+            continue;
+          }
+          const sf = cuts(fs[i], fs[i + 1], 0.15);
+          const sr = cuts(rs[j], rs[j + 1], 0.15);
+          for (let a = 0; a + 1 < sf.length; a++) for (let b = 0; b + 1 < sr.length; b++) quad(sf[a], sf[a + 1], sr[b], sr[b + 1]);
         }
       }
+      c.globalAlpha = oldAlpha;
       if (shade > 0) {
         const p = polyScreen([w3(q.f0, q.r0, h), w3(q.f1, q.r0, h), w3(q.f1, q.r1, h), w3(q.f0, q.r1, h)], 3);
         if (p) fillPoly(p, `rgba(20,12,4,${shade})`, null);
       }
     }
+
+    // -- doors: a frame, a seam down the middle of a wide one, rows of studs
+    // and a symbol, on a door face from temple point a to b ([f, r]), h0..h1
+    // (a box face, or a swinging door's). Measured down from the top edge
+    // over col.doorH (the door's full height), so on a door sinking into the
+    // floor they sink with it (cut off at h0). col.symbol: keyhole, eye, sun,
+    // wave or gear, in col.glyph.
+    function doorFace(a, b, h0, h1, col) {
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 0.08 || h1 - h0 < 0.02) return;
+      const H = col.doorH || h1 - h0;
+      const at = (u, v) => [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, Math.max(h0, h1 - v)];
+      const trim = col.trim || "rgba(30,18,4,0.75)";
+      const m = Math.min(0.018, len * 0.1);
+      const mu = m / len;
+      // frame and (wide doors) the seam between two leaves
+      line3([at(mu, m), at(1 - mu, m), at(1 - mu, H - m), at(mu, H - m), at(mu, m)], trim, 2, 0.05);
+      if (len > 0.2) line3([at(0.5, m), at(0.5, H - m)], trim, 2, 0.05);
+      // studs along the top and bottom rails
+      const c = ar.ctx;
+      c.fillStyle = col.stud || "rgba(255,230,160,0.7)";
+      const nStud = Math.max(2, Math.round(len / 0.05));
+      for (let k = 1; k < nStud; k++) {
+        for (const v of [m * 2, H - m * 2]) {
+          if (h1 - v < h0) continue;
+          const p = at(k / nStud, v);
+          const w = toWorld(p[0], p[1]);
+          const s = camZ(w.x, w.y, p[2]) >= NEAR ? ar.project(w.x, w.y, p[2]) : null;
+          if (s) {
+            c.beginPath();
+            c.arc(s.x, s.y, Math.max(1, Math.min(4, 0.004 * s.ppm)), 0, 2 * Math.PI);
+            c.fill();
+          }
+        }
+      }
+      if (!col.symbol) return;
+      // the symbol, centered a little above the middle; on a double door one on each leaf
+      const R = Math.min(len > 0.2 ? len / 4 : len / 2, H / 2) * 0.55;
+      const centers = len > 0.2 ? [0.25, 0.75] : [0.5];
+      const glyph = col.glyph || "#ffd84a";
+      const shape = (uc, vc, pts, fill, stroke = "rgba(20,10,0,0.8)") => {
+        const poly = polyScreen(pts.map(([x, y]) => {
+          const p = at(uc + (x * R) / len, vc - y * R);
+          return w3(p[0], p[1], p[2]);
+        }), 2);
+        if (poly) fillPoly(poly, fill, stroke, 1.5);
+      };
+      const circle = (n, rad, x0 = 0, y0 = 0) => Array.from({ length: n }, (_, i) => [x0 + rad * Math.cos((i / n) * 2 * Math.PI), y0 + rad * Math.sin((i / n) * 2 * Math.PI)]);
+      centers.forEach((uc) => {
+        const vc = H * 0.45;
+        if (h1 - vc - R < h0) return; // sunk out of sight
+        switch (col.symbol) {
+          case "keyhole":
+            shape(uc, vc, circle(16, 0.95), glyph);
+            shape(uc, vc, circle(12, 0.32, 0, 0.25), "#140a02", null);
+            shape(uc, vc, [[-0.14, 0.2], [0.14, 0.2], [0.24, -0.6], [-0.24, -0.6]], "#140a02", null);
+            break;
+          case "eye":
+            shape(uc, vc, Array.from({ length: 16 }, (_, i) => {
+              const t = (i / 16) * 2 * Math.PI;
+              return [Math.cos(t), 0.5 * Math.sin(t) * Math.abs(Math.sin(t)) ** 0.2];
+            }), glyph);
+            shape(uc, vc, circle(12, 0.36), "#1a4060", null);
+            shape(uc, vc, circle(8, 0.14), "#050505", null);
+            break;
+          case "sun":
+            for (let k = 0; k < 8; k++) {
+              const t = (k / 8) * 2 * Math.PI;
+              const n = [Math.cos(t), Math.sin(t)];
+              const s = [-n[1] * 0.14, n[0] * 0.14];
+              shape(uc, vc, [[n[0] * 0.55 + s[0], n[1] * 0.55 + s[1]], [n[0] * 1.0, n[1] * 1.0], [n[0] * 0.55 - s[0], n[1] * 0.55 - s[1]]], glyph);
+            }
+            shape(uc, vc, circle(14, 0.5), glyph);
+            break;
+          case "wave":
+            for (let k = -1; k <= 1; k++) {
+              const pts = [];
+              for (let i = 0; i <= 8; i++) pts.push([-0.9 + (1.8 * i) / 8, k * 0.5 + 0.12 * Math.sin((i / 8) * 4 * Math.PI)]);
+              for (let i = 8; i >= 0; i--) pts.push([-0.9 + (1.8 * i) / 8, k * 0.5 - 0.14 + 0.12 * Math.sin((i / 8) * 4 * Math.PI)]);
+              shape(uc, vc, pts, glyph, null);
+            }
+            break;
+          case "gear": {
+            const pts = [];
+            for (let i = 0; i < 32; i++) {
+              const t = (i / 32) * 2 * Math.PI;
+              const rr = i % 4 < 2 ? 1 : 0.78;
+              pts.push([rr * Math.cos(t), rr * Math.sin(t)]);
+            }
+            shape(uc, vc, pts, glyph);
+            shape(uc, vc, circle(12, 0.3), "#2a1a06", null);
+            break;
+          }
+        }
+      });
+    }
+
+    // The see-through floors (the real one shows through): slab joints and
+    // wear laid lightly over them, so they read as stone.
+    const FLOOR_DETAIL_ALPHA = 0.55;
+    const floorDetail = (q, h = 0.001) => texFloor(q, h, "slab", 0, FLOOR_DETAIL_ALPHA);
 
     const SANDSTONE = { top: "#d8b878", side: "#a88848", dark: "#806430", line: "rgba(40,25,10,0.55)", mortar: true, tex: "sandstone" };
     const BLOCK = { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true, tex: "sandstone" };
@@ -1130,7 +1284,7 @@ Lynx.games = Lynx.games || {};
     // appears, then weaves: fast sideways across your line of sight, changing
     // direction at random, while it only creeps toward you.
     function spawnWisp(f, r) {
-      wisps.push({ f, r, h: rand(0.12, 0.2), dir: Math.random() < 0.5 ? -1 : 1, turnT: rand(1.5, 2.5), wait: 1.2, hp: d.batHp + 1, phase: Math.random() * 6, hit: 0, retreat: 0, rect: null });
+      wisps.push({ f, r, h: rand(0.12, 0.2), dir: Math.random() < 0.5 ? -1 : 1, turnT: rand(1.5, 2.5), sv: 0, wait: 1.2, hp: d.batHp + 1, phase: Math.random() * 6, hit: 0, retreat: 0, rect: null });
       Lynx.sfx.play("growl");
     }
 
@@ -1143,7 +1297,7 @@ Lynx.games = Lynx.games || {};
         w.turnT -= dt;
         if (w.turnT <= 0) {
           w.dir = -w.dir;
-          w.turnT = rand(0.45, 1.3);
+          w.turnT = rand(...WISP_TURN_S);
         }
         if (w.wait > 0) {
           w.wait -= dt;
@@ -1155,15 +1309,18 @@ Lynx.games = Lynx.games || {};
         const uf = df / dist;
         const ur = dr / dist;
         const side = WISP_SIDE_SPEED * d.speed * (w.hit > 0 ? 0.4 : 1);
+        const dv = w.dir * side - w.sv;
+        w.sv += Math.sign(dv) * Math.min(Math.abs(dv), WISP_SIDE_ACCEL * d.speed * dt);
         const close = w.retreat > 0 ? -3 * WISP_CLOSE_SPEED : dist > 0.35 ? WISP_CLOSE_SPEED * d.speed : WISP_CLOSE_SPEED * 0.6;
-        w.f += (uf * close - ur * w.dir * side) * dt;
-        w.r += (ur * close + uf * w.dir * side) * dt;
+        w.f += (uf * close - ur * w.sv) * dt;
+        w.r += (ur * close + uf * w.sv) * dt;
         // the corridor's walls turn it around
         const lim = HALF_W - 0.1;
         if (Math.abs(w.r) > lim) {
           w.r = Math.sign(w.r) * lim;
-          w.dir = -w.dir;
-          w.turnT = rand(0.45, 1.3);
+          w.dir = uf * w.r > 0 ? -1 : 1; // sideways = (uf, ur) turned right: away from this wall
+          w.sv = 0;
+          w.turnT = rand(...WISP_TURN_S);
         }
         w.f = Math.max(0.05, Math.min(LEN - 0.1, w.f));
         w.h += ((cam.h - 0.04 - w.h) * 0.4 + Math.sin(w.phase) * 0.05) * dt;
@@ -1413,6 +1570,7 @@ Lynx.games = Lynx.games || {};
 
     // -- drawing ---------------------------------------------------------------------
     function drawFloor() {
+      floorDetail({ f0: 0, f1: LEN, r0: -HALF_W, r1: HALF_W });
       // faint slab lines outlining the temple
       const col = "rgba(230,200,140,0.22)";
       [-HALF_W, -HALF_W / 2, 0, HALF_W / 2, HALF_W].forEach((r) => line3([[0, r, 0], [LEN, r, 0]], col, 1, 0.1));
@@ -1828,7 +1986,7 @@ Lynx.games = Lynx.games || {};
       ar, d, cfg, img, frame,
       anchor: () => anchor,
       time: () => stateTime,
-      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, fence, onRim, extent, pointAt, drawSprite, texFloor,
+      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, fence, onRim, extent, pointAt, drawSprite, texFloor, floorDetail, doorFace,
       hurt, say,
       addScore: (n) => (score += n),
       heal: () => (hearts < maxHearts ? hearts++ : (score += 100)),

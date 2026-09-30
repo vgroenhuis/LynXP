@@ -76,7 +76,7 @@ window.Lynx = window.Lynx || {};
   const ROUND = [{ f: 1.7, r: -0.62 }, { f: 1.7, r: 0.62 }, { f: 2.28, r: 0.62 }, { f: 2.28, r: -0.62 }];
 
   const WALL = { top: "#8a8a92", side: "#62626c", dark: "#46464e", line: "rgba(10,10,15,0.6)", mortar: true, tex: "crypt" };
-  const VDOOR = { top: "#a08a50", side: "#7a6430", dark: "#58461e", line: "rgba(30,20,4,0.9)" };
+  const VDOOR = { top: "#a08a50", side: "#7a6430", dark: "#58461e", line: "rgba(30,20,4,0.9)", door: true, doorH: 0.3, symbol: "eye", glyph: "#e8dcb0" };
 
   const EYE_SPR = ["..kkkkkk..", ".kwwwwwwk.", "kwwiiiiwwk", "kwiippiiwk", "kwwiiiiwwk", ".kwwwwwwk.", "..kkkkkk.."];
   const KNIGHT = [
@@ -453,7 +453,10 @@ window.Lynx = window.Lynx || {};
       edge(pts[pts.length - 1]);
     }
     function drawFloor() {
-      K.mergeCells((i, j) => cell(i, j) !== "#").forEach((q) => fillRect(q, 0.001, "rgba(30,30,36,0.3)", "rgba(90,90,100,0.3)"));
+      K.mergeCells((i, j) => cell(i, j) !== "#").forEach((q) => {
+        fillRect(q, 0.001, "rgba(30,30,36,0.3)", "rgba(90,90,100,0.3)");
+        if (api.floorDetail) api.floorDetail(q);
+      });
       gravel.forEach((q) => {
         fillRect(q, 0.002, "rgba(120,110,95,0.55)", "rgba(60,55,45,0.6)", 1);
         // speckles

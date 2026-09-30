@@ -67,6 +67,10 @@ window.Lynx = window.Lynx || {};
     crypt: { w: 256, h: 128, rows: 4, base: [124, 112, 92], vary: 12, mortar: [62, 54, 42], seed: 11, grime: 0.3, moss: true },
     flagstone: { w: 128, h: 128, grid: 2, base: [184, 152, 104], vary: 14, mortar: [92, 72, 46], seed: 3 },
     darkflag: { w: 128, h: 128, grid: 2, base: [96, 80, 58], vary: 10, mortar: [40, 32, 22], seed: 5 },
+    // more wall stones, so each floor / wing / section of a level has its own color
+    moonstone: { w: 256, h: 128, rows: 4, base: [112, 120, 164], vary: 12, mortar: [48, 52, 84], seed: 13, grime: 0.2 },
+    redstone: { w: 256, h: 128, rows: 4, base: [178, 100, 72], vary: 14, mortar: [88, 44, 30], seed: 17, grime: 0.22 },
+    seastone: { w: 256, h: 128, rows: 4, base: [86, 130, 126], vary: 12, mortar: [34, 60, 58], seed: 19, grime: 0.3, moss: true },
   };
   const textureCache = new Map();
   function seededRandom(seed) {
@@ -173,9 +177,110 @@ window.Lynx = window.Lynx || {};
     g.putImageData(img, 0, 0);
     return c;
   }
+  // Detail overlays: transparent textures of just seams, relief, mottling,
+  // cracks (and marble veins), drawn over a surface's own flat color -- so a
+  // red door, a marble platform or a see-through floor gets stone detail and
+  // keeps its color. 128 x 128 px = 0.3 m, slabs of 0.15 m, tiling.
+  const DETAIL_KINDS = {
+    slab: { seed: 21, seam: 0.5, cracks: 6 },
+    marble: { seed: 23, seam: 0.32, cracks: 2, veins: 7 },
+  };
+  function makeDetail(k) {
+    const w = 128;
+    const h = 128;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d");
+    const rand = seededRandom(k.seed);
+    const wrapped = (x, y, bw, bh, fn) => {
+      [0, -w, w].forEach((dx) => [0, -h, h].forEach((dy) => {
+        if (x + dx < w && x + dx + bw > 0 && y + dy < h && y + dy + bh > 0) fn(x + dx, y + dy);
+      }));
+    };
+    const s = w / 2;
+    for (let i = 0; i < 2; i++) {
+      for (let j = 0; j < 2; j++) {
+        const x = i * s;
+        const y = j * s;
+        // a slab: slightly lighter or darker than its neighbours, lit edge, shadowed edge
+        g.fillStyle = rand() < 0.5 ? `rgba(255,245,225,${(0.03 + rand() * 0.05).toFixed(3)})` : `rgba(30,20,8,${(0.03 + rand() * 0.06).toFixed(3)})`;
+        g.fillRect(x + 1.5, y + 1.5, s - 3, s - 3);
+        g.fillStyle = "rgba(255,248,230,0.22)";
+        g.fillRect(x + 1.5, y + 1.5, s - 3, 2);
+        g.fillStyle = "rgba(0,0,0,0.22)";
+        g.fillRect(x + 1.5, y + s - 4, s - 3, 2.5);
+        g.fillRect(x + s - 4, y + 1.5, 2.5, s - 3);
+      }
+    }
+    // the joints between slabs
+    g.fillStyle = `rgba(20,12,4,${k.seam})`;
+    for (let n = 0; n <= 2; n++) {
+      g.fillRect(n * s - 1.5, 0, 3, h);
+      g.fillRect(0, n * s - 1.5, w, 3);
+    }
+    for (let n = 0; n < 30; n++) {
+      const x = rand() * w;
+      const y = rand() * h;
+      const r = 5 + rand() * 18;
+      const dark = rand() < 0.6;
+      const tint = dark ? "40,25,10" : "255,240,210";
+      wrapped(x - r, y - r, 2 * r, 2 * r, (px, py) => {
+        const grad = g.createRadialGradient(px + r, py + r, 0, px + r, py + r, r);
+        grad.addColorStop(0, `rgba(${tint},${dark ? 0.12 : 0.09})`);
+        grad.addColorStop(1, `rgba(${tint},0)`);
+        g.fillStyle = grad;
+        g.fillRect(px, py, 2 * r, 2 * r);
+      });
+    }
+    const squiggle = (n, step, turn, style, width) => {
+      g.strokeStyle = style;
+      g.lineWidth = width;
+      g.lineCap = "round";
+      let x = rand() * w;
+      let y = rand() * h;
+      let a = rand() * Math.PI * 2;
+      for (let q = 0; q < n; q++) {
+        const x0 = x;
+        const y0 = y;
+        a += (rand() - 0.5) * turn;
+        x += Math.cos(a) * step;
+        y += Math.sin(a) * step;
+        wrapped(Math.min(x0, x) - 2, Math.min(y0, y) - 2, Math.abs(x - x0) + 4, Math.abs(y - y0) + 4, (px, py) => {
+          const ox = px - (Math.min(x0, x) - 2);
+          const oy = py - (Math.min(y0, y) - 2);
+          g.beginPath();
+          g.moveTo(x0 + ox, y0 + oy);
+          g.lineTo(x + ox, y + oy);
+          g.stroke();
+        });
+        x = ((x % w) + w) % w;
+        y = ((y % h) + h) % h;
+      }
+    };
+    for (let n = 0; n < (k.veins || 0); n++) squiggle(14, 6, 0.9, `rgba(70,70,80,${(0.12 + rand() * 0.14).toFixed(3)})`, 1 + rand());
+    for (let n = 0; n < k.cracks; n++) squiggle(6, 4, 1.2, "rgba(30,18,6,0.4)", 1);
+    // grain: alpha-only speckle
+    const img = g.getImageData(0, 0, w, h);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = rand();
+      if (n < 0.12) {
+        const a = d[i + 3] / 255;
+        const add = 0.1 * (1 - a);
+        d[i] = (d[i] * a) / (a + add);
+        d[i + 1] = (d[i + 1] * a) / (a + add);
+        d[i + 2] = (d[i + 2] * a) / (a + add);
+        d[i + 3] = Math.round((a + add) * 255);
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
   Lynx.texture = (name) => {
-    if (!TEXTURE_KINDS[name]) return null;
-    if (!textureCache.has(name)) textureCache.set(name, makeTexture(TEXTURE_KINDS[name]));
+    const kind = TEXTURE_KINDS[name] || DETAIL_KINDS[name];
+    if (!kind) return null;
+    if (!textureCache.has(name)) textureCache.set(name, TEXTURE_KINDS[name] ? makeTexture(kind) : makeDetail(kind));
     return textureCache.get(name);
   };
 
@@ -478,26 +583,36 @@ window.Lynx = window.Lynx || {};
       ctx.restore();
     };
 
-    // Arrow at the edge of the video pointing toward an off-screen (or
-    // behind-the-camera) world point. No-op if it's visible.
+    // Arrow at the edge of the screen pointing toward an off-screen (or
+    // behind-the-camera) world point. No-op if it's visible. The whole
+    // canvas counts, not just the letterboxed video: the virtual scene is
+    // drawn over the bars beside the picture too.
+    //
+    // Direction = the point's direction in the camera's image plane (x
+    // right, y down), which is exactly the way it lies on screen when it's
+    // in front of the camera: at eye level to the left the arrow points
+    // left, not diagonally up-left. Behind the camera the sideways part is
+    // stretched by the depth behind (sign kept), so something behind you
+    // says "turn left/right" rather than "over the top" -- continuous with
+    // the in-front case right beside the camera.
     ar.edgeArrow = (wx, wy, h, color, label) => {
-      const p = ar.project(wx, wy, h);
-      if (ar.onScreen(p, -10)) return;
-      const rel = ar.toCamera(wx, wy);
+      const EDGE_MARGIN_PX = 28;
       const v = ar.view;
-      const angle = Math.atan2(rel.right, rel.forward); // 0 = straight ahead, + = to the right
-      const rx = v.w / 2 - 28;
-      const ry = v.h / 2 - 28;
-      // Straight ahead but above/below the frame (tilted away): point up/down instead.
-      let dirX = Math.sin(angle);
-      let dirY = -Math.cos(angle);
-      if (p && Math.abs(angle) < 0.6) {
-        dirX = (p.x - v.cx) / v.w;
-        dirY = (p.y - v.cy) / v.h;
-        const len = Math.hypot(dirX, dirY) || 1;
-        dirX /= len;
-        dirY /= len;
-      }
+      const p = ar.project(wx, wy, h);
+      if (p && p.x >= 10 && p.x <= v.cw - 10 && p.y >= 10 && p.y <= v.ch - 10) return;
+      const rel = ar.toCamera(wx, wy);
+      const vertical = calib.heightM + ar.z - h;
+      const zc = rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt);
+      let dirX = rel.right;
+      let dirY = vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt);
+      if (zc < 0) dirX = (dirX < 0 ? -1 : 1) * Math.hypot(dirX, zc);
+      const len = Math.hypot(dirX, dirY);
+      if (len < 1e-9) return;
+      dirX /= len;
+      dirY /= len;
+      // From the picture's center out to the canvas edge, minus a margin.
+      const rx = Math.max(1, Math.min(v.cx, v.cw - v.cx) - EDGE_MARGIN_PX);
+      const ry = Math.max(1, Math.min(v.cy, v.ch - v.cy) - EDGE_MARGIN_PX);
       const t = 1 / Math.max(Math.abs(dirX) / rx, Math.abs(dirY) / ry);
       const x = v.cx + dirX * t;
       const y = v.cy + dirY * t;

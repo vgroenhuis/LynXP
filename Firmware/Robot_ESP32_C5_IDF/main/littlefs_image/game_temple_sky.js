@@ -87,12 +87,33 @@ window.Lynx = window.Lynx || {};
   const STAIRS1 = stairs(r(0.3, 1.2, R_MIN, -0.6), "f", 0, T1, 0, true); // court up to the west ledge
   const STAIRS2 = stairs(r(2.55, LEN, 0.0, 0.45), "r", T3, T4, 0, false); // to the summit
 
-  const MARBLE = { top: "#e8e0cc", side: "#bab09a", dark: "#8c8470", line: "rgba(60,50,30,0.55)", under: "#5e584c" };
-  const SUMMIT = { top: "#f0dca0", side: "#c8a860", dark: "#987a38", line: "rgba(70,50,10,0.7)", under: "#5e5030" };
+  // Columns holding up the bigger platforms (scenery, but solid): from the
+  // cloud court, or from the platform below where tiers stack (lined up so
+  // they read as one column), kept to edges and far corners -- off the
+  // routes, the stairs, the gaps you jump, the pad and the button.
+  const COL_HALF = 0.035;
+  const column = (f, rr, h0, h1) => ({ f0: f - COL_HALF, f1: f + COL_HALF, r0: rr - COL_HALF, r1: rr + COL_HALF, h0, h1 });
+  const COLUMNS = [
+    column(1.26, -0.86, 0, T1 - SLAB), // P1
+    column(2.04, -0.86, 0, T1 - SLAB),
+    column(LEN - 0.04, -0.86, 0, T1 - SLAB), // P2 ...
+    column(LEN - 0.04, -0.86, T1, T3 - SLAB), // ... and S1 on it
+    column(2.16, 0.86, 0, T1 - SLAB), // P3 ...
+    column(LEN - 0.04, 0.86, 0, T1 - SLAB),
+    column(LEN - 0.04, 0.86, T1, T4 - SLAB), // ... and the summit on it
+    column(0.8, 0.86, 0, T2 - SLAB), // Q1, the east ledge
+    column(1.75, 0.86, 0, T2 - SLAB),
+    column(0.36, -0.49, 0, T2 - SLAB), // Q3, beside the stairs
+    column(1.12, -0.49, 0, T3 - SLAB), // R3, the west span, past the lift
+  ];
+
+  const MARBLE = { top: "#e8e0cc", side: "#bab09a", dark: "#8c8470", line: "rgba(60,50,30,0.55)", under: "#5e584c", topTex: "marble" };
+  const SUMMIT = { top: "#f0dca0", side: "#c8a860", dark: "#987a38", line: "rgba(70,50,10,0.7)", under: "#5e5030", topTex: "marble" };
+  const COLUMN_COL = { top: "#d8d0bc", side: "#c4bca8", dark: "#9a9280", line: "rgba(60,50,30,0.5)", topTex: false };
   const CRACKED = { top: "#c8b090", side: "#9a8468", dark: "#6e5c44", line: "rgba(40,25,10,0.8)", under: "#4a3c2c" };
   const PHASE_COL = { top: "rgba(120,220,255,0.75)", side: "rgba(80,170,230,0.75)", dark: "rgba(60,130,200,0.75)", line: "rgba(200,245,255,0.9)", under: "rgba(40,90,150,0.7)" };
   const LIFT_COL = { top: "#c89848", side: "#9a7028", dark: "#6a4c18", line: "rgba(40,24,4,0.9)", under: "#4a3410" };
-  const STEP_COL = { top: "#e0d6c0", side: "#b0a690", dark: "#847a66", line: "rgba(60,50,30,0.6)", under: "#5a5446" };
+  const STEP_COL = { top: "#e0d6c0", side: "#b0a690", dark: "#847a66", line: "rgba(60,50,30,0.6)", under: "#5a5446", topTex: "marble" };
 
   Lynx.templeSky = (api) => {
     const { ar } = api;
@@ -143,6 +164,7 @@ window.Lynx = window.Lynx || {};
       PHASE.forEach((p) => phaseSolid(p) && out.push({ ...p, h0: p.top - SLAB, h1: p.top }));
       out.push({ ...lift, h0: lift.top - SLAB, h1: lift.top });
       STAIRS1.steps.concat(STAIRS2.steps).forEach((s) => out.push(s));
+      COLUMNS.forEach((c) => out.push(c));
       if (gate.shut()) out.push({ ...GATE, h0: T4, h1: T4 + 0.3 });
       return out;
     }
@@ -323,17 +345,68 @@ window.Lynx = window.Lynx || {};
       api.box(lift, lift.top - SLAB, lift.top, LIFT_COL);
       STAIRS1.steps.forEach((s) => api.box(s, s.h0, s.h1, STEP_COL));
       STAIRS2.steps.forEach((s) => api.box(s, s.h0, s.h1, STEP_COL));
-      // bounce pad and button on the first tier's far-right ledge
-      if (c.h > T1) {
-        const w = api.toWorld(PAD.f, PAD.r);
-        const pulse = 0.5 + 0.5 * Math.sin(time * 5);
-        ar.floorCircle(w.x, w.y, PAD.rad, `rgba(80,255,120,${0.35 + 0.3 * pulse})`, "#1a6030", T1 + 0.004);
-        K.floorButton(api, BUTTON, T1, gate.open && !gate.held);
-      }
+      COLUMNS.forEach(queueColumn);
+      // bounce pad and button on the first tier's far-right ledge: queued
+      // just above its top (drawn straight away, the ledge's own top covered them)
+      queuePad(c);
+      queueButton(c);
       K.queueBars(api, GATE, T4, 0.3, gate.lift, "#8a7440");
       K.drawItems(api, items, c, lineOfSight, img);
       enemies.queue(c);
       ar.flush();
+    }
+
+    // A column: shaft, with a wider base and capital.
+    function queueColumn(q) {
+      const grow = (d) => ({ f0: q.f0 - d, f1: q.f1 + d, r0: q.r0 - d, r1: q.r1 + d });
+      api.box(grow(0.012), q.h0, q.h0 + 0.025, COLUMN_COL);
+      api.box(q, q.h0 + 0.025, q.h1 - 0.025, COLUMN_COL);
+      api.box(grow(0.012), q.h1 - 0.025, q.h1, COLUMN_COL);
+    }
+
+    // The bounce pad: a trampoline -- a dark frame on four short legs round a
+    // springy green mat -- with rings rising off it, so it shows from below too.
+    function queuePad(c) {
+      const w = api.toWorld(PAD.f, PAD.r);
+      const R = PAD.rad;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 5);
+      const top = T1 + 0.03;
+      ar.queue(api.camZ(w.x, w.y, top), () => {
+        if (c.h > T1) {
+          ar.floorCircle(w.x, w.y, R + 0.018, "#2a3036", "#0c0e10", top);
+          ar.floorCircle(w.x, w.y, R, `rgba(60,${200 + 55 * pulse},100,0.95)`, "#1a6030", top + 0.002);
+          ar.ctx.lineWidth = 2;
+          ar.floorCircle(w.x, w.y, R * 0.6, null, "rgba(230,255,230,0.8)", top + 0.003);
+          ar.floorCircle(w.x, w.y, R * 0.25, null, "rgba(230,255,230,0.8)", top + 0.003);
+        }
+        for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const f = PAD.f + a * R * 0.8;
+          const rr = PAD.r + b * R * 0.8;
+          api.line3([[f, rr, T1], [f, rr, top]], "#2a3036", 3, 0.02);
+        }
+        // rising rings: they show from anywhere, even from the court below
+        ar.ctx.lineWidth = 2;
+        for (let k = 0; k < 3; k++) {
+          const u = (time * 0.6 + k / 3) % 1;
+          ar.floorCircle(w.x, w.y, R * (1 - 0.4 * u), null, `rgba(120,255,150,${(0.75 * (1 - u)).toFixed(3)})`, top + 0.02 + u * 0.3);
+        }
+      }, api.extent(PAD.f - R - 0.02, PAD.f + R + 0.02, PAD.r - R - 0.02, PAD.r + R + 0.02, T1, top + 0.33));
+    }
+
+    // The gate's button: raised a little, and while the gate is shut a slow
+    // golden beacon rises off it, so you can find it again from anywhere.
+    function queueButton(c) {
+      const w = api.toWorld(BUTTON.f, BUTTON.r);
+      const lit = gate.open && !gate.held;
+      ar.queue(api.camZ(w.x, w.y, T1), () => {
+        if (c.h > T1) K.floorButton(api, BUTTON, T1, lit);
+        if (lit || orb) return;
+        ar.ctx.lineWidth = 2;
+        for (let k = 0; k < 3; k++) {
+          const u = (time * 0.4 + k / 3) % 1;
+          ar.floorCircle(w.x, w.y, 0.07 * (1 - 0.3 * u), null, `rgba(255,216,74,${(0.8 * (1 - u)).toFixed(3)})`, T1 + 0.02 + u * 0.25);
+        }
+      }, api.extent(BUTTON.f - 0.07, BUTTON.f + 0.07, BUTTON.r - 0.07, BUTTON.r + 0.07, T1, T1 + 0.28));
     }
 
     function hud() {
