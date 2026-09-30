@@ -51,6 +51,128 @@ window.Lynx = window.Lynx || {};
     return c;
   };
 
+  // -- procedural stone textures -----------------------------------------------
+  // Generated once per kind (deterministic, from a seed): stone blocks in
+  // courses with recessed mortar, a little relief on each block, mottling,
+  // hairline cracks and grain. Tiles seamlessly in both directions. Walls:
+  // 256 x 128 px = 0.6 x 0.3 m (one storey); floors: 128 x 128 px = 0.3 m.
+  const TEXTURE_KINDS = {
+    sandstone: { w: 256, h: 128, rows: 4, base: [200, 166, 112], vary: 16, mortar: [112, 88, 56], seed: 7, grime: 0.22 },
+    crypt: { w: 256, h: 128, rows: 4, base: [124, 112, 92], vary: 12, mortar: [62, 54, 42], seed: 11, grime: 0.3, moss: true },
+    flagstone: { w: 128, h: 128, grid: 2, base: [184, 152, 104], vary: 14, mortar: [92, 72, 46], seed: 3 },
+    darkflag: { w: 128, h: 128, grid: 2, base: [96, 80, 58], vary: 10, mortar: [40, 32, 22], seed: 5 },
+  };
+  const textureCache = new Map();
+  function seededRandom(seed) {
+    let s = seed | 0;
+    return () => {
+      s = (s + 0x6d2b79f5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function makeTexture(k) {
+    const { w, h } = k;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d");
+    const rand = seededRandom(k.seed);
+    const rgb = (a) => `rgb(${a.map((v) => Math.max(0, Math.min(255, Math.round(v)))).join(",")})`;
+    // draws at (x, y) and wherever it wraps around the edges
+    const wrapped = (x, y, bw, bh, fn) => {
+      [0, -w, w].forEach((dx) => [0, -h, h].forEach((dy) => {
+        if (x + dx < w && x + dx + bw > 0 && y + dy < h && y + dy + bh > 0) fn(x + dx, y + dy);
+      }));
+    };
+    g.fillStyle = rgb(k.mortar);
+    g.fillRect(0, 0, w, h);
+    const blocks = [];
+    if (k.rows) {
+      const rh = h / k.rows;
+      for (let row = 0; row < k.rows; row++) {
+        const start = rand() * w;
+        let x = start;
+        while (x < start + w - 1) {
+          let bw = 46 + rand() * 60;
+          if (start + w - (x + bw) < 36) bw = start + w - x;
+          blocks.push({ x, y: row * rh, w: bw, h: rh });
+          x += bw;
+        }
+      }
+    } else {
+      const s = w / k.grid;
+      for (let i = 0; i < k.grid; i++) for (let j = 0; j < k.grid; j++) blocks.push({ x: i * s, y: j * s, w: s, h: s });
+    }
+    blocks.forEach((b) => {
+      const t = (rand() - 0.5) * 2 * k.vary;
+      const col = k.base.map((v) => v + t + (rand() - 0.5) * 8);
+      wrapped(b.x, b.y, b.w, b.h, (x, y) => {
+        g.fillStyle = rgb(col);
+        g.fillRect(x + 1.5, y + 1.5, b.w - 3, b.h - 3);
+        g.fillStyle = "rgba(255,244,220,0.16)"; // lit top edge
+        g.fillRect(x + 1.5, y + 1.5, b.w - 3, 2);
+        g.fillStyle = "rgba(0,0,0,0.2)"; // shadowed bottom and side
+        g.fillRect(x + 1.5, y + b.h - 4, b.w - 3, 2.5);
+        g.fillStyle = "rgba(0,0,0,0.1)";
+        g.fillRect(x + b.w - 4, y + 1.5, 2.5, b.h - 3);
+      });
+    });
+    // mottling: soft light and dark patches
+    for (let n = 0; n < 45; n++) {
+      const x = rand() * w;
+      const y = rand() * h;
+      const r = 6 + rand() * 22;
+      const dark = rand() < 0.6;
+      const tint = k.moss && rand() < 0.3 ? "60,80,40" : dark ? "40,25,10" : "255,240,210";
+      wrapped(x - r, y - r, 2 * r, 2 * r, (px, py) => {
+        const grad = g.createRadialGradient(px + r, py + r, 0, px + r, py + r, r);
+        grad.addColorStop(0, `rgba(${tint},${dark ? 0.13 : 0.08})`);
+        grad.addColorStop(1, `rgba(${tint},0)`);
+        g.fillStyle = grad;
+        g.fillRect(px, py, 2 * r, 2 * r);
+      });
+    }
+    // hairline cracks
+    g.strokeStyle = "rgba(30,18,6,0.35)";
+    g.lineWidth = 1;
+    for (let n = 0; n < 7; n++) {
+      let x = rand() * w;
+      let y = rand() * h;
+      let a = rand() * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let s = 0; s < 6; s++) {
+        a += (rand() - 0.5) * 1.2;
+        x += Math.cos(a) * 4;
+        y += Math.sin(a) * 4;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    // grain, and grime collecting toward the floor
+    const img = g.getImageData(0, 0, w, h);
+    const d = img.data;
+    for (let y = 0; y < h; y++) {
+      const grime = k.grime ? 1 - k.grime * Math.max(0, (y / h - 0.7) / 0.3) : 1;
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const n = (rand() - 0.5) * 26;
+        d[i] = (d[i] + n) * grime;
+        d[i + 1] = (d[i + 1] + n) * grime;
+        d[i + 2] = (d[i + 2] + n * 0.8) * grime;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
+  Lynx.texture = (name) => {
+    if (!TEXTURE_KINDS[name]) return null;
+    if (!textureCache.has(name)) textureCache.set(name, makeTexture(TEXTURE_KINDS[name]));
+    return textureCache.get(name);
+  };
+
   Lynx.createAr = (calib) => {
     const container = document.querySelector(".cam-fullscreen");
     const img = document.getElementById("camStream");
@@ -221,6 +343,52 @@ window.Lynx = window.Lynx || {};
       }
     };
 
+    // Part of a texture on a small world quad: corners [x, y, h] (in order
+    // around it) get texture pixels uv [{u, v}] (same order). Drawn as two
+    // affinely mapped triangles -- fine for quads small on screen relative to
+    // their depth, so callers cut big surfaces into pieces. Returns false
+    // (drawing nothing) if a corner is too close or behind the lens.
+    function texTriangle(img, s0, s1, s2, t0, t1, t2) {
+      const du1 = t1.u - t0.u;
+      const dv1 = t1.v - t0.v;
+      const du2 = t2.u - t0.u;
+      const dv2 = t2.v - t0.v;
+      const det = du1 * dv2 - du2 * dv1;
+      if (Math.abs(det) < 1e-9) return;
+      const dx1 = s1.x - s0.x;
+      const dy1 = s1.y - s0.y;
+      const dx2 = s2.x - s0.x;
+      const dy2 = s2.y - s0.y;
+      const a = (dx1 * dv2 - dx2 * dv1) / det;
+      const b = (dy1 * dv2 - dy2 * dv1) / det;
+      const c = (dx2 * du1 - dx1 * du2) / det;
+      const d = (dy2 * du1 - dy1 * du2) / det;
+      // clip slightly larger than the triangle, so neighbours leave no hairline seams
+      const cx = (s0.x + s1.x + s2.x) / 3;
+      const cy = (s0.y + s1.y + s2.y) / 3;
+      const grow = (p) => {
+        const dx = p.x - cx;
+        const dy = p.y - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        return [p.x + (dx / len) * 0.7, p.y + (dy / len) * 0.7];
+      };
+      ctx.save();
+      ctx.beginPath();
+      [s0, s1, s2].map(grow).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.clip();
+      ctx.transform(a, b, c, d, s0.x - a * t0.u - c * t0.v, s0.y - b * t0.u - d * t0.v);
+      ctx.drawImage(img, 0, 0);
+      ctx.restore();
+    }
+    ar.texturedQuad = (pts, img, uv) => {
+      const s = pts.map((p) => ar.project(p[0], p[1], p[2]));
+      if (s.some((p) => !p)) return false;
+      texTriangle(img, s[0], s[1], s[2], uv[0], uv[1], uv[2]);
+      texTriangle(img, s[0], s[2], s[3], uv[0], uv[2], uv[3]);
+      return true;
+    };
+
     ar.glow = (x, y, r, stops, alpha = 1) => {
       if (r <= 0.5) return;
       ctx.save();
@@ -382,30 +550,82 @@ window.Lynx = window.Lynx || {};
     ar.onFrame = (cb) => frameCallbacks.push(cb);
 
     // Must box a be drawn before box b (+1), after it (-1), or can't they
-    // overlap on screen (0)? Two separate boxes always have a plane between
-    // them along one of the axes; the one on the camera's side of that plane
-    // may cover the other, never the other way round.
+    // overlap on screen (0)? Two separate boxes always have a gap between
+    // them along one of the axes; the one on the camera's side of that gap
+    // may cover the other, never the other way round. With the camera IN the
+    // gap, no line of sight passes through both (along that axis it moves
+    // toward one of them only), so neither covers the other -- saying
+    // otherwise invents constraints that can form cycles (the camera
+    // standing between walls in a maze), which then get broken wrongly.
     const AXES = [["f0", "f1", "f"], ["r0", "r1", "r"], ["h0", "h1", "h"]];
     function boxOrder(a, b) {
       const cam = a.frame.cam;
       for (const [lo, hi, c] of AXES) {
-        if (a[hi] <= b[lo] + 1e-6) {
-          const p = (a[hi] + b[lo]) / 2;
-          return cam[c] > p ? 1 : cam[c] < p ? -1 : 0;
-        }
-        if (b[hi] <= a[lo] + 1e-6) {
-          const p = (b[hi] + a[lo]) / 2;
-          return cam[c] < p ? 1 : cam[c] > p ? -1 : 0;
-        }
+        if (a[hi] <= b[lo] + 1e-6) return cam[c] > b[lo] ? 1 : cam[c] < a[hi] ? -1 : 0;
+        if (b[hi] <= a[lo] + 1e-6) return cam[c] < b[hi] ? 1 : cam[c] > a[lo] ? -1 : 0;
       }
       return 0; // they intersect: nothing exact to say
     }
+
+    // Screen rectangle a box covers ({x0, y0, x1, y1}), null if it's all
+    // behind the lens, undefined if its frame can't place it in the world
+    // (frame.toWorld(f, r) -> {x, y}). Edges are clipped at the lens, so a
+    // box reaching past the camera still gets its true visible extent.
+    function screenBounds(b) {
+      const toWorld = b.frame.toWorld;
+      if (!toWorld) return undefined;
+      const v = ar.view;
+      const cs = [];
+      for (const f of [b.f0, b.f1]) {
+        for (const r of [b.r0, b.r1]) {
+          const w = toWorld(f, r);
+          const rel = ar.toCamera(w.x, w.y);
+          for (const h of [b.h0, b.h1]) {
+            const vertical = calib.heightM + ar.z - h;
+            cs.push({
+              x: rel.right,
+              y: vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt),
+              z: rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt),
+            });
+          }
+        }
+      }
+      const pts = [];
+      for (let i = 0; i < 8; i++) {
+        if (cs[i].z >= NEAR_M) pts.push(cs[i]);
+        for (const bit of [1, 2, 4]) {
+          const j = i ^ bit;
+          if (j < i) continue;
+          const a = cs[i];
+          const c = cs[j];
+          if (a.z >= NEAR_M !== c.z >= NEAR_M) {
+            const t = (NEAR_M - a.z) / (c.z - a.z);
+            pts.push({ x: a.x + (c.x - a.x) * t, y: a.y + (c.y - a.y) * t, z: NEAR_M });
+          }
+        }
+      }
+      let out = null;
+      pts.forEach((c) => {
+        const p = Lynx.lens.project(c.x, c.y, c.z, v.imgW, v.imgH);
+        if (!p) return;
+        const x = v.offX + p.u * v.scale;
+        const y = v.offY + p.v * v.scale;
+        out = out ? { x0: Math.min(out.x0, x), y0: Math.min(out.y0, y), x1: Math.max(out.x1, x), y1: Math.max(out.y1, y) } : { x0: x, y0: y, x1: x, y1: y };
+      });
+      return out;
+    }
+    const overlap = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
     ar.flush = () => {
       const items = queueItems;
       queueItems = [];
       items.sort((a, b) => b.depth - a.depth); // painter's order: farthest first
       if (items.filter((it) => it.box).length > 1) {
+        // Only boxes that overlap on screen need an order between them --
+        // ordering ones that don't can chain into a cycle (a covers b may
+        // cover c may cover a, each true on its own) that then gets broken
+        // the wrong way.
+        const bounds = items.map((it) => (it.box ? screenBounds(it.box) : undefined));
         // Topological sort: boxes wait for the boxes they may cover; among
         // the ones free to go, the farthest goes first (unboxed items just
         // keep their depth order).
@@ -418,6 +638,7 @@ window.Lynx = window.Lynx || {};
           for (let j = i + 1; j < n; j++) {
             const b = items[j].box;
             if (!b || b.frame !== a.frame) continue;
+            if (bounds[i] !== undefined && bounds[j] !== undefined && (!bounds[i] || !bounds[j] || !overlap(bounds[i], bounds[j]))) continue;
             const o = boxOrder(a, b);
             if (o > 0) {
               after[i].push(j);

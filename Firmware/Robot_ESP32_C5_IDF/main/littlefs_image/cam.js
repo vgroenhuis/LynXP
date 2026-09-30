@@ -1071,8 +1071,28 @@ function subscribeToPose(callback) {
     const now = performance.now();
     stepAim(now, aimParams);
     if (!aimView) return pose;
-    const seen = aimAt(now - AIM_SERVO_LAG_MS - overlayDelayMs());
+    const seen = aimAveraged(now, AIM_SERVO_LAG_MS + overlayDelayMs());
     return { ...pose, theta: wrapToPi(seen.yaw), servoAngleDeg: 0, tiltAngleDeg: seen.tiltDeg };
+  }
+
+  // The aim averaged over the last 2 x lagMs, instead of the aim exactly
+  // lagMs ago. In a steady turn that's the same delay (so the view still
+  // lines up with the video), but a turn no longer sits still for the
+  // whole lag first: the view starts turning at once, slowly, ramps up to
+  // full speed over 2 x lagMs, and eases out the same way when the turn
+  // stops. On the way it runs ahead of the video by at most lag/4 x speed
+  // (~4 deg at 90 deg/s and 180 ms) -- a game feels far less laggy.
+  function aimAveraged(now, lagMs) {
+    const n = 8; // trapezoid rule over the window
+    let yaw = 0;
+    let tiltDeg = 0;
+    for (let k = 0; k <= n; k++) {
+      const w = k === 0 || k === n ? 0.5 : 1;
+      const a = aimAt(now - (2 * lagMs * k) / n);
+      yaw += w * a.yaw; // continuous (never wrapped), so plain averaging is fine
+      tiltDeg += w * a.tiltDeg;
+    }
+    return { yaw: yaw / n, tiltDeg: tiltDeg / n };
   }
 
   function wsPoseAt() {
