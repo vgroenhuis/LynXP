@@ -30,7 +30,6 @@ idf_component_register(
         "littlefs_init.cpp"
         "ota.cpp"
         "app_data.cpp"
-        "model_store.cpp"
         "debug_pan.cpp"
     INCLUDE_DIRS "."
     REQUIRES

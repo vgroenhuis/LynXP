@@ -1,7 +1,7 @@
 // Games & apps page: choose what the first-person view runs, edit each
 // game's settings (generated from Lynx.CATALOG's schema), see the
 // scoreboards, and manage the object-detection model. Everything saved goes
-// to the robot (/appdata/settings, /appdata/scores, /models/*).
+// to the robot (/appdata/settings, /appdata/scores).
 
 (function () {
   let app = null;
@@ -179,45 +179,18 @@
   }
 
   // -- detection model -----------------------------------------------------------
+  // The model comes from a URL (jsDelivr by default, see detect.js); a custom
+  // one is kept per browser in localStorage "detectModelUrl".
   function renderModelStatus() {
-    fetch("/models/info", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((info) => {
-        $("modelStatus").textContent = info.installed
-          ? `✓ Installed: ${info.name} (${(info.bytes / 1e6).toFixed(1)} MB, version ${info.version})`
-          : info.capacity
-          ? `Not installed yet (room for ${(info.capacity / 1e6).toFixed(1)} MB).`
-          : "This robot's partition table has no model partition yet -- flash the firmware over USB once.";
-        $("modelStatus").className = "games-model-status " + (info.installed ? "games-ok" : "games-warn");
-      })
-      .catch(() => ($("modelStatus").textContent = "Couldn't reach the robot."));
-  }
-
-  function uploadModel(file, auth) {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/models/upload?name=${encodeURIComponent(file.name)}`);
-    if (auth) xhr.setRequestHeader("Authorization", "Basic " + btoa(auth));
-    const bar = $("modelProgress");
-    bar.hidden = false;
-    bar.value = 0;
-    xhr.upload.onprogress = (e) => e.lengthComputable && (bar.value = e.loaded / e.total);
-    $("modelMsg").textContent = `Uploading ${file.name} -- the robot pauses while it writes...`;
-    xhr.onload = () => {
-      bar.hidden = true;
-      if (xhr.status === 401) {
-        const creds = prompt("The robot's update credentials (as set on the Main page), as user:password", "admin:");
-        if (creds) uploadModel(file, creds);
-        else $("modelMsg").textContent = "Cancelled.";
-        return;
-      }
-      $("modelMsg").textContent = xhr.status === 200 ? "Model installed ✓" : `Upload failed: ${xhr.responseText || xhr.status}`;
-      renderModelStatus();
-    };
-    xhr.onerror = () => {
-      bar.hidden = true;
-      $("modelMsg").textContent = "Upload failed -- connection lost.";
-    };
-    xhr.send(file);
+    let custom = "";
+    try {
+      custom = localStorage.getItem("detectModelUrl") || "";
+    } catch (e) {
+      // no storage: the standard model
+    }
+    if (document.activeElement !== $("modelUrl")) $("modelUrl").value = custom;
+    $("modelStatus").textContent = custom ? "Using a custom model on this browser." : `Standard model: ${Lynx.detectModelUrl()}`;
+    $("modelStatus").className = "games-model-status " + (custom ? "games-warn" : "games-ok");
   }
 
   function benchmark() {
@@ -253,10 +226,16 @@
   // -- init --------------------------------------------------------------------------
   $("playerName").value = Lynx.playerName();
   $("playerName").addEventListener("change", (e) => Lynx.setPlayerName(e.target.value));
-  $("modelFile").addEventListener("change", (e) => {
-    const f = e.target.files[0];
-    if (f) uploadModel(f, null);
-    e.target.value = "";
+  $("modelUrl").addEventListener("change", (e) => {
+    const url = e.target.value.trim();
+    try {
+      if (url) localStorage.setItem("detectModelUrl", url);
+      else localStorage.removeItem("detectModelUrl");
+    } catch (err) {
+      // no storage: nothing to remember
+    }
+    $("modelMsg").textContent = url ? "Custom model set -- press Speed test to try it." : "Back to the standard model.";
+    renderModelStatus();
   });
   $("benchBtn").addEventListener("click", benchmark);
 

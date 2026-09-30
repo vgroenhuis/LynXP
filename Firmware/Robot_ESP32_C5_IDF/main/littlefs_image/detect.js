@@ -6,8 +6,12 @@
 //   version; the browser caches it. Plain wasm, single-threaded: pages on
 //   http:// aren't "secure contexts", which rules out both WebGPU and the
 //   SharedArrayBuffer that multi-threaded wasm needs.
-// - The model (~6.8 MB) is served by the robot itself (model_store.cpp),
-//   under a URL carrying its checksum, so it's cached for good.
+// - The model (~6.8 MB) comes from jsDelivr too: the file is in the LynXP
+//   repo (Firmware/Robot_ESP32_C5_IDF/cdn/), served by tag so the URL never
+//   changes content and is cached for good. (It used to be stored on and
+//   served by the robot -- slow, and 7 MB of flash; the runtime needs the
+//   internet anyway.) localStorage "detectModelUrl" overrides it, to try
+//   another YOLOv8-format model.
 // - Frames: the <img> showing the stream is switched to crossorigin mode
 //   (the camera firmware sends Access-Control-Allow-Origin), drawn
 //   letterboxed into a square canvas and fed to the model.
@@ -43,28 +47,48 @@ Lynx.games = Lynx.games || {};
     return ortPromise;
   }
 
-  // Downloads the model from the robot with progress, resolves to bytes.
+  const DEFAULT_MODEL_URL =
+    "https://cdn.jsdelivr.net/gh/vgroenhuis/LynXP@model-yolov8n-lynxp-1/Firmware/Robot_ESP32_C5_IDF/cdn/yolov8n-lynxp.onnx";
+  Lynx.detectModelUrl = () => {
+    try {
+      return localStorage.getItem("detectModelUrl") || DEFAULT_MODEL_URL;
+    } catch (e) {
+      return DEFAULT_MODEL_URL;
+    }
+  };
+
+  // Downloads the model with progress, resolves to bytes.
   function loadModelBytes(onStatus) {
-    return fetch("/models/info", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((info) => {
-        if (!info.installed) throw new Error("No detection model installed on the robot yet -- see the Games & apps page.");
-        return fetch(`/models/model.onnx?v=${info.version}`).then(async (r) => {
-          if (!r.ok || !r.body) throw new Error(`Model download failed (HTTP ${r.status})`);
-          const reader = r.body.getReader();
-          const buf = new Uint8Array(info.bytes);
-          let got = 0;
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (got + value.length > buf.length) throw new Error("Model is bigger than the robot said -- reload to retry.");
-            buf.set(value, got);
-            got += value.length;
-            onStatus(`Loading detection model ${Math.round((100 * got) / info.bytes)}%`);
-          }
-          if (got !== info.bytes) throw new Error("Model download was cut short -- reload to retry.");
-          return buf;
+    const url = Lynx.detectModelUrl();
+    return fetch(url)
+      .catch(() => {
+        throw new Error(`Couldn't download the detection model from ${new URL(url).host} -- is this device online?`);
+      })
+      .then(async (r) => {
+        if (!r.ok || !r.body) throw new Error(`Model download failed (HTTP ${r.status})`);
+        // Content-Length is the size ON THE WIRE: with a compressed transfer
+        // (browsers ask for one; jsDelivr obliges) the stream yields more
+        // bytes than that, so it's no use for progress or a size check.
+        const encoded = (r.headers.get("Content-Encoding") || "identity") !== "identity";
+        const total = encoded ? 0 : Number(r.headers.get("Content-Length")) || 0;
+        const reader = r.body.getReader();
+        const chunks = [];
+        let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          got += value.length;
+          onStatus(total ? `Loading detection model ${Math.round((100 * got) / total)}%` : `Loading detection model ${(got / 1e6).toFixed(1)} MB`);
+        }
+        if (total && got !== total) throw new Error("Model download was cut short -- reload to retry.");
+        const buf = new Uint8Array(got);
+        let at = 0;
+        chunks.forEach((c) => {
+          buf.set(c, at);
+          at += c.length;
         });
+        return buf;
       });
   }
 

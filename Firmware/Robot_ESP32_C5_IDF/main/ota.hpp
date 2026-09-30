@@ -35,7 +35,7 @@ void ota_register_routes();
 // been started.
 void ota_start_validation();
 
-// Shared with other raw-flash uploads (model_store.cpp):
+// Shared with any other raw-flash upload handler:
 // Checks the OTA Basic-auth credentials; if they don't match, sends the 401
 // itself and returns false.
 bool ota_request_authorized(httpd_req_t *req);

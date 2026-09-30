@@ -2,15 +2,18 @@
 
 Exports Ultralytics YOLOv8n (COCO, 80 classes) to ONNX with a dynamic input
 size, then stores its weights as float16 with a Cast back to float32 in front
-of each one. That halves the file (~12.8 MB -> ~6.4 MB, so it fits the
-robot's "model" flash partition) without any accuracy loss worth measuring:
-onnxruntime constant-folds the Casts when the session is created, so
-inference itself still runs entirely in float32.
+of each one. That halves the file (~12.8 MB -> ~6.4 MB, a quicker download
+for every browser) without any accuracy loss worth measuring: onnxruntime
+constant-folds the Casts when the session is created, so inference itself
+still runs entirely in float32.
 
 Usage (needs: pip install ultralytics onnx onnxruntime):
     python tools/export_yolo_model.py [out.onnx]   (default: yolov8n-lynxp.onnx)
-Then install it from the Games & apps page, or:
-    curl --data-binary @yolov8n-lynxp.onnx "http://<robot-ip>/models/upload?name=yolov8n-lynxp.onnx"
+Browsers load the model from jsDelivr (see cdn/README.md): to publish a new
+one, put it in cdn/, commit, tag it (model-yolov8n-lynxp-N), push the tag,
+and point DEFAULT_MODEL_URL in main/littlefs_image/detect.js at the new tag.
+To just try it, host it anywhere that allows cross-origin downloads and enter
+the URL on the Games & apps page.
 """
 
 import sys

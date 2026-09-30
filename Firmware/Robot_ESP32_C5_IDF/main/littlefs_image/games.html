@@ -46,18 +46,18 @@
     <section class="panel games-card-wide" id="modelPanel">
       <div class="panel-body">
         <h3>Object detection model</h3>
-        <p class="games-dim">Object detection and Scavenger Hunt run YOLOv8n in this browser. The model (~7&nbsp;MB) is stored
-          on the robot; the ONNX runtime (~11&nbsp;MB) is downloaded from jsDelivr the first time, so the device needs internet access once. Both are cached afterwards.</p>
-        <div id="modelStatus" class="games-model-status">Checking...</div>
+        <p class="games-dim">Object detection and Scavenger Hunt run YOLOv8n in this browser. The model (~7&nbsp;MB) and the
+          ONNX runtime (~11&nbsp;MB) are downloaded from jsDelivr the first time, so the device needs internet access once. Both are cached afterwards.</p>
+        <label class="games-model-url">Model URL (this browser; leave empty for the standard model)
+          <input type="url" id="modelUrl" placeholder="standard model" spellcheck="false">
+        </label>
+        <div id="modelStatus" class="games-model-status"></div>
         <div class="games-row">
-          <label class="games-file">Install / replace model (.onnx)
-            <input type="file" id="modelFile" accept=".onnx">
-          </label>
           <button type="button" class="games-btn" id="benchBtn">Speed test on this device</button>
         </div>
-        <progress id="modelProgress" max="1" value="0" hidden></progress>
         <p class="games-dim" id="modelMsg"></p>
-        <p class="games-dim games-small">Build the model with <code>tools/export_yolo_model.py</code> in the robot firmware folder. Installing pauses the robot for about a minute while it writes to flash.</p>
+        <p class="games-dim games-small">The standard model is <code>Firmware/Robot_ESP32_C5_IDF/cdn/yolov8n-lynxp.onnx</code> in the LynXP repository,
+          built with <code>tools/export_yolo_model.py</code>. Another YOLOv8-format model can be tried by entering its URL (it must allow cross-origin downloads, as jsDelivr and raw.githubusercontent.com do).</p>
       </div>
     </section>
 

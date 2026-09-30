@@ -1354,6 +1354,20 @@ button {
 
 .games-model-status {
   font-weight: bold;
+  overflow-wrap: anywhere;
+}
+
+.games-model-url {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  gap: 3px;
+  margin: 8px 0;
+}
+
+.games-model-url input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .games-ok {

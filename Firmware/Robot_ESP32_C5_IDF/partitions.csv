@@ -9,12 +9,13 @@
 # ota.cpp's ota_start_validation().
 #
 # storage (littlefs, holds the web UI assets from main/littlefs_image/):
-# 4.875 MB (0x4E0000). It was 1 MB, which the games (Temple's levels
-# especially, ~800 KB of web files by 2026-09-30) were close to filling.
-# Together with a 7 MB model partition it uses the whole 16 MB flash; the
-# NVS offset didn't change, so settings survived the resize. Resizing again
-# needs a USB flash (idf.py flash writes the new table and the web image)
-# and a model re-upload whenever the model partition moves.
+# the whole rest of the flash, 11.875 MB (0xBE0000). It was 1 MB, which the
+# games (Temple's levels especially, ~800 KB of web files by 2026-09-30) were
+# close to filling. There used to be an 8 MB "model" partition after it for
+# the object-detection model; browsers now load that from jsDelivr instead
+# (see cdn/README.md), so its space went to the web files. The NVS offset
+# never changed, so settings survived both resizes. Resizing again needs a
+# USB flash (idf.py flash writes the new table and the web image).
 #
 # WARNING: switching to this table from the previous single "factory"
 # partition layout requires a full reflash (idf.py flash rewrites the
@@ -29,9 +30,4 @@ otadata,    data, ota,     ,        0x2000,
 phy_init,   data, phy,     ,        0x1000,
 ota_0,      app,  ota_0,   ,        0x200000,
 ota_1,      app,  ota_1,   ,        0x200000,
-storage,    data, spiffs,  ,        0x4E0000,
-# model: the object-detection model (YOLOv8n ONNX, 6.83 MB) served to the
-# browser by model_store.cpp. 7 MB (was 8 MB, shrunk to make room for the web
-# files; ends exactly at 16 MB). Installed/replaced over HTTP from the Games &
-# apps page -- it moved with the resize, so it had to be uploaded again.
-model,      data, 0x40,    ,        0x700000,
+storage,    data, spiffs,  ,        0xBE0000,

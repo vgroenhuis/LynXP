@@ -407,7 +407,7 @@ esp_err_t handle_set(httpd_req_t *req) {
     float fval;
     int ival;
 
-    // The OTA credentials guard /update, /update-fs and /models/upload, so
+    // The OTA credentials guard /update and /update-fs, so
     // changing them needs the CURRENT ones (Authorization: Basic) -- else
     // anyone on the network could set a password of their own and then
     // flash firmware. Checked before anything else is applied: a rejected
@@ -1043,7 +1043,7 @@ void web_server_init() {
     config.server_port = 80;
     config.stack_size = 8192;
     config.max_open_sockets = 12; // the UI opens ~6 conns per page navigation
-    config.max_uri_handlers = 40; // ~22 here + /ws (ws_broadcast.cpp) + OTA/model (ota.cpp, model_store.cpp) + /debug/* (debug_pan.cpp); registrations past this fail silently
+    config.max_uri_handlers = 40; // ~22 here + /ws (ws_broadcast.cpp) + OTA (ota.cpp) + /debug/* (debug_pan.cpp); registrations past this fail silently
     config.lru_purge_enable = true; // reconnect-storm resilience
     config.close_fn = close_session;
     config.send_wait_timeout = 2; // bound the worst case if a peer stalls
