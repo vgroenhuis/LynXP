@@ -49,10 +49,12 @@ esp_err_t handle_info(httpd_req_t *req) {
     const esp_partition_t *p = model_partition();
     Header h;
     bool installed = read_header(p, &h);
-    char json[200];
+    char nameEsc[2 * sizeof(h.name)];
+    json_escape(installed ? h.name : "", nameEsc, sizeof(nameEsc));
+    char json[260];
     std::snprintf(json, sizeof(json),
                   "{\"installed\":%s,\"name\":\"%s\",\"bytes\":%lu,\"version\":\"%08lx\",\"capacity\":%lu}",
-                  installed ? "true" : "false", installed ? h.name : "", installed ? (unsigned long) h.size : 0UL,
+                  installed ? "true" : "false", nameEsc, installed ? (unsigned long) h.size : 0UL,
                   installed ? (unsigned long) h.fnv : 0UL, p ? (unsigned long) (p->size - DATA_OFFSET) : 0UL);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -112,7 +114,9 @@ esp_err_t handle_upload(httpd_req_t *req) {
     if (qlen > 0 && qlen < 128) {
         char query[128];
         if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-            httpd_query_key_value(query, "name", nameParam, sizeof(nameParam));
+            if (httpd_query_key_value(query, "name", nameParam, sizeof(nameParam)) == ESP_OK) {
+                web_server_url_decode(nameParam);
+            }
         }
     }
     std::snprintf(h.name, sizeof(h.name), "%s", nameParam);
@@ -126,8 +130,7 @@ esp_err_t handle_upload(httpd_req_t *req) {
     size_t written = 0;
     static char buf[4096];
     while (err == ESP_OK && written < total) {
-        int n = httpd_req_recv(req, buf, std::min(sizeof(buf), total - written));
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        int n = web_server_recv(req, buf, std::min(sizeof(buf), total - written));
         if (n <= 0) {
             err = ESP_FAIL;
             break;

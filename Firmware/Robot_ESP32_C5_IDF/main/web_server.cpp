@@ -13,6 +13,7 @@
 #include "motors.hpp"
 #include "watchdog.hpp"
 #include "breadcrumb.hpp"
+#include "ota.hpp"
 
 #include "cJSON.h"
 #include "esp_log.h"
@@ -25,6 +26,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 
 // ESP-IDF replacement for Robot_Pico2W_SDK/src/web_server.cpp's HTTP half
 // (everything except /ws and the poll-loop telemetry broadcast, which live
@@ -247,7 +249,7 @@ esp_err_t static_fallback_handler(httpd_req_t *req, httpd_err_code_t error) {
 void url_decode(char *s) {
     char *out = s;
     while (*s) {
-        if (*s == '%' && s[1] && s[2]) {
+        if (*s == '%' && std::isxdigit((unsigned char) s[1]) && std::isxdigit((unsigned char) s[2])) {
             char hex[3] = {s[1], s[2], '\0'};
             *out++ = (char) std::strtol(hex, nullptr, 16);
             s += 3;
@@ -283,17 +285,25 @@ bool get_query_str(httpd_req_t *req, const char *name, char *buf, size_t bufLen)
     return found;
 }
 
+// Rejects anything that isn't a finite number in full ("nan", "inf", "",
+// "12abc"), so a typo can't store garbage into a setting.
 bool get_query_float(httpd_req_t *req, const char *name, float *out) {
     char buf[32];
     if (!get_query_str(req, name, buf, sizeof(buf))) return false;
-    *out = std::strtof(buf, nullptr);
+    char *end = nullptr;
+    float v = std::strtof(buf, &end);
+    if (end == buf || *end != '\0' || !std::isfinite(v)) return false;
+    *out = v;
     return true;
 }
 
 bool get_query_int(httpd_req_t *req, const char *name, int *out) {
     char buf[32];
     if (!get_query_str(req, name, buf, sizeof(buf))) return false;
-    *out = (int) std::strtol(buf, nullptr, 10);
+    char *end = nullptr;
+    long v = std::strtol(buf, &end, 10);
+    if (end == buf || *end != '\0') return false;
+    *out = (int) std::clamp(v, -1000000L, 1000000L);
     return true;
 }
 
@@ -307,10 +317,7 @@ int read_post_body(httpd_req_t *req, char *buf, size_t bufSize) {
     int remaining = (int) req->content_len;
     int offset = 0;
     while (remaining > 0) {
-        int received = httpd_req_recv(req, buf + offset, remaining);
-        if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-            continue;
-        }
+        int received = web_server_recv(req, buf + offset, (size_t) remaining);
         if (received <= 0) {
             return -1;
         }
@@ -399,6 +406,20 @@ esp_err_t handle_set(httpd_req_t *req) {
     char buf[80]; // wide enough for every string field handled below
     float fval;
     int ival;
+
+    // The OTA credentials guard /update, /update-fs and /models/upload, so
+    // changing them needs the CURRENT ones (Authorization: Basic) -- else
+    // anyone on the network could set a password of their own and then
+    // flash firmware. Checked before anything else is applied: a rejected
+    // request changes nothing.
+    char newUser[sizeof(settings.otaUsername)];
+    char newPass[sizeof(settings.otaPassword)];
+    bool hasUser = get_query_str(req, "otaUsername", newUser, sizeof(newUser));
+    bool hasPass = get_query_str(req, "otaPassword", newPass, sizeof(newPass));
+    if ((hasUser || hasPass) && !ota_request_authorized(req)) {
+        ESP_LOGW(TAG, "/set: OTA credential change rejected (current credentials missing or wrong)");
+        return ESP_OK;
+    }
     // Coalesced into a single saveSettings() at the end, unlike the Pico
     // version's saveSettings()-per-matched-field: a multi-parameter /set
     // (app.js sends one field per request today, but nothing guarantees
@@ -458,16 +479,16 @@ esp_err_t handle_set(httpd_req_t *req) {
         controlFrameThetaRad = wrapToPi(controlFrameThetaRad + shift);
         stopAllMotion();
     }
-    if (get_query_float(req, "kp", &fval)) { settings.kp = fval; dirty = true; }
-    if (get_query_float(req, "ki", &fval)) { settings.ki = fval; dirty = true; }
-    if (get_query_float(req, "kd", &fval)) { settings.kd = fval; dirty = true; }
-    if (get_query_float(req, "diffCutoff", &fval)) { settings.differentiatorCutoffHz = fval; dirty = true; }
+    if (get_query_float(req, "kp", &fval)) { settings.kp = std::clamp(fval, -100000.0f, 100000.0f); dirty = true; }
+    if (get_query_float(req, "ki", &fval)) { settings.ki = std::clamp(fval, -100000.0f, 100000.0f); dirty = true; }
+    if (get_query_float(req, "kd", &fval)) { settings.kd = std::clamp(fval, -100000.0f, 100000.0f); dirty = true; }
+    if (get_query_float(req, "diffCutoff", &fval)) { settings.differentiatorCutoffHz = std::clamp(fval, 0.1f, 400.0f); dirty = true; }
     if (get_query_str(req, "syncMotors", buf, sizeof(buf))) { settings.syncMotors = std::strcmp(buf, "1") == 0; dirty = true; }
-    if (get_query_int(req, "motorPower", &ival)) { settings.maxMotorPower = ival; dirty = true; }
-    if (get_query_float(req, "wheelbaseMm", &fval)) { settings.wheelbaseMm = fval; dirty = true; }
-    if (get_query_float(req, "wheelDiameterMm", &fval)) { settings.wheelDiameterMm = fval; dirty = true; }
-    if (get_query_float(req, "cameraHeightMm", &fval)) { settings.cameraHeightMm = fval; dirty = true; }
-    if (get_query_float(req, "cameraTiltDeg", &fval)) { settings.cameraTiltDeg = fval; dirty = true; }
+    if (get_query_int(req, "motorPower", &ival)) { settings.maxMotorPower = std::clamp(ival, 0, 1000); dirty = true; }
+    if (get_query_float(req, "wheelbaseMm", &fval)) { settings.wheelbaseMm = std::clamp(fval, 10.0f, 2000.0f); dirty = true; }
+    if (get_query_float(req, "wheelDiameterMm", &fval)) { settings.wheelDiameterMm = std::clamp(fval, 5.0f, 1000.0f); dirty = true; }
+    if (get_query_float(req, "cameraHeightMm", &fval)) { settings.cameraHeightMm = std::clamp(fval, 0.0f, 2000.0f); dirty = true; }
+    if (get_query_float(req, "cameraTiltDeg", &fval)) { settings.cameraTiltDeg = std::clamp(fval, -90.0f, 90.0f); dirty = true; }
     if (get_query_float(req, "cameraVerticalFovDeg", &fval)) { settings.cameraVerticalFovDeg = std::clamp(fval, 1.0f, 179.0f); dirty = true; }
     if (get_query_float(req, "servoMinPulseUs", &fval)) { settings.servoMinPulseUs = std::clamp(fval, 0.0f, 19999.0f); dirty = true; }
     if (get_query_float(req, "servoMaxPulseUs", &fval)) { settings.servoMaxPulseUs = std::clamp(fval, 0.0f, 19999.0f); dirty = true; }
@@ -487,8 +508,8 @@ esp_err_t handle_set(httpd_req_t *req) {
     if (get_query_float(req, "maxWheelSpeedRevPerSec", &fval)) { settings.maxWheelSpeedRevPerSec = std::clamp(fval, 0.01f, 1000.0f); dirty = true; }
     if (get_query_float(req, "maxAccelRevPerSec2", &fval)) { settings.maxAccelRevPerSec2 = std::clamp(fval, 0.01f, 1000.0f); dirty = true; }
     if (get_query_float(req, "maxDecelRevPerSec2", &fval)) { settings.maxDecelRevPerSec2 = std::clamp(fval, 0.01f, 1000.0f); dirty = true; }
-    if (get_query_float(req, "gotoVelKp", &fval)) { settings.gotoVelKp = fval; dirty = true; }
-    if (get_query_float(req, "gotoVelKi", &fval)) { settings.gotoVelKi = fval; dirty = true; }
+    if (get_query_float(req, "gotoVelKp", &fval)) { settings.gotoVelKp = std::clamp(fval, -100000.0f, 100000.0f); dirty = true; }
+    if (get_query_float(req, "gotoVelKi", &fval)) { settings.gotoVelKi = std::clamp(fval, -100000.0f, 100000.0f); dirty = true; }
     if (get_query_float(req, "feedForwardPwmPerRevPerSec", &fval)) { settings.feedForwardPwmPerRevPerSec = std::clamp(fval, 0.0f, 1000.0f); dirty = true; }
     if (get_query_str(req, "gotoAllowReverse", buf, sizeof(buf))) { settings.gotoAllowReverse = std::strcmp(buf, "1") == 0; dirty = true; }
     if (get_query_str(req, "gotoPreserveHeading", buf, sizeof(buf))) { settings.gotoPreserveHeading = std::strcmp(buf, "1") == 0; dirty = true; }
@@ -508,16 +529,15 @@ esp_err_t handle_set(httpd_req_t *req) {
         else if (std::strcmp(buf, "fixed_hemisphere") == 0) settings.controlFrameRotationStrategy = CONTROL_FRAME_ROTATION_FIXED_HEMISPHERE;
         dirty = true;
     }
-    if (get_query_str(req, "otaUsername", buf, sizeof(buf))) {
-        std::strncpy(settings.otaUsername, buf, sizeof(settings.otaUsername) - 1);
-        settings.otaUsername[sizeof(settings.otaUsername) - 1] = '\0';
+    if (hasUser) {
+        std::snprintf(settings.otaUsername, sizeof(settings.otaUsername), "%s", newUser);
         dirty = true;
     }
-    if (get_query_str(req, "otaPassword", buf, sizeof(buf))) {
-        std::strncpy(settings.otaPassword, buf, sizeof(settings.otaPassword) - 1);
-        settings.otaPassword[sizeof(settings.otaPassword) - 1] = '\0';
+    if (hasPass) {
+        std::snprintf(settings.otaPassword, sizeof(settings.otaPassword), "%s", newPass);
         dirty = true;
     }
+    if (hasUser || hasPass) uart_link_credentials_changed(); // the camera guards its /update with the same ones
     // Game/app settings no longer live here -- see app_data.hpp (/appdata/*).
     if (dirty) {
         saveSettings();
@@ -530,8 +550,15 @@ esp_err_t handle_set(httpd_req_t *req) {
 
 esp_err_t handle_params(httpd_req_t *req) {
     const BreadcrumbSnapshot &bc = breadcrumb_get_boot_snapshot();
+    // The password itself is never sent -- only whether one is set.
+    char userEsc[2 * sizeof(settings.otaUsername)], reasonEsc[96], core0Esc[96], core1Esc[96], wsMsgEsc[96];
+    json_escape(settings.otaUsername, userEsc, sizeof(userEsc));
+    json_escape(watchdog_last_reboot_reason_string(), reasonEsc, sizeof(reasonEsc));
+    json_escape(breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), core0Esc, sizeof(core0Esc));
+    json_escape(breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), core1Esc, sizeof(core1Esc));
+    json_escape(bc.lastWsMessageType, wsMsgEsc, sizeof(wsMsgEsc));
     char json[1850];
-    snprintf(json, sizeof(json),
+    int n = snprintf(json, sizeof(json),
         "{\"loggingEnabled\":%s,\"debugWeb\":%s,\"dataLogRate\":%.1f,\"mode\":%d,"
         "\"logType\":%d,\"logUnit\":%d,\"kp\":%.4f,\"ki\":%.4f,\"kd\":%.4f,"
         "\"differentiatorCutoffHz\":%.2f,\"motorPower\":%d,"
@@ -552,7 +579,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         "\"lastHangCore0Checkpoint\":\"%s\",\"lastHangCore1Checkpoint\":\"%s\","
         "\"lastHangWsMessage\":\"%s\",\"lastHangCore1Ticks\":%lu,"
         "\"lastHangConnCount\":%d,\"lastHangWsConnCount\":%d,"
-        "\"otaUsername\":\"%s\",\"otaPassword\":\"%s\"}",
+        "\"otaUsername\":\"%s\",\"otaPasswordSet\":%s}",
         settings.loggingEnabled ? "true" : "false", settings.debugWeb ? "true" : "false",
         settings.dataLogRate, settings.mode, settings.logType, settings.logUnit,
         settings.kp, settings.ki, settings.kd, settings.differentiatorCutoffHz,
@@ -573,12 +600,14 @@ esp_err_t handle_params(httpd_req_t *req) {
         settings.tiltMinAngleDeg, settings.tiltMaxAngleDeg,
         settings.cameraHeightMm, settings.cameraTiltDeg, settings.cameraVerticalFovDeg,
         watchdog_last_reboot_was_hang() ? "true" : "false",
-        watchdog_last_reboot_reason_string(),
-        breadcrumb_core0_checkpoint_name(bc.core0Checkpoint),
-        breadcrumb_core1_checkpoint_name(bc.core1Checkpoint),
-        bc.lastWsMessageType, (unsigned long) bc.core1TickCountAtLastMark,
+        reasonEsc, core0Esc, core1Esc, wsMsgEsc, (unsigned long) bc.core1TickCountAtLastMark,
         bc.core0TotalConns, bc.core0WsConns,
-        settings.otaUsername, settings.otaPassword);
+        userEsc, settings.otaPassword[0] != '\0' ? "true" : "false");
+    if (n < 0 || (size_t) n >= sizeof(json)) {
+        ESP_LOGE(TAG, "/params JSON truncated (%d bytes)", n);
+        httpd_resp_send_500(req);
+        return ESP_OK;
+    }
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json);
@@ -1097,6 +1126,45 @@ void web_server_init() {
     httpd_register_err_handler(g_server, HTTPD_404_NOT_FOUND, static_fallback_handler);
 
     ESP_LOGI(TAG, "httpd started on port %d", config.server_port);
+}
+
+void web_server_url_decode(char *s) { url_decode(s); }
+
+void json_escape(const char *in, char *out, size_t outLen) {
+    if (outLen == 0) return;
+    size_t j = 0;
+    for (size_t i = 0; in != nullptr && in[i] != '\0'; i++) {
+        unsigned char c = (unsigned char) in[i];
+        char esc[7];
+        size_t n;
+        if (c == '"' || c == '\\') {
+            esc[0] = '\\';
+            esc[1] = (char) c;
+            n = 2;
+        } else if (c < 0x20) {
+            n = (size_t) std::snprintf(esc, sizeof(esc), "\\u%04x", c);
+        } else {
+            esc[0] = (char) c;
+            n = 1;
+        }
+        if (j + n >= outLen) break; // truncate at a whole character/escape
+        std::memcpy(out + j, esc, n);
+        j += n;
+    }
+    out[j] = '\0';
+}
+
+int web_server_recv(httpd_req_t *req, char *buf, size_t len) {
+    // recv_wait_timeout (web_server_init()) is 5 s; a few in a row means the
+    // sender is gone, not slow. Without a limit the (single) httpd task --
+    // and during an OTA the paused robot -- would wait forever.
+    constexpr int MAX_TIMEOUTS = 3;
+    for (int timeouts = 0; timeouts < MAX_TIMEOUTS; timeouts++) {
+        int n = httpd_req_recv(req, buf, len);
+        if (n != HTTPD_SOCK_ERR_TIMEOUT) return n;
+    }
+    ESP_LOGW(TAG, "upload stalled -- giving up");
+    return HTTPD_SOCK_ERR_TIMEOUT;
 }
 
 httpd_handle_t web_server_get_handle() {

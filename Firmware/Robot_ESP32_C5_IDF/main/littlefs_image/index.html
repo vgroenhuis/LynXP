@@ -426,8 +426,14 @@
             <input type="text" id="otaUsername" autocomplete="off">
           </div>
           <div class="form-group inline-group">
-            <label for="otaPassword" title="Leave blank to disable authentication for /update and /update-fs.">OTA password:</label>
+            <label for="otaPassword" title="The current password: needed for uploads and to change the credentials.">OTA password:</label>
             <input type="password" id="otaPassword" autocomplete="off">
+          </div>
+          <div class="form-group inline-group">
+            <label for="otaNewPassword" title="Leave blank to disable authentication for firmware, filesystem, model and camera updates.">New password:</label>
+            <input type="password" id="otaNewPassword" autocomplete="new-password">
+            <button id="otaSaveCredsBtn">Save username &amp; password</button>
+            <span id="otaCredsStatus"></span>
           </div>
           <div class="form-group">
             <h4>App firmware (.bin)</h4>

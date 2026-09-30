@@ -61,3 +61,16 @@ uint16_t computeServoPulseUs(float angleDeg);
 // center pulse at 0, max pulse at settings.tiltMaxAngleDeg) -- some tilt
 // servos have a 270 or 360 deg range instead of the usual 180.
 uint16_t computeTiltServoPulseUs(float angleDeg);
+
+// Copies `in` into `out` as the inside of a JSON string literal (quotes,
+// backslashes and control characters escaped), truncating at a whole
+// character. For user-supplied text put into hand-built JSON.
+void json_escape(const char *in, char *out, size_t outLen);
+
+// httpd_req_recv() that gives up after a few receive timeouts in a row
+// (instead of retrying forever) -- for every POST body read. Returns bytes
+// received, or <= 0 on error/timeout/closed connection.
+int web_server_recv(httpd_req_t *req, char *buf, size_t len);
+
+// Decodes %XX escapes and '+' in place (httpd_query_key_value() doesn't).
+void web_server_url_decode(char *s);
