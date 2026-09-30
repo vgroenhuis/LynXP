@@ -297,8 +297,23 @@ esp_err_t ws_handler(httpd_req_t *req) {
     if (httpd_ws_recv_frame(req, &frame, 0) != ESP_OK) { // first pass: fills frame.len only
         return ESP_OK; // don't kill the connection over a malformed frame
     }
-    if (frame.len == 0 || frame.len > WS_RX_MAX) {
+    if (frame.len == 0) {
         return ESP_OK;
+    }
+    if (frame.len > WS_RX_MAX) {
+        // Its payload is still in the socket: returning without reading it
+        // would have the next "frame" parsed from the middle of this one.
+        // Read and drop a moderately oversized message; close the
+        // connection on an absurd one (the client reconnects).
+        constexpr size_t WS_DRAIN_MAX = 4096;
+        ESP_LOGW(TAG, "dropping oversized WS message (%u bytes)", (unsigned) frame.len);
+        if (frame.len > WS_DRAIN_MAX) return ESP_FAIL;
+        uint8_t *junk = (uint8_t *) malloc(frame.len);
+        if (junk == nullptr) return ESP_FAIL;
+        frame.payload = junk;
+        esp_err_t err = httpd_ws_recv_frame(req, &frame, frame.len);
+        free(junk);
+        return err == ESP_OK ? ESP_OK : ESP_FAIL;
     }
 
     uint8_t buf[WS_RX_MAX + 1];

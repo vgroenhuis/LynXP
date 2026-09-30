@@ -23,6 +23,8 @@ let controlFrameTheta = 0; // world-frame angle of the control-frame reference a
 let goalMarker = null; // last click-to-navigate target, in world coords, optionally with a .heading (rad)
 let waypoints = []; // user-added only, [{name,x,y,heading(rad)}] - Home is injected separately, never stored
 let selectedWaypointIndex = null; // index into fullWaypointList() (Home is index 0)
+let otaSavedUsername = "admin"; // as last loaded from/saved to the robot: the username changes are authorized with
+let otaPasswordSet = false; // whether the robot has an OTA password (it never sends the password itself)
 let editingWaypoint = false;
 
 // Patrol loop: when active, checkWaypointAutoAdvance() (called on every "pose"
@@ -1838,8 +1840,12 @@ function loadParams() {
       document.getElementById("tiltMaxSpeedDegPerSec").value = data.tiltMaxSpeedDegPerSec;
       document.getElementById("cameraJoystickCurve").value =
         data.cameraJoystickCurve === 1 ? "quadratic" : "linear";
+      // The robot never sends its password back, only whether one is set: the
+      // password field is for typing the current one (uploads, changes).
+      otaSavedUsername = data.otaUsername;
+      otaPasswordSet = !!data.otaPasswordSet;
       document.getElementById("otaUsername").value = data.otaUsername;
-      document.getElementById("otaPassword").value = data.otaPassword;
+      document.getElementById("otaPassword").placeholder = otaPasswordSet ? "(set -- type it to upload)" : "(none set)";
 
       document.getElementById("reboot-notice").style.display = data.lastRebootWasWatchdog ? "block" : "none";
       let rebootText = `Last reboot: ${data.lastRebootReason}`;
@@ -2328,8 +2334,29 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("cameraJoystickCurve").addEventListener("change", (e) => {
     setParam("cameraJoystickCurve", e.target.value);
   });
-  ["otaUsername", "otaPassword"].forEach((name) => {
-    document.getElementById(name).addEventListener("change", (e) => setParam(name, e.target.value));
+  // Changing the credentials needs the current ones (the robot checks them),
+  // so this is an explicit button rather than save-on-change.
+  document.getElementById("otaSaveCredsBtn").addEventListener("click", () => {
+    const user = document.getElementById("otaUsername").value;
+    const current = document.getElementById("otaPassword").value;
+    const next = document.getElementById("otaNewPassword").value;
+    const status = document.getElementById("otaCredsStatus");
+    const q = `otaUsername=${encodeURIComponent(user)}&otaPassword=${encodeURIComponent(next)}`;
+    fetch(`/set?${q}`, { headers: { Authorization: "Basic " + btoa(`${otaSavedUsername}:${current}`) } })
+      .then((r) => {
+        if (r.status === 401) {
+          status.textContent = "Not saved: the current password is wrong.";
+          return;
+        }
+        if (!r.ok) throw new Error(r.status);
+        otaSavedUsername = user;
+        otaPasswordSet = next !== "";
+        document.getElementById("otaPassword").value = next;
+        document.getElementById("otaNewPassword").value = "";
+        document.getElementById("otaPassword").placeholder = otaPasswordSet ? "(set -- type it to upload)" : "(none set)";
+        status.textContent = otaPasswordSet ? "Saved." : "Saved -- updates are now unprotected.";
+      })
+      .catch(() => (status.textContent = "Couldn't reach the robot."));
   });
   document.getElementById("feedForwardPwmPerRevPerSec").addEventListener("change", (e) => {
     setParam("feedForwardPwmPerRevPerSec", e.target.value);
@@ -2632,6 +2659,10 @@ window.addEventListener("DOMContentLoaded", () => {
   // Camera OTA: straight from this browser to the camera's own /update. Sent
   // as text/plain so the cross-origin POST needs no CORS preflight (the
   // camera accepts any Content-Type and answers with Access-Control-Allow-Origin).
+  // With a password set, the camera wants the same credentials as the robot
+  // (the robot passes them on over the UART link) -- that header makes the
+  // browser send a preflight first, which camera firmware from before this
+  // change doesn't allow; so a network error then means: retry without it.
   document.getElementById("uploadCamFwBtn").addEventListener("click", () => {
     const file = document.getElementById("camFwFile").files[0];
     const status = document.getElementById("camOtaStatus");
@@ -2645,7 +2676,14 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     const ip = camDirectIp;
     status.textContent = `Uploading ${file.name} (${Math.round(file.size / 1024)} KB) to the camera at ${ip}...`;
-    fetch(`http://${ip}/update`, { method: "POST", body: file, headers: { "Content-Type": "text/plain" } })
+    const send = (withAuth) =>
+      fetch(`http://${ip}/update`, {
+        method: "POST",
+        body: file,
+        headers: withAuth ? { "Content-Type": "text/plain", ...otaHeaders() } : { "Content-Type": "text/plain" },
+      });
+    send(otaPasswordSet)
+      .catch((e) => (otaPasswordSet ? send(false) : Promise.reject(e)))
       .then((r) => r.text().then((t) => ({ ok: r.ok, t })))
       .then(({ ok, t }) => {
         status.textContent = ok ? `${t} It keeps the new firmware once it's back on WiFi (about 10 s).` : `Camera refused the update: ${t}`;

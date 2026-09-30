@@ -2,6 +2,7 @@
 #include "board_pins.hpp"
 #include "wifi_connect.hpp"
 #include "wifi_networks.hpp"
+#include "settings.hpp"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -92,6 +93,29 @@ void maybe_sync_cam_wifi() {
     std::memcpy(s_lastPushedSsid, st.ssid, sizeof(s_lastPushedSsid)); // same size, always NUL-terminated
     s_lastCamWifiPush = now;
     ESP_LOGI(TAG, "sent network \"%s\" to the cam (it reported \"%s\")", st.ssid, s_diag.ssid);
+}
+
+// The camera guards its own /update with the robot's OTA credentials: they
+// travel as "OTA user=<hex> pass=<hex>" (the camera keeps them in NVS), sent
+// right after a change and re-sent every 30 s so a camera that rebooted or
+// was swapped picks them up too.
+constexpr TickType_t CAM_OTA_REPUSH_PERIOD = pdMS_TO_TICKS(30000);
+TickType_t s_lastCamOtaPush = 0;
+volatile bool s_camOtaDirty = true;
+
+void maybe_sync_cam_ota() {
+    if (uart_link_peer_is_stale()) return;
+    TickType_t now = xTaskGetTickCount();
+    if (!s_camOtaDirty && now - s_lastCamOtaPush < CAM_OTA_REPUSH_PERIOD) return;
+    s_camOtaDirty = false;
+    s_lastCamOtaPush = now;
+    char userHex[sizeof(settings.otaUsername) * 2];
+    char passHex[sizeof(settings.otaPassword) * 2];
+    hex_encode(settings.otaUsername, userHex, sizeof(userHex));
+    hex_encode(settings.otaPassword, passHex, sizeof(passHex));
+    char line[200];
+    int len = std::snprintf(line, sizeof(line), "OTA user=%s pass=%s\n", userHex, passHex);
+    uart_write_bytes(LINK_UART_PORT, line, len);
 }
 
 // Parses "STAT key=value key=value ...\n" (line already NUL-terminated, no
@@ -192,6 +216,7 @@ void uart_link_rx_task(void *arg) {
         if (xTaskGetTickCount() - s_lastCamWifiCheck >= CAM_WIFI_CHECK_PERIOD) {
             s_lastCamWifiCheck = xTaskGetTickCount();
             maybe_sync_cam_wifi();
+            maybe_sync_cam_ota();
         }
 
         int n = uart_read_bytes(LINK_UART_PORT, &byte, 1, pdMS_TO_TICKS(100));
@@ -269,3 +294,5 @@ bool uart_link_peer_is_stale() {
     if (s_lastSeenTick == 0) return true;
     return (xTaskGetTickCount() - s_lastSeenTick) > PEER_STALE_TICKS;
 }
+
+void uart_link_credentials_changed() { s_camOtaDirty = true; }

@@ -587,8 +587,87 @@ static void hex_decode(const char *in, char *out, size_t out_len) {
     out[j] = '\0';
 }
 
+// ---------------------------------------------------------------------------
+// Update credentials: /update is guarded by the robot's OTA username and
+// password, which the robot sends over the UART link ("OTA user=<hex>
+// pass=<hex>") and this camera keeps in NVS. An empty password means no
+// check, as on the robot. Without it any web page open in a browser on the
+// same network could flash this camera (/update answers every origin).
+// ---------------------------------------------------------------------------
+
+static char s_ota_user[32] = "admin";
+static char s_ota_pass[32] = "";
+static SemaphoreHandle_t s_ota_mutex;
+
+static void ota_creds_load(void) {
+    nvs_handle_t h;
+    if (nvs_open("camota", NVS_READONLY, &h) != ESP_OK) return;
+    size_t len = sizeof(s_ota_user);
+    if (nvs_get_str(h, "user", s_ota_user, &len) != ESP_OK) strcpy(s_ota_user, "admin");
+    len = sizeof(s_ota_pass);
+    if (nvs_get_str(h, "pass", s_ota_pass, &len) != ESP_OK) s_ota_pass[0] = '\0';
+    nvs_close(h);
+}
+
+static void ota_creds_set(const char *user, const char *pass) {
+    xSemaphoreTake(s_ota_mutex, portMAX_DELAY);
+    bool changed = strcmp(user, s_ota_user) != 0 || strcmp(pass, s_ota_pass) != 0;
+    if (changed) {
+        snprintf(s_ota_user, sizeof(s_ota_user), "%s", user);
+        snprintf(s_ota_pass, sizeof(s_ota_pass), "%s", pass);
+    }
+    xSemaphoreGive(s_ota_mutex);
+    if (!changed) return; // re-sent every 30 s: don't wear the flash
+    nvs_handle_t h;
+    if (nvs_open("camota", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, "user", user);
+    nvs_set_str(h, "pass", pass);
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "update credentials received from the robot (%s)", pass[0] ? "password set" : "no password");
+}
+
+static int base64_decode(const char *in, uint8_t *out, size_t out_cap) {
+    size_t n = 0;
+    int bits = 0, accum = 0;
+    for (; *in && *in != '='; in++) {
+        char c = *in;
+        int v = c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52
+              : c == '+' ? 62 : c == '/' ? 63 : -1;
+        if (v < 0) continue;
+        accum = (accum << 6) | v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            if (n >= out_cap) return -1;
+            out[n++] = (uint8_t) ((accum >> bits) & 0xFF);
+        }
+    }
+    return (int) n;
+}
+
+static bool ota_authorized(httpd_req_t *req) {
+    char expected[sizeof(s_ota_user) + 1 + sizeof(s_ota_pass)];
+    xSemaphoreTake(s_ota_mutex, portMAX_DELAY);
+    bool open = s_ota_pass[0] == '\0';
+    int expected_len = snprintf(expected, sizeof(expected), "%s:%s", s_ota_user, s_ota_pass);
+    xSemaphoreGive(s_ota_mutex);
+    if (open) return true;
+
+    char hdr[128];
+    if (httpd_req_get_hdr_value_str(req, "Authorization", hdr, sizeof(hdr)) != ESP_OK) return false;
+    if (strncmp(hdr, "Basic ", 6) != 0) return false;
+    uint8_t decoded[96];
+    int decoded_len = base64_decode(hdr + 6, decoded, sizeof(decoded));
+    if (decoded_len <= 0) return false;
+    uint8_t diff = (uint8_t) (decoded_len != expected_len); // constant-time compare
+    for (int i = 0; i < expected_len; i++) diff |= (uint8_t) (decoded[i < decoded_len ? i : 0] ^ (uint8_t) expected[i]);
+    return diff == 0;
+}
+
 // Lines from the robot:
 //   WIFI ssid=<hex> pass=<hex>   join this network
+//   OTA user=<hex> pass=<hex>    credentials for /update
 //   SCAN                         report what this camera hears
 static void status_uart_rx_task(void *arg) {
     char line[320];
@@ -606,6 +685,15 @@ static void status_uart_rx_task(void *arg) {
         len = 0;
         if (strcmp(line, "SCAN") == 0) {
             xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_BIT);
+            continue;
+        }
+        if (strncmp(line, "OTA ", 4) == 0) {
+            const char *u = strstr(line, "user=");
+            const char *p = strstr(line, "pass=");
+            char user[32], pass[32];
+            hex_decode(u ? u + 5 : "", user, sizeof(user));
+            hex_decode(p ? p + 5 : "", pass, sizeof(pass));
+            if (user[0] != '\0') ota_creds_set(user, pass);
             continue;
         }
         if (strncmp(line, "WIFI ", 5) != 0) continue;
@@ -796,13 +884,19 @@ static void ota_mark_valid_once(void) {
 static esp_err_t update_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, Authorization");
     httpd_resp_send(req, NULL, 0);
     return ESP_OK;
 }
 
 static esp_err_t update_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    if (!ota_authorized(req)) {
+        ESP_LOGW(TAG, "OTA rejected: bad or missing credentials");
+        httpd_resp_set_status(req, "401 Unauthorized");
+        httpd_resp_sendstr(req, "Wrong or missing update password (the robot's OTA password)");
+        return ESP_OK;
+    }
     const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
     if (part == NULL || req->content_len <= 0 || (size_t) req->content_len > part->size) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, part ? "Missing or oversized image" : "No OTA partition -- flash once over USB");
@@ -817,9 +911,13 @@ static esp_err_t update_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "OTA: receiving %d bytes into %s", req->content_len, part->label);
     static char buf[4096]; // one update at a time -- httpd serves this server's requests sequentially
     int remaining = req->content_len;
+    int timeouts = 0;
     while (remaining > 0) {
         int n = httpd_req_recv(req, buf, remaining < (int) sizeof(buf) ? remaining : (int) sizeof(buf));
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        // recv_wait_timeout is 10 s: a few in a row means the sender is gone --
+        // give up rather than block this server forever.
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 3) continue;
+        if (n > 0) timeouts = 0;
         if (n <= 0 || esp_ota_write(ota, buf, n) != ESP_OK) {
             esp_ota_abort(ota);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Upload interrupted or flash write failed");
@@ -1086,6 +1184,8 @@ void app_main(void) {
              reset_reason_str(esp_reset_reason()));
 
     ESP_ERROR_CHECK(nvs_flash_init());
+    s_ota_mutex = xSemaphoreCreateMutex();
+    ota_creds_load();
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     s_wifi_event_group = xEventGroupCreate();

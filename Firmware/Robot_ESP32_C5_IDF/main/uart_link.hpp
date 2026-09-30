@@ -68,3 +68,7 @@ CamScanState uart_link_cam_scan_state();
 // rebooted, UART unplugged, etc.) -- caller should show a "no link" state
 // instead of stale data.
 bool uart_link_peer_is_stale();
+
+// Call after settings.otaUsername/otaPassword change: re-sends them to the
+// camera (which guards its own /update with them) on the next link check.
+void uart_link_credentials_changed();

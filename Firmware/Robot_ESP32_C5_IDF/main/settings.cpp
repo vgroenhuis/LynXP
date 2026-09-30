@@ -3,6 +3,7 @@
 #include "nvs.h"
 #include "esp_log.h"
 
+#include <cmath>
 #include <cstring>
 
 // Ported from Robot_Pico2W_SDK/src/settings.cpp. applyDefaultSettings() is
@@ -177,6 +178,13 @@ bool loadSettings() {
     }
 
     settings = loaded;
+    // Values saved before /set validated its input: the wheel geometry is
+    // divided by (odometry, control), so a zero/NaN there must not survive.
+    auto sane = [](float v, float lo, float hi) { return std::isfinite(v) && v >= lo && v <= hi; };
+    if (!sane(settings.wheelbaseMm, 10.0f, 2000.0f)) settings.wheelbaseMm = 170.0f;
+    if (!sane(settings.wheelDiameterMm, 5.0f, 1000.0f)) settings.wheelDiameterMm = 71.5f;
+    settings.otaUsername[sizeof(settings.otaUsername) - 1] = '\0';
+    settings.otaPassword[sizeof(settings.otaPassword) - 1] = '\0';
     ESP_LOGI(TAG, "Settings loaded.");
     return true;
 }

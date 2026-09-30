@@ -84,8 +84,14 @@ bool ota_check_basic_auth(httpd_req_t *req) {
     decoded[decodedLen] = '\0';
 
     char expected[sizeof(settings.otaUsername) + 1 + sizeof(settings.otaPassword)];
-    snprintf(expected, sizeof(expected), "%s:%s", settings.otaUsername, settings.otaPassword);
-    return std::strcmp((const char *) decoded, expected) == 0;
+    int expectedLen = snprintf(expected, sizeof(expected), "%s:%s", settings.otaUsername, settings.otaPassword);
+    // Constant-time: the time taken doesn't reveal how many leading
+    // characters of a guess were right.
+    uint8_t diff = (uint8_t) (decodedLen != expectedLen);
+    for (int i = 0; i < expectedLen; i++) {
+        diff |= (uint8_t) (decoded[i < decodedLen ? i : 0] ^ (uint8_t) expected[i]);
+    }
+    return diff == 0;
 }
 
 void send_unauthorized(httpd_req_t *req) {
@@ -164,10 +170,7 @@ esp_err_t handle_update_post(httpd_req_t *req) {
     char buf[RECV_CHUNK];
     int remaining = (int) req->content_len;
     while (remaining > 0) {
-        int recvLen = httpd_req_recv(req, buf, std::min((int) sizeof(buf), remaining));
-        if (recvLen == HTTPD_SOCK_ERR_TIMEOUT) {
-            continue;
-        }
+        int recvLen = web_server_recv(req, buf, (size_t) std::min((int) sizeof(buf), remaining));
         if (recvLen <= 0) {
             esp_ota_abort(otaHandle);
             vTaskResume(ctrlTask);
@@ -204,6 +207,7 @@ esp_err_t handle_update_post(httpd_req_t *req) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
         vTaskResume(ctrlTask);
         esp_task_wdt_add(ctrlTask);
+        restore_servos();
         httpd_resp_send_500(req);
         return ESP_OK;
     }
@@ -231,6 +235,34 @@ esp_err_t handle_update_fs_post(httpd_req_t *req) {
     if ((size_t) req->content_len > fsPartition->size) {
         httpd_resp_set_status(req, "400 Bad Request");
         httpd_resp_sendstr(req, "Image too large for storage partition");
+        return ESP_OK;
+    }
+
+    // Receive the start of the image and check it IS a LittleFS image before
+    // erasing anything: a wrong file (the app .bin, say) is rejected with the
+    // current filesystem -- and so this web UI -- still intact. The superblock
+    // carries the magic "littlefs" at offset 8 of block 0 or of block 1 (the
+    // two blocks of the superblock pair; either may hold the newer copy).
+    constexpr size_t FS_BLOCK_SIZE = 4096;
+    constexpr size_t MAGIC_OFFSET = 8;
+    static char head[FS_BLOCK_SIZE + 16];
+    size_t headLen = std::min(sizeof(head), (size_t) req->content_len);
+    size_t got = 0;
+    while (got < headLen) {
+        int n = web_server_recv(req, head + got, headLen - got);
+        if (n <= 0) {
+            httpd_resp_send_500(req);
+            return ESP_OK;
+        }
+        got += (size_t) n;
+    }
+    auto hasMagic = [&](size_t at) {
+        return headLen >= at + MAGIC_OFFSET + 8 && std::memcmp(head + at + MAGIC_OFFSET, "littlefs", 8) == 0;
+    };
+    if (!hasMagic(0) && !hasMagic(FS_BLOCK_SIZE)) {
+        ESP_LOGW(TAG, "/update-fs rejected: not a LittleFS image");
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_sendstr(req, "Not a LittleFS image -- nothing was changed");
         return ESP_OK;
     }
 
@@ -274,11 +306,18 @@ esp_err_t handle_update_fs_post(httpd_req_t *req) {
     size_t writeOffset = 0;
     size_t erasedUpTo = 0;
     esp_err_t err = ESP_OK;
+    bool headWritten = false;
 
     while (remaining > 0) {
-        int recvLen = httpd_req_recv(req, buf, std::min((int) sizeof(buf), remaining));
-        if (recvLen == HTTPD_SOCK_ERR_TIMEOUT) {
-            continue;
+        const char *data = buf;
+        int recvLen;
+        if (!headWritten) {
+            // The already-received, already-checked start of the image first.
+            headWritten = true;
+            data = head;
+            recvLen = (int) headLen;
+        } else {
+            recvLen = web_server_recv(req, buf, (size_t) std::min((int) sizeof(buf), remaining));
         }
         if (recvLen <= 0) {
             err = ESP_FAIL;
@@ -297,7 +336,7 @@ esp_err_t handle_update_fs_post(httpd_req_t *req) {
             break;
         }
 
-        err = esp_partition_write(fsPartition, writeOffset, buf, recvLen);
+        err = esp_partition_write(fsPartition, writeOffset, data, recvLen);
         if (err != ESP_OK) {
             break;
         }
