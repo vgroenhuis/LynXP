@@ -36,7 +36,13 @@ Lynx.games = Lynx.games || {};
   const PIT_D = 0.12; // pit depth below the floor
   const INVULNERABLE_S = 1.5;
   const TOUCH_M = 0.11;
-  const NEAR = 0.06; // polygons are clipped this far in front of the lens
+  const NEAR = 0.042; // polygons are clipped this far in front of the lens (ar.js projects from 0.04)
+  // The walls stop the robot where it will have got to by the time a stop
+  // takes effect, not where it's shown: the shown pose trails the real one
+  // (it matches the video's delay, and poses come ~10 times a second) and
+  // the robot rolls on a little. Judged from the shown pose, it ended up a
+  // few cm into the clearance -- close enough to the wall to see through it.
+  const STOP_LOOKAHEAD_S = 0.3;
   const RING_SPEED = 0.45;
 
   const DIFFICULTY = {
@@ -571,6 +577,10 @@ Lynx.games = Lynx.games || {};
         if (me.r < q.r0) faces.push([[q.f1, q.r0], [q.f0, q.r0], col.dark]);
         if (me.r > q.r1) faces.push([[q.f0, q.r1], [q.f1, q.r1], col.dark]);
         const img = texturesOn && col.tex ? Lynx.texture(col.tex) : null;
+        // detail overlay for plain colors (ar.js): col.sideTex for the sides and
+        // underside, else col.topTex; false for none
+        const sideTex = col.sideTex !== undefined ? col.sideTex : col.topTex;
+        const detail = texturesOn && !img && sideTex !== false && !col.mortar ? Lynx.texture(sideTex || "slab") : null;
         faces.forEach(([a, b, fill]) => {
           const p = polyScreen([w3(a[0], a[1], h0), w3(b[0], b[1], h0), w3(b[0], b[1], h1), w3(a[0], a[1], h1)], 3);
           if (!p) return;
@@ -584,6 +594,11 @@ Lynx.games = Lynx.games || {};
             fillPoly(p, `rgba(20,12,4,${shade.toFixed(3)})`, col.line);
           } else if (col.mortar && h1 - h0 > 0.1) {
             for (let h = h0 + 0.07; h < h1 - 0.02; h += 0.07) line3([[a[0], a[1], h], [b[0], b[1], h]], col.line, 1, 0.1);
+          } else if (detail) {
+            // any other color: the detail overlay on its sides too
+            const m = toWorld((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+            texFace(a, b, h0, h1, detail, camZ(m.x, m.y, (h0 + h1) / 2) < 0.7);
+            if (col.line) fillPoly(p, null, col.line);
           }
           // a door: decorate its broad faces (not the edges of a thin slab)
           if (col.door && Math.hypot(b[0] - a[0], b[1] - a[1]) >= 0.8 * Math.max(q.f1 - q.f0, q.r1 - q.r0)) doorFace(a, b, h0, h1, col);
@@ -602,7 +617,10 @@ Lynx.games = Lynx.games || {};
         // a floating block seen from below (col.under: the color of its underside)
         if (col.under && cw.h < h0) {
           const p = polyScreen([w3(q.f0, q.r0, h0), w3(q.f0, q.r1, h0), w3(q.f1, q.r1, h0), w3(q.f1, q.r0, h0)], 3);
-          if (p) fillPoly(p, col.under, col.line);
+          if (p) {
+            fillPoly(p, col.under, col.line);
+            if (detail) texFloor(q, h0, sideTex || "slab");
+          }
         }
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
@@ -656,8 +674,6 @@ Lynx.games = Lynx.games || {};
     // drawn under them.
     const texturesOn = cfg.textures !== false && typeof Lynx.texture === "function" && !!ar.texturedQuad;
     const TEX_PPM = 256 / 0.6; // texture pixels per meter
-    const TEX_W = 256;
-    const TEX_H = 128;
     const mod = (a, n) => {
       const m = ((a % n) + n) % n;
       return n - m < 0.01 ? 0 : m;
@@ -677,10 +693,10 @@ Lynx.games = Lynx.games || {};
       const ss = cuts(Math.min(sA, sB), Math.max(sA, sB), near ? 0.1 : 0.3);
       const hs = cuts(h0, h1, near ? 0.1 : 0.15);
       for (let i = 0; i + 1 < ss.length; i++) {
-        const u0 = mod(ss[i] * TEX_PPM, TEX_W);
+        const u0 = mod(ss[i] * TEX_PPM, img.width); // walls 256 x 128, detail overlays 128 x 128
         const u1 = u0 + (ss[i + 1] - ss[i]) * TEX_PPM;
         for (let k = 0; k + 1 < hs.length; k++) {
-          const v0 = mod(-hs[k + 1] * TEX_PPM, TEX_H); // the top of each storey is the texture's top
+          const v0 = mod(-hs[k + 1] * TEX_PPM, img.height); // the top of each storey is the texture's top
           const v1 = v0 + (hs[k + 1] - hs[k]) * TEX_PPM;
           ar.texturedQuad([pt(ss[i], hs[k + 1]), pt(ss[i + 1], hs[k + 1]), pt(ss[i + 1], hs[k]), pt(ss[i], hs[k])], img,
             [{ u: u0, v: v0 }, { u: u1, v: v0 }, { u: u1, v: v1 }, { u: u0, v: v1 }]);
@@ -1511,7 +1527,21 @@ Lynx.games = Lynx.games || {};
       });
     }
 
+    // velocity of the shown pose (world m/s, smoothed), for stopPoint()
+    const vel = { x: 0, y: 0, last: null };
+    function trackVelocity(dt) {
+      const p = ar.pose;
+      if (vel.last && dt > 0) {
+        const k = 1 - Math.exp(-dt / 0.15);
+        vel.x += ((p.x - vel.last.x) / dt - vel.x) * k;
+        vel.y += ((p.y - vel.last.y) / dt - vel.y) * k;
+      }
+      vel.last = { x: p.x, y: p.y };
+    }
+    const stopPoint = () => toLocal(ar.pose.x + vel.x * STOP_LOOKAHEAD_S, ar.pose.y + vel.y * STOP_LOOKAHEAD_S);
+
     function update(dt) {
+      trackVelocity(dt);
       stateTime += dt;
       hurtFlash = Math.max(0, hurtFlash - dt);
       cooldown = Math.max(0, cooldown - dt);
@@ -1986,7 +2016,7 @@ Lynx.games = Lynx.games || {};
       ar, d, cfg, img, frame,
       anchor: () => anchor,
       time: () => stateTime,
-      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, fence, onRim, extent, pointAt, drawSprite, texFloor, floorDetail, doorFace,
+      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, fence, onRim, extent, pointAt, drawSprite, texFloor, texFace, floorDetail, doorFace, stopPoint,
       hurt, say,
       addScore: (n) => (score += n),
       heal: () => (hearts < maxHearts ? hearts++ : (score += 100)),

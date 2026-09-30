@@ -109,7 +109,7 @@ window.Lynx = window.Lynx || {};
 
   const MARBLE = { top: "#e8e0cc", side: "#bab09a", dark: "#8c8470", line: "rgba(60,50,30,0.55)", under: "#5e584c", topTex: "marble" };
   const SUMMIT = { top: "#f0dca0", side: "#c8a860", dark: "#987a38", line: "rgba(70,50,10,0.7)", under: "#5e5030", topTex: "marble" };
-  const COLUMN_COL = { top: "#d8d0bc", side: "#c4bca8", dark: "#9a9280", line: "rgba(60,50,30,0.5)", topTex: false };
+  const COLUMN_COL = { top: "#d8d0bc", side: "#c4bca8", dark: "#9a9280", line: "rgba(60,50,30,0.5)", topTex: false, sideTex: "marble" };
   const CRACKED = { top: "#c8b090", side: "#9a8468", dark: "#6e5c44", line: "rgba(40,25,10,0.8)", under: "#4a3c2c" };
   const PHASE_COL = { top: "rgba(120,220,255,0.75)", side: "rgba(80,170,230,0.75)", dark: "rgba(60,130,200,0.75)", line: "rgba(200,245,255,0.9)", under: "rgba(40,90,150,0.7)" };
   const LIFT_COL = { top: "#c89848", side: "#9a7028", dark: "#6a4c18", line: "rgba(40,24,4,0.9)", under: "#4a3410" };

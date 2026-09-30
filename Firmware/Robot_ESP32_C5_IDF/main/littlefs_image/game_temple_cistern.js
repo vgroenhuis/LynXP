@@ -81,12 +81,12 @@ window.Lynx = window.Lynx || {};
   const WADE = 0.25; // drive speed in water
   const LIFT_DROP = 0.6; // how far the lift travels
   const LIFT_S = 2;
-  const VENT_S = 3.0; // a vent fires for VENT_ON of every VENT_S seconds
+  const VENT_S = 3.8; // a vent fires for VENT_ON of every VENT_S seconds
   const VENT_ON = 1.2;
   const FLAME_H = 0.3; // jumping doesn't clear them
   const PUSH_S = 0.2; // keep pushing this long before a block moves
   const SLIDE_S = 0.5; // a block slides one cell in this long
-  const GATE_S = { easy: 20, normal: 14, hard: 11 };
+  const GATE_S = { easy: 22, normal: 16, hard: 13 }; // the vents' slower rhythm costs a little waiting
   const BOULDER = { rad: 0.12, speed: 0.2, delay: 1.5 };
 
   // blocks: lower-left cell (2 x 2 cells each)
@@ -142,7 +142,10 @@ window.Lynx = window.Lynx || {};
     const gateRect = rectOf(1, "G");
     const gate = K.timedGate(api, GATE_S[diff]);
     const dais = { ...rectOf(1, "R"), h0: 0, h1: 0.05 };
-    const lift = { up: false, h: 0, riding: 0, armed: false }; // h: its top, in the section you're in
+    // h: its top, in the section you're in. It starts up, level with the
+    // antechamber's floor over the shaft: step on and ride it down. (Only it
+    // takes you down, so it's always in the section you're in.)
+    const lift = { up: true, h: 0, riding: 0, armed: false };
     const resetDisks = [
       { sec: 0, f: 8.5 * CELL, r: K.R_MIN + CELL, h: 0.17, n: { f: 0, r: 1 }, hit: 0 },
       { sec: 1, f: 11.5 * CELL, r: K.R_MIN + CELL, h: 0.17, n: { f: 0, r: 1 }, hit: 0 },
@@ -372,6 +375,7 @@ window.Lynx = window.Lynx || {};
     function physics(me) {
       ar.setGround(groundAt(me.f, me.r, ar.feet(), ar.ground));
       // down the shaft: the deep cistern appears, you land on the lift
+      if (lift.riding) return; // riding it down, the lift brings you
       if (sec === 0 && ar.feet() < -0.3) switchSection(1, 0.35, true);
       else if (ar.feet() < -0.5) ar.z = ar.ground = 0; // (can't happen: the lift is always in the shaft you're in)
     }
@@ -563,24 +567,124 @@ window.Lynx = window.Lynx || {};
         K.floorButton(api, buttonAt, 0, gate.open && !gate.held);
         if (lift.up) fillRect(shaft, 0.003, "#050505", "#3a3020", 2);
       }
+      const c = K.camLocal(api);
+      if (liftSunk() && c.h > 0.02) drawShaftFromAbove(c);
     }
+    // Flames: a few tongues per vent, each a teardrop from the grate to a
+    // flickering, swaying tip (white-hot core, orange, red and fading), a
+    // glow on the floor and embers rising off it. They flare up when the vent
+    // fires and die down at the end; while off, a small blue pilot flame.
+    const TONGUES = [[0, 0, 1, 0.034], [-0.03, 0.02, 0.75, 0.024], [0.03, -0.015, 0.8, 0.024]]; // [dr, df, height, half width] (m)
+    function tongue(c, base, tip, halfW, sway, stops) {
+      const ax = tip.x - base.x;
+      const ay = tip.y - base.y;
+      const len = Math.hypot(ax, ay);
+      if (len < 2) return;
+      const px = -ay / len;
+      const py = ax / len;
+      const P = (s, l) => [base.x + ax * s + px * l, base.y + ay * s + py * l];
+      const g = c.createLinearGradient(base.x, base.y, tip.x, tip.y);
+      stops.forEach(([o, col]) => g.addColorStop(o, col));
+      c.fillStyle = g;
+      c.beginPath();
+      c.moveTo(...P(0, -halfW));
+      c.bezierCurveTo(...P(0.35, -halfW * 1.15), ...P(0.72, -halfW * 0.3 + sway * 0.5), ...P(1, sway));
+      c.bezierCurveTo(...P(0.72, halfW * 0.3 + sway * 0.5), ...P(0.35, halfW * 1.15), ...P(0, halfW));
+      c.quadraticCurveTo(...P(-0.15, 0), ...P(0, -halfW));
+      c.fill();
+    }
+    const OUTER = [[0, "rgba(255,250,210,0.95)"], [0.2, "rgba(255,200,70,0.9)"], [0.55, "rgba(255,110,20,0.75)"], [1, "rgba(190,30,0,0)"]];
+    const INNER = [[0, "rgba(255,255,255,0.95)"], [0.35, "rgba(255,240,170,0.85)"], [1, "rgba(255,190,60,0)"]];
+    const PILOT = [[0, "rgba(160,210,255,0.9)"], [0.6, "rgba(60,110,255,0.6)"], [1, "rgba(40,60,255,0)"]];
     function queueFlames() {
       for (let i = 0; i < ROWS; i++) {
         for (let j = 0; j < COLS; j++) {
-          if (!ventOn(sec, i, j)) continue;
+          if (cell(sec, i, j) !== "v" || ventCovered(sec, i, j)) continue;
           const p = cellCenter(i, j);
           const w = api.toWorld(p.f, p.r);
           const pr = api.camZ(w.x, w.y, 0.1) >= 0.06 ? ar.project(w.x, w.y, 0.1) : null;
           if (!pr) continue;
+          const phase = (((time - ventOffset(sec, i, j)) % VENT_S) + VENT_S) % VENT_S;
+          const on = phase < VENT_ON;
+          // flare up over 0.15 s, die down over the last 0.25 s
+          const env = on ? Math.min(1, phase / 0.15) * Math.min(1, (VENT_ON - phase) / 0.25) : 0;
+          const seed = i * 7.3 + j * 3.1;
           ar.queue(pr.depth, () => {
-            const flick = 0.8 + 0.2 * Math.sin(time * 25 + i * 3 + j);
-            [0.04, 0.12, 0.22].forEach((h, k) => {
-              const q = ar.project(w.x, w.y, h);
-              if (q) ar.glow(q.x, q.y, (0.07 - k * 0.012) * q.ppm * flick, [[0, "rgba(255,250,200,0.95)"], [0.4, "rgba(255,140,30,0.7)"], [1, "rgba(255,60,0,0)"]]);
+            const c = ar.ctx;
+            c.save();
+            c.globalCompositeOperation = "lighter";
+            if (!on) {
+              const b = ar.project(w.x, w.y, 0.004);
+              const t = ar.project(w.x, w.y, 0.03 + 0.004 * Math.sin(time * 20 + seed));
+              if (b && t) tongue(c, b, t, 0.012 * b.ppm, 0, PILOT);
+              c.restore();
+              return;
+            }
+            const b0 = ar.project(w.x, w.y, 0.004);
+            if (b0) ar.glow(b0.x, b0.y, 0.11 * b0.ppm * (0.7 + 0.3 * env), [[0, `rgba(255,140,40,${(0.55 * env).toFixed(3)})`], [1, "rgba(255,60,0,0)"]]);
+            TONGUES.forEach(([dr, df, hk, hw], k) => {
+              const tw = api.toWorld(p.f + df, p.r + dr);
+              const flick = 0.82 + 0.1 * Math.sin(time * 17 + seed + k * 2.1) + 0.08 * Math.sin(time * 31 + seed * 1.7 + k);
+              const h = FLAME_H * hk * env * flick;
+              const b = ar.project(tw.x, tw.y, 0.004);
+              const t = ar.project(tw.x, tw.y, 0.004 + h);
+              if (!b || !t) return;
+              const sway = (0.012 * Math.sin(time * 6 + seed + k * 1.3) + 0.006 * Math.sin(time * 13 + k)) * b.ppm;
+              tongue(c, b, t, hw * b.ppm, sway, OUTER);
+              const ti = ar.project(tw.x, tw.y, 0.004 + h * 0.5);
+              if (ti) tongue(c, b, ti, hw * 0.5 * b.ppm, sway * 0.5, INNER);
             });
+            // embers
+            for (let k = 0; k < 4; k++) {
+              const s = (time * 0.9 + k / 4 + seed * 0.13) % 1;
+              const e = ar.project(w.x + 0.03 * Math.sin(seed + k * 2 + s * 5), w.y + 0.03 * Math.cos(seed * 1.3 + k), 0.03 + s * FLAME_H * 1.3 * env);
+              if (!e) continue;
+              c.fillStyle = `rgba(255,${Math.round(200 - 120 * s)},60,${(0.9 * (1 - s) * env).toFixed(3)})`;
+              c.beginPath();
+              c.arc(e.x, e.y, Math.max(1, 0.004 * e.ppm), 0, 2 * Math.PI);
+              c.fill();
+            }
+            c.restore();
           }, api.pointAt(w.x, w.y, 0, FLAME_H));
         }
       }
+    }
+
+    // The lift's shaft while the lift is below the floor (on its way down):
+    // looking in from above, its walls and the lift inside the opening; from
+    // in it, its walls all round, over everything else.
+    function drawShaftWalls(lo, c, all) {
+      const q = shaft;
+      const img = api.texFace && Lynx.texture("crypt");
+      [[[q.f0, q.r1], [q.f0, q.r0], 1, 0], [[q.f1, q.r0], [q.f1, q.r1], -1, 0], [[q.f0, q.r0], [q.f1, q.r0], 0, 1], [[q.f1, q.r1], [q.f0, q.r1], 0, -1]].forEach(([a, b, nf, nr]) => {
+        if (!all && (c.f - a[0]) * nf + (c.r - a[1]) * nr <= 0) return;
+        const p = api.polyScreen([api.w3(a[0], a[1], lo), api.w3(b[0], b[1], lo), api.w3(b[0], b[1], 0), api.w3(a[0], a[1], 0)], 3);
+        if (!p) return;
+        api.fillPoly(p, "#3a342a", null);
+        if (img) api.texFace(a, b, lo, 0, img, true);
+        api.fillPoly(p, "rgba(0,0,0,0.4)", "rgba(0,0,0,0.7)", 2);
+      });
+    }
+    const liftSunk = () => {
+      const t = liftTop(sec);
+      return t !== null && t < -0.005;
+    };
+    function drawShaftFromAbove(c) {
+      const open = api.polyScreen(rectPoly(shaft, 0.003), 3);
+      if (!open) return;
+      const t = liftTop(sec);
+      const g = ar.ctx;
+      g.save();
+      g.beginPath();
+      open.forEach((p, k) => (k ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+      g.closePath();
+      g.clip();
+      api.fillPoly(open, "#050505", null);
+      drawShaftWalls(t - 0.06, c, false);
+      fillRect(shaft, t, LIFT_COL.top, LIFT_COL.line, 2);
+      if (api.texFloor) api.texFloor(shaft, t, "slab");
+      g.restore();
+      api.fillPoly(open, null, "#3a3020", 2);
     }
     function queueBoulder() {
       if (!boulder || sec !== 1 || boulder.sunk || boulder.smashed || boulder.t < 0) return;
@@ -607,13 +711,15 @@ window.Lynx = window.Lynx || {};
         api.box(dais, 0, dais.h1, DAIS);
       }
       const t = liftTop(sec);
-      if (t !== null) api.box(shaft, t - 0.06, t, LIFT_COL);
+      const inShaft = liftSunk() && c.h <= 0.02;
+      if (t !== null && (!liftSunk() || inShaft)) api.box(shaft, t - 0.06, t, LIFT_COL);
       resetDisks.forEach((s) => s.sec === sec && K.sunDisk(api, s, c, lineOfSight, "#40a0ff"));
       queueFlames();
       queueBoulder();
       K.drawItems(api, items, c, lineOfSight, img, here);
       enemies.queue(c, here);
       ar.flush();
+      if (inShaft) drawShaftWalls(t - 0.06, c, true);
     }
 
     function hud() {
@@ -651,7 +757,7 @@ window.Lynx = window.Lynx || {};
           if (b.gone || b.i !== 9) return go("The plate's block is stuck? Shoot the blue sun disk on the west wall to put the blocks back", resetDisks[0], 0.17);
           return go("Push the stone block east onto the pressure plate: it holds the door open", center(plate), 0.05);
         }
-        return go("Through the door, between the flame bursts, and down the shaft (north-west)", center(shaft), 0.05);
+        return go("Through the door, between the flame bursts, and ride the lift down (north-west)", center(shaft), 0.05);
       }
       const inRoom = me.f < gateRect.f0;
       if (inRoom) return go("Take the Tide Chalice", { f: 0.22, r: 0 }, 0.08);
