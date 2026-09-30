@@ -583,6 +583,8 @@ window.Lynx = window.Lynx || {};
     g.fill();
     g.restore();
     ar.text(label, mx + (COLS * s) / 2, my + ROWS * s + 16, { size: 11, align: "center", color: "#ffd84a" });
+    // where temple point (f, r) is on the map, for drawing over it
+    return { at: (f, r) => ({ x: mx + ((r - R_MIN) / CELL) * s, y: my + (ROWS - f / CELL) * s }), s };
   }
 
   Lynx.templeKit = {
