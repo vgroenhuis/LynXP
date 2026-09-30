@@ -104,6 +104,24 @@ window.Lynx = window.Lynx || {};
     return out;
   }
 
+  // Is an outer wall piece (just outside the grid) backed by wall cells all
+  // along its inside? Then those cells' grating stands right in front of it
+  // and the piece is left out (two gratings in a row hide the room again).
+  function behindRim(q, isWallAt) {
+    const E = 0.02;
+    let pts;
+    const along = (a, b, at) => {
+      const out = [];
+      for (let s = Math.max(a, 0) + 0.01; s < b - 0.005; s += 0.05) out.push(at(s));
+      return out;
+    };
+    if (q.r1 <= R_MIN + 1e-6) pts = along(q.f0, Math.min(q.f1, LEN), (f) => [f, R_MIN + E]);
+    else if (q.r0 >= R_MAX - 1e-6) pts = along(q.f0, Math.min(q.f1, LEN), (f) => [f, R_MAX - E]);
+    else if (q.f1 <= 1e-6) pts = along(q.r0 - R_MIN, Math.min(q.r1, R_MAX) - R_MIN, (r) => [E, R_MIN + r]);
+    else pts = along(q.r0 - R_MIN, Math.min(q.r1, R_MAX) - R_MIN, (r) => [LEN - E, R_MIN + r]);
+    return pts.length > 0 && pts.every(([f, r]) => isWallAt(f, r));
+  }
+
   // Where the camera is, in temple coordinates.
   function camLocal(api) {
     const cw = api.ar.cameraWorld();
@@ -565,12 +583,14 @@ window.Lynx = window.Lynx || {};
     g.fill();
     g.restore();
     ar.text(label, mx + (COLS * s) / 2, my + ROWS * s + 16, { size: 11, align: "center", color: "#ffd84a" });
+    // where temple point (f, r) is on the map, for drawing over it
+    return { at: (f, r) => ({ x: mx + ((r - R_MIN) / CELL) * s, y: my + (ROWS - f / CELL) * s }), s };
   }
 
   Lynx.templeKit = {
     CELL, ROWS, COLS, R_MIN, R_MAX, LEN, CLEAR, STEP_UP, BODY_H, TOUCH_M,
     clamp, cellI, cellJ, cellRect, cellCenter, inRect, grow, overlaps,
-    parseMap, mergeCells, rectWhere, boundary, outerWalls, camLocal,
+    parseMap, mergeCells, rectWhere, boundary, outerWalls, behindRim, camLocal,
     wallStopper, enemyPack, timedGate, sunDisk, floorButton, queueBars, drawItems, pickUp, minimap,
   };
 })(window.Lynx);

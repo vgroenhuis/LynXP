@@ -50,7 +50,7 @@ Lynx.games = Lynx.games || {};
     normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, wisps: 1, bossWisps: 1, attackEvery: 4, vulnerable: 8, seqGrid: 4, seq: 10, dartEvery: 2.8 },
     hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, wisps: 2, bossWisps: 2, attackEvery: 3, vulnerable: 6, seqGrid: 4, seq: 12, dartEvery: 2.2 },
   };
-  const LAST_LEVEL = 6;
+  const LAST_LEVEL = 8;
   const SEQ_STEP_S = 0.9; // memory floor: each glyph shows this long (lit for SEQ_ON_S of it)
   const SEQ_ON_S = 0.65;
   const DART_H = 0.05; // darts fly this high: jump over them
@@ -324,6 +324,44 @@ Lynx.games = Lynx.games || {};
         winTitle: "THE TIDE CHALICE IS YOURS",
         intro: "Level 6 -- the drowned cistern: drive into a stone block to push it",
       },
+      // sunbeams, mirrors you shoot to turn, the robot as a mirror: game_temple_mirrors.js
+      7: {
+        name: "the hall of mirrors",
+        maze: "mirrors",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Sun Disc",
+        winTitle: "THE SUN DISC IS YOURS",
+        intro: "Level 7 -- the hall of mirrors: shoot a mirror to turn it, and bend the sunbeams. They burn!",
+      },
+      // stealth: watchers' gazes, patrols, noisy gravel, gongs: game_temple_vault.js
+      8: {
+        name: "the watchers' vault",
+        maze: "vault",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Crown of Eyes",
+        winTitle: "THE CROWN OF EYES IS YOURS",
+        intro: "Level 8 -- the watchers' vault: stay out of their gaze, and drive slowly on gravel",
+      },
     };
     let level = firstLevel;
     let lv = LEVELS[level];
@@ -387,7 +425,7 @@ Lynx.games = Lynx.games || {};
     let best = null;
     let rankMsg = "";
     let godMode = false; // testing: Lynx.activeGame.debug.god(true) from the console
-    let maze = null; // levels 2, 4, 5 and 6's own file (game_temple_sanctum.js ...), while one is on
+    let maze = null; // levels 2 and 4 to 8: their own file (game_temple_sanctum.js ...), while one is on
     Lynx.bestScore("temple").then((b) => (best = b));
 
     // -- coordinates -----------------------------------------------------------------
@@ -544,6 +582,40 @@ Lynx.games = Lynx.games || {};
         }
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
+    // The outer walls: a see-through bronze grating instead of stone, so near
+    // the edge of the play area the camera still shows the real room beyond
+    // (you'd drive into what a stone wall hides). Like box, each face the
+    // camera sees: a faint tint, bars, and rails at the bottom, middle, top.
+    const GRATE = { bar: "rgba(70,48,22,0.9)", rail: "rgba(120,86,40,0.95)", tint: "rgba(60,40,20,0.12)" };
+    function fence(q, h0, h1) {
+      const cw = ar.cameraWorld();
+      const me = toLocal(cw.x, cw.y);
+      const mid = toWorld((q.f0 + q.f1) / 2, (q.r0 + q.r1) / 2);
+      const depth = camZ(mid.x, mid.y, (h0 + h1) / 2);
+      if (depth < -0.3) return;
+      ar.queue(depth, () => {
+        const faces = [];
+        if (me.f < q.f0) faces.push([[q.f0, q.r0], [q.f0, q.r1]]);
+        if (me.f > q.f1) faces.push([[q.f1, q.r1], [q.f1, q.r0]]);
+        if (me.r < q.r0) faces.push([[q.f1, q.r0], [q.f0, q.r0]]);
+        if (me.r > q.r1) faces.push([[q.f0, q.r1], [q.f1, q.r1]]);
+        faces.forEach(([a, b]) => {
+          const p = polyScreen([w3(a[0], a[1], h0), w3(b[0], b[1], h0), w3(b[0], b[1], h1), w3(a[0], a[1], h1)], 3);
+          if (p) fillPoly(p, GRATE.tint, null);
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          const n = Math.max(1, Math.round(len / 0.05));
+          for (let k = 0; k <= n; k++) {
+            const f = a[0] + ((b[0] - a[0]) * k) / n;
+            const r = a[1] + ((b[1] - a[1]) * k) / n;
+            line3([[f, r, h0], [f, r, h1]], GRATE.bar, k === 0 || k === n ? 3 : 1.5, 0.1);
+          }
+          [h0 + 0.01, (h0 + h1) / 2, h1].forEach((h) => line3([[a[0], a[1], h], [b[0], b[1], h]], GRATE.rail, 2.5, 0.1));
+        });
+      }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
+    }
+    // Does a map cell lie on the outer ring (drawn as grating: see fence)?
+    const onRim = (i, j, rows, cols) => i === 0 || j === 0 || i === rows - 1 || j === cols - 1;
+
     // -- stone textures (ar.js makes them): fixed to the world in tiles of
     // TEX_WALL_M x TEX_STOREY_M on walls, TEX_FLOOR_M on floors, so the stone
     // stays put as you move. Surfaces are cut into small quads for drawing
@@ -640,6 +712,7 @@ Lynx.games = Lynx.games || {};
       N = grid.n;
       T = grid.t;
       gateF = lv.gateF;
+      if (ar.setCeiling) ar.setCeiling(Infinity); // (level 2 sets one under its upper floor)
       anchor = {
         x: ar.pose.x - lv.startF * Math.cos(ar.pose.theta),
         y: ar.pose.y - lv.startF * Math.sin(ar.pose.theta),
@@ -690,7 +763,7 @@ Lynx.games = Lynx.games || {};
       const hp = Math.round(d.bossHp * lv.bossHp);
       boss = { hp, maxHp: hp, state: "sleep", attackT: 3, attackN: 0, openT: 0, hit: 0, t: 0, rect: null };
       spawnCrystals();
-      const MAZES = { sanctum: "templeSanctum", labyrinth: "templeLabyrinth", sky: "templeSky", cistern: "templeCistern" };
+      const MAZES = { sanctum: "templeSanctum", labyrinth: "templeLabyrinth", sky: "templeSky", cistern: "templeCistern", mirrors: "templeMirrors", vault: "templeVault" };
       maze = lv.maze ? Lynx[MAZES[lv.maze]](mazeApi) : null;
       state = "playing";
       stateTime = 0;
@@ -1494,11 +1567,11 @@ Lynx.games = Lynx.games || {};
     function drawWalls() {
       for (let f = 0; f < LEN; f += 0.25) {
         const f1 = Math.min(LEN, f + 0.25);
-        box({ f0: f, f1, r0: -HALF_W - 0.06, r1: -HALF_W }, 0, WALL_H, SANDSTONE);
-        box({ f0: f, f1, r0: HALF_W, r1: HALF_W + 0.06 }, 0, WALL_H, SANDSTONE);
+        fence({ f0: f, f1, r0: -HALF_W - 0.06, r1: -HALF_W }, 0, WALL_H);
+        fence({ f0: f, f1, r0: HALF_W, r1: HALF_W + 0.06 }, 0, WALL_H);
       }
       for (let r = -HALF_W - 0.06; r < HALF_W + 0.06; r += 0.32) {
-        box({ f0: LEN, f1: LEN + 0.06, r0: r, r1: Math.min(HALF_W + 0.06, r + 0.32) }, 0, WALL_H, SANDSTONE);
+        fence({ f0: LEN, f1: LEN + 0.06, r0: r, r1: Math.min(HALF_W + 0.06, r + 0.32) }, 0, WALL_H);
       }
       // entrance pillars
       box({ f0: -0.07, f1: 0.05, r0: -HALF_W - 0.1, r1: -HALF_W + 0.02 }, 0, 0.32, SANDSTONE);
@@ -1750,12 +1823,12 @@ Lynx.games = Lynx.games || {};
       }
     }
 
-    // What levels 2, 4, 5 and 6 (game_temple_sanctum.js etc.) get to work with.
+    // What levels 2 and 4 to 8 (game_temple_sanctum.js etc.) get to work with.
     const mazeApi = {
       ar, d, cfg, img, frame,
       anchor: () => anchor,
       time: () => stateTime,
-      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, extent, pointAt, drawSprite, texFloor,
+      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, fence, onRim, extent, pointAt, drawSprite, texFloor,
       hurt, say,
       addScore: (n) => (score += n),
       heal: () => (hearts < maxHearts ? hearts++ : (score += 100)),
@@ -1796,7 +1869,7 @@ Lynx.games = Lynx.games || {};
         },
         tileCenter,
         crystals: () => crystals.filter((c) => c.alive).map((c) => ({ f: c.f, r: c.r, h: c.h })),
-        level: (n) => startLevel(n), // jump straight to a level (1 to 6)
+        level: (n) => startLevel(n), // jump straight to a level (1 to 8)
         maze: () => maze && maze.debug,
       },
       snapshot: () => {

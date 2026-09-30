@@ -270,7 +270,10 @@ window.Lynx = window.Lynx || {};
       return {
         ...W,
         walls: mergeCells((i, j) => cell(w, i, j) === "#").map((q) => ({ ...q, h0: 0, h1: WALL_H })),
-        outer,
+        // for drawing: the outer ring's wall cells are grating (api.fence), the rest stone
+        wallsDrawn: mergeCells((i, j) => cell(w, i, j) === "#" && !api.onRim(i, j, ROWS, COLS)),
+        rimWalls: mergeCells((i, j) => cell(w, i, j) === "#" && api.onRim(i, j, ROWS, COLS)),
+        outer: outer.filter((q) => !Lynx.templeKit.behindRim(q, (f, r) => cell(w, Math.floor(f / CELL), Math.floor((r - R_MIN) / CELL)) === "#")),
         floors: mergeCells((i, j) => cell(w, i, j) !== "#"),
         pits: mergeCells((i, j) => cell(w, i, j) === "x"),
         seen: Array.from({ length: ROWS }, () => new Array(COLS).fill(false)),
@@ -751,8 +754,9 @@ window.Lynx = window.Lynx || {};
     function queueWalls() {
       const W = wings[wing];
       const col = WALL_COL[W.wall];
-      W.walls.forEach((q) => api.box(q, 0, WALL_H, col));
-      W.outer.forEach((q) => api.box(q, 0, WALL_H, col));
+      W.wallsDrawn.forEach((q) => api.box(q, 0, WALL_H, col));
+      W.rimWalls.forEach((q) => api.fence(q, 0, WALL_H));
+      W.outer.forEach((q) => api.fence(q, 0, WALL_H));
       if (wing === 2) api.box(dais, 0, DAIS_H, DAIS_COL);
     }
 

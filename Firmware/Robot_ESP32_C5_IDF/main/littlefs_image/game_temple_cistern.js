@@ -126,7 +126,10 @@ window.Lynx = window.Lynx || {};
     const cell = (s, i, j) => (i < 0 || i >= ROWS || j < 0 || j >= COLS ? "#" : MAPS[s][i][j]);
     const rectOf = (s, ch) => K.rectWhere((i, j) => MAPS[s][i][j] === ch);
     const walls = [0, 1].map((s) => K.mergeCells((i, j) => cell(s, i, j) === "#").map((q) => ({ ...q, h0: 0, h1: 0.3 })));
-    const outer = [K.outerWalls(CELL), K.outerWalls(0)];
+    const outer = [K.outerWalls(CELL), K.outerWalls(0)].map((pieces, s) => pieces.filter((q) => !K.behindRim(q, (f, r) => cell(s, cellI(f), cellJ(r)) === "#")));
+    // for drawing: the outer ring's wall cells are grating (api.fence), the rest stone
+    const wallsDrawn = [0, 1].map((s) => K.mergeCells((i, j) => cell(s, i, j) === "#" && !api.onRim(i, j, ROWS, COLS)));
+    const rimWalls = [0, 1].map((s) => K.mergeCells((i, j) => cell(s, i, j) === "#" && api.onRim(i, j, ROWS, COLS)));
     const bridged = [0, 1].map(() => Array.from({ length: ROWS }, () => new Array(COLS).fill(false)));
     const blocks = BLOCKS.map((b, k) => ({ ...b, id: k, start: { i: b.i, j: b.j }, sunk: false, sink: 0, slide: null, push: 0 }));
     const plate = rectOf(0, "P");
@@ -584,8 +587,9 @@ window.Lynx = window.Lynx || {};
     function draw() {
       const c = K.camLocal(api);
       drawFloor();
-      walls[sec].forEach((q) => api.box(q, 0, 0.3, WALL));
-      outer[sec].forEach((q) => api.box(q, 0, 0.3, WALL));
+      wallsDrawn[sec].forEach((q) => api.box(q, 0, 0.3, WALL));
+      rimWalls[sec].forEach((q) => api.fence(q, 0, 0.3));
+      outer[sec].forEach((q) => api.fence(q, 0, 0.3));
       liveBlocks(sec).forEach((b) => {
         const top = b.sunk ? blockTop(b) : BLOCK_H;
         api.box(K.grow(blockRect(b), -0.005), b.sunk ? top - 0.3 : 0, top, STONE);

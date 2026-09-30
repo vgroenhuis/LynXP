@@ -201,6 +201,10 @@ window.Lynx = window.Lynx || {};
     // -- the building ----------------------------------------------------------
     const walls = [0, 1].map((fl) =>
       mergeCells((i, j) => cell(fl, i, j) === "#").map((q) => ({ ...q, h0: fl * FLOOR_H, h1: fl * FLOOR_H + WALL_H, fl })));
+    // for drawing: the outer ring's wall cells are grating (api.fence), the rest stone
+    const rim = (i, j) => api.onRim(i, j, ROWS, COLS);
+    const wallsDrawn = [0, 1].map((fl) => mergeCells((i, j) => cell(fl, i, j) === "#" && !rim(i, j)));
+    const rimWalls = [0, 1].map((fl) => mergeCells((i, j) => cell(fl, i, j) === "#" && rim(i, j)));
     const OUT = 5;
     const boundary = [
       { f0: -OUT, f1: 0, r0: -OUT, r1: OUT, h0: -1, h1: 3 },
@@ -226,6 +230,8 @@ window.Lynx = window.Lynx || {};
       outer.push({ f0: -THICK, f1: 0, r0: R_MIN - THICK, r1: -gap, h0 });
       outer.push({ f0: -THICK, f1: 0, r0: gap, r1: R_MAX + THICK, h0 });
     });
+    const isWallAt = (fl) => (f, r) => cell(fl, Math.floor(f / CELL), Math.floor((r - R_MIN) / CELL)) === "#";
+    const outerDrawn = outer.filter((q) => !Lynx.templeKit.behindRim(q, isWallAt(q.h0 > 0 ? 1 : 0)));
     const lowBlock = { ...rectOf(0, "o"), h0: 0, h1: BLOCK_H };
     const floorRects = mergeCells((i, j) => cell(0, i, j) !== "#");
     const pitRect = rectOf(0, "x");
@@ -452,17 +458,13 @@ window.Lynx = window.Lynx || {};
     function physics(me) {
       const feet = ar.feet();
       ar.setGround(groundAt(me.f, me.r, feet, ar.ground));
-      // Under the upper floor a jump stops at the ceiling (the camera must
-      // stay below it, or the two storeys would be drawn in the wrong order).
+      // Under the upper floor the view stops at the ceiling (the camera must
+      // stay below it, or the two storeys would be drawn in the wrong order);
+      // the jump itself carries you as far as in the open (see ar.setCeiling).
       const i = cellI(me.f);
       const j = cellJ(me.r);
-      if (ar.airborne && ar.vz > 0 && feet < FLOOR_H - 0.05 && upperSolid(i, j, me.f, me.r)) {
-        const zMax = Math.max(0, FLOOR_H - 0.03 - ar.calib.heightM);
-        if (ar.z > zMax) {
-          ar.z = zMax;
-          ar.vz = 0;
-        }
-      }
+      const low = feet < FLOOR_H - 0.05 && upperSolid(i, j, me.f, me.r);
+      if (ar.setCeiling) ar.setCeiling(low ? Math.max(0, FLOOR_H - 0.03 - ar.calib.heightM) : Infinity);
       feetFloor = ar.ground >= FLOOR_H - 0.01 && feet >= FLOOR_H - 0.03 ? 1 : 0;
     }
 
@@ -735,8 +737,9 @@ window.Lynx = window.Lynx || {};
 
     function queueGroundFloor() {
       const c = cam();
-      walls[0].forEach((q) => api.box(q, 0, WALL_H, q.f0 >= 13 * CELL - 1e-6 && q.r1 <= R_MIN + 3 * CELL + 1e-6 ? CRYPT : SANDSTONE));
-      outer.filter((q) => q.h0 === 0).forEach((q) => api.box(q, 0, WALL_H, SANDSTONE));
+      wallsDrawn[0].forEach((q) => api.box(q, 0, WALL_H, q.f0 >= 13 * CELL - 1e-6 && q.r1 <= R_MIN + 3 * CELL + 1e-6 ? CRYPT : SANDSTONE));
+      rimWalls[0].forEach((q) => api.fence(q, 0, WALL_H));
+      outerDrawn.filter((q) => q.h0 === 0).forEach((q) => api.fence(q, 0, WALL_H));
       for (let i = STAIRS.i0; i <= STAIRS.i1; i++) api.box(cellRect(i, i, STAIRS.j0, STAIRS.j1), 0, stepH(i), STEP_COL);
       api.box(lowBlock, 0, BLOCK_H, SANDSTONE);
       api.box(lift, 0, lift.h, DAIS_COL);
@@ -746,8 +749,9 @@ window.Lynx = window.Lynx || {};
 
     function queueUpperFloor() {
       const c = cam();
-      walls[1].forEach((q) => api.box(q, FLOOR_H, FLOOR_H + WALL_H, SANDSTONE));
-      outer.filter((q) => q.h0 === FLOOR_H).forEach((q) => api.box(q, FLOOR_H, FLOOR_H + WALL_H, SANDSTONE));
+      wallsDrawn[1].forEach((q) => api.box(q, FLOOR_H, FLOOR_H + WALL_H, SANDSTONE));
+      rimWalls[1].forEach((q) => api.fence(q, FLOOR_H, FLOOR_H + WALL_H));
+      outerDrawn.filter((q) => q.h0 === FLOOR_H).forEach((q) => api.fence(q, FLOOR_H, FLOOR_H + WALL_H));
       doors.filter((o) => o.fl === 1).forEach(queueDoor);
       queueThings(1, c);
       queueExit();
