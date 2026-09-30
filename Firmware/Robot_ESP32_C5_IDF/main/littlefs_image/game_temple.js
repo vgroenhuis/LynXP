@@ -1,8 +1,10 @@
 // Temple of LynXP -- a small Tomb Raider-style adventure laid out on the
-// floor in front of the robot (about 2 x 3 m). Four levels, laid out afresh
+// floor in front of the robot (about 2 x 3 m). Six levels, laid out afresh
 // in front of the robot each time; the corridor levels (1 and 3) have three
 // chambers, level 2 is the two-storey maze of game_temple_sanctum.js, level 4
-// the three-wing labyrinth of game_temple_labyrinth.js.
+// the three-wing labyrinth of game_temple_labyrinth.js, level 5 the floating
+// sky citadel (game_temple_sky.js), level 6 the drowned cistern with its
+// push blocks (game_temple_cistern.js); 5 and 6 build on game_temple_kit.js.
 // Level 1, the upper temple:
 //   1. the hall of pits: jump a spike pit and a lava channel, climb stone
 //      blocks for treasure, fend off bats and a spirit;
@@ -48,7 +50,7 @@ Lynx.games = Lynx.games || {};
     normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, wisps: 1, bossWisps: 1, attackEvery: 4, vulnerable: 8, seqGrid: 4, seq: 10, dartEvery: 2.8 },
     hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, wisps: 2, bossWisps: 2, attackEvery: 3, vulnerable: 6, seqGrid: 4, seq: 12, dartEvery: 2.2 },
   };
-  const LAST_LEVEL = 4;
+  const LAST_LEVEL = 6;
   const SEQ_STEP_S = 0.9; // memory floor: each glyph shows this long (lit for SEQ_ON_S of it)
   const SEQ_ON_S = 0.65;
   const DART_H = 0.05; // darts fly this high: jump over them
@@ -284,6 +286,44 @@ Lynx.games = Lynx.games || {};
         winTitle: "THE MOON IDOL IS YOURS",
         intro: "Level 4 -- the clockwork labyrinth: doors turn, portals lead to other wings. Find the Moon Idol!",
       },
+      // floating platforms in four tiers, climbing twice round: game_temple_sky.js
+      5: {
+        name: "the sky citadel",
+        maze: "sky",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Sky Orb",
+        winTitle: "THE SKY ORB IS YOURS",
+        intro: "Level 5 -- the sky citadel: climb to the summit!",
+      },
+      // two sections, push blocks, flame vents, a boulder: game_temple_cistern.js
+      6: {
+        name: "the drowned cistern",
+        maze: "cistern",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Tide Chalice",
+        winTitle: "THE TIDE CHALICE IS YOURS",
+        intro: "Level 6 -- the drowned cistern: drive into a stone block to push it",
+      },
     };
     let level = firstLevel;
     let lv = LEVELS[level];
@@ -347,7 +387,7 @@ Lynx.games = Lynx.games || {};
     let best = null;
     let rankMsg = "";
     let godMode = false; // testing: Lynx.activeGame.debug.god(true) from the console
-    let maze = null; // level 2's game_temple_sanctum.js or level 4's game_temple_labyrinth.js, while it's on
+    let maze = null; // levels 2, 4, 5 and 6's own file (game_temple_sanctum.js ...), while one is on
     Lynx.bestScore("temple").then((b) => (best = b));
 
     // -- coordinates -----------------------------------------------------------------
@@ -497,6 +537,11 @@ Lynx.games = Lynx.games || {};
             if (img) texFloor(q, h1, "flagstone");
           }
         }
+        // a floating block seen from below (col.under: the color of its underside)
+        if (col.under && cw.h < h0) {
+          const p = polyScreen([w3(q.f0, q.r0, h0), w3(q.f0, q.r1, h0), w3(q.f1, q.r1, h0), w3(q.f1, q.r0, h0)], 3);
+          if (p) fillPoly(p, col.under, col.line);
+        }
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
     // -- stone textures (ar.js makes them): fixed to the world in tiles of
@@ -645,7 +690,8 @@ Lynx.games = Lynx.games || {};
       const hp = Math.round(d.bossHp * lv.bossHp);
       boss = { hp, maxHp: hp, state: "sleep", attackT: 3, attackN: 0, openT: 0, hit: 0, t: 0, rect: null };
       spawnCrystals();
-      maze = lv.maze === "sanctum" ? Lynx.templeSanctum(mazeApi) : lv.maze === "labyrinth" ? Lynx.templeLabyrinth(mazeApi) : null;
+      const MAZES = { sanctum: "templeSanctum", labyrinth: "templeLabyrinth", sky: "templeSky", cistern: "templeCistern" };
+      maze = lv.maze ? Lynx[MAZES[lv.maze]](mazeApi) : null;
       state = "playing";
       stateTime = 0;
       invulnerable = 1;
@@ -1704,7 +1750,7 @@ Lynx.games = Lynx.games || {};
       }
     }
 
-    // What levels 2 and 4 (game_temple_sanctum.js, game_temple_labyrinth.js) get to work with.
+    // What levels 2, 4, 5 and 6 (game_temple_sanctum.js etc.) get to work with.
     const mazeApi = {
       ar, d, cfg, img, frame,
       anchor: () => anchor,
@@ -1750,7 +1796,7 @@ Lynx.games = Lynx.games || {};
         },
         tileCenter,
         crystals: () => crystals.filter((c) => c.alive).map((c) => ({ f: c.f, r: c.r, h: c.h })),
-        level: (n) => startLevel(n), // jump straight to a level (1 to 4)
+        level: (n) => startLevel(n), // jump straight to a level (1 to 6)
         maze: () => maze && maze.debug,
       },
       snapshot: () => {

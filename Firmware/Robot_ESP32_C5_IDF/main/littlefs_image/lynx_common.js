@@ -118,12 +118,15 @@ window.Lynx = window.Lynx || {};
         "Level 2, the sunken sanctum, is a two-storey maze whose walls really stop the robot: stairs, keys, doors, " +
         "switches you shoot, a lift -- and lava. Level 3 goes deeper: dart traps, a memory floor and the obsidian guardian. " +
         "Level 4, the clockwork labyrinth: three wings over the same floor, joined by portals, and rotating doors " +
-        "whose switches are always in another wing.",
+        "whose switches are always in another wing. Level 5, the sky citadel: floating platforms in four tiers -- " +
+        "crumbling tiles, phase tiles, a bounce pad, a lift. Level 6, the drowned cistern: push stone blocks into " +
+        "water for bridges and onto plates, flame vents, and a boulder. Both have a timed gate: press the button, " +
+        "then race the ticking clock.",
       settings: [
         { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
           options: [["easy", "Easy (narrow pits)"], ["normal", "Normal"], ["hard", "Hard (4x4 glyph floor, 12-glyph memory floor)"]] },
         { key: "startLevel", label: "Start at level", type: "select", def: "1",
-          options: [["1", "1 -- the upper temple"], ["2", "2 -- the sunken sanctum"], ["3", "3 -- the lower temple"], ["4", "4 -- the clockwork labyrinth"]] },
+          options: [["1", "1 -- the upper temple"], ["2", "2 -- the sunken sanctum"], ["3", "3 -- the lower temple"], ["4", "4 -- the clockwork labyrinth"], ["5", "5 -- the sky citadel"], ["6", "6 -- the drowned cistern"]] },
         { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
         { key: "aimAssist", label: "Aim assist", type: "checkbox", def: true },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
@@ -394,6 +397,9 @@ window.Lynx = window.Lynx || {};
     knock: (t) => { noise(t, 0.08, "lowpass", 700, 1, 0.7); tone(t, "sine", 180, 90, 0.06, 0.3); },
     crate: (t) => { noise(t, 0.35, "lowpass", 900, 0.8, 0.9, 120); tone(t, "square", 140, 60, 0.12, 0.3); },
     boing: (t) => tone(t, "sine", 180, 520, 0.18, 0.35),
+    // a clock: tick and tock alternate (the Temple's timed gates)
+    tick: (t) => { tone(t, "square", 2400, 1800, 0.025, 0.18); noise(t, 0.02, "highpass", 4000, 1, 0.2); },
+    tock: (t) => { tone(t, "square", 1500, 1100, 0.03, 0.18); noise(t, 0.025, "highpass", 2500, 1, 0.2); },
     jump: (t) => tone(t, "square", 300, 900, 0.16, 0.2),
     levelup: (t) => { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(t + i * 0.1, "square", f, null, 0.1, 0.22)); },
     // Short, original chugging riff for a new wave.
