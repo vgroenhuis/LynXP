@@ -1,7 +1,8 @@
 // Temple of LynXP -- a small Tomb Raider-style adventure laid out on the
-// floor in front of the robot (about 2 x 3 m). Three levels, laid out afresh
+// floor in front of the robot (about 2 x 3 m). Four levels, laid out afresh
 // in front of the robot each time; the corridor levels (1 and 3) have three
-// chambers, level 2 is the two-storey maze of game_temple_sanctum.js.
+// chambers, level 2 is the two-storey maze of game_temple_sanctum.js, level 4
+// the three-wing labyrinth of game_temple_labyrinth.js.
 // Level 1, the upper temple:
 //   1. the hall of pits: jump a spike pit and a lava channel, climb stone
 //      blocks for treasure, fend off bats and a spirit;
@@ -47,7 +48,7 @@ Lynx.games = Lynx.games || {};
     normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, wisps: 1, bossWisps: 1, attackEvery: 4, vulnerable: 8, seqGrid: 4, seq: 10, dartEvery: 2.8 },
     hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, wisps: 2, bossWisps: 2, attackEvery: 3, vulnerable: 6, seqGrid: 4, seq: 12, dartEvery: 2.2 },
   };
-  const LAST_LEVEL = 3;
+  const LAST_LEVEL = 4;
   const SEQ_STEP_S = 0.9; // memory floor: each glyph shows this long (lit for SEQ_ON_S of it)
   const SEQ_ON_S = 0.65;
   const DART_H = 0.05; // darts fly this high: jump over them
@@ -209,7 +210,7 @@ Lynx.games = Lynx.games || {};
       // a two-storey maze with keys, doors and switches: game_temple_sanctum.js
       2: {
         name: "the sunken sanctum",
-        maze: true,
+        maze: "sanctum",
         startF: 0.15,
         gateF: 99,
         grid: makeGrid(-10, 3),
@@ -263,6 +264,25 @@ Lynx.games = Lynx.games || {};
         guardian: "guardian2",
         intro: "Level 3 -- the dart hall: jump the pits and the darts!",
         chamber2: "Chamber 2 -- watch the glyphs, then step on them in order",
+      },
+      // three wings over the same floor, portals, rotating doors: game_temple_labyrinth.js
+      4: {
+        name: "the clockwork labyrinth",
+        maze: "labyrinth",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Moon Idol",
+        winTitle: "THE MOON IDOL IS YOURS",
+        intro: "Level 4 -- the clockwork labyrinth: doors turn, portals lead to other wings. Find the Moon Idol!",
       },
     };
     let level = firstLevel;
@@ -327,7 +347,7 @@ Lynx.games = Lynx.games || {};
     let best = null;
     let rankMsg = "";
     let godMode = false; // testing: Lynx.activeGame.debug.god(true) from the console
-    let maze = null; // level 2's game_temple_sanctum.js, while it's on
+    let maze = null; // level 2's game_temple_sanctum.js or level 4's game_temple_labyrinth.js, while it's on
     Lynx.bestScore("temple").then((b) => (best = b));
 
     // -- coordinates -----------------------------------------------------------------
@@ -625,7 +645,7 @@ Lynx.games = Lynx.games || {};
       const hp = Math.round(d.bossHp * lv.bossHp);
       boss = { hp, maxHp: hp, state: "sleep", attackT: 3, attackN: 0, openT: 0, hit: 0, t: 0, rect: null };
       spawnCrystals();
-      maze = lv.maze ? Lynx.templeSanctum(mazeApi) : null;
+      maze = lv.maze === "sanctum" ? Lynx.templeSanctum(mazeApi) : lv.maze === "labyrinth" ? Lynx.templeLabyrinth(mazeApi) : null;
       state = "playing";
       stateTime = 0;
       invulnerable = 1;
@@ -1684,7 +1704,7 @@ Lynx.games = Lynx.games || {};
       }
     }
 
-    // What level 2 (game_temple_sanctum.js) gets to work with.
+    // What levels 2 and 4 (game_temple_sanctum.js, game_temple_labyrinth.js) get to work with.
     const mazeApi = {
       ar, d, cfg, img, frame,
       anchor: () => anchor,
@@ -1696,7 +1716,7 @@ Lynx.games = Lynx.games || {};
       puff: (p) => puffs.push(p),
       complete: () => relicTaken(),
     };
-    // Level 2's walls stop the robot: drive commands go through the maze first.
+    // The mazes' walls stop the robot: drive commands go through the maze first.
     if (Lynx.control && Lynx.control.setDriveFilter) {
       Lynx.control.setDriveFilter((j1, j2) => (maze && state !== "title" ? maze.filterDrive(j1, j2) : { j1, j2 }));
       ar.onDestroy(() => Lynx.control.setDriveFilter(null));
@@ -1730,7 +1750,7 @@ Lynx.games = Lynx.games || {};
         },
         tileCenter,
         crystals: () => crystals.filter((c) => c.alive).map((c) => ({ f: c.f, r: c.r, h: c.h })),
-        level: (n) => startLevel(n), // jump straight to a level (1 to 3)
+        level: (n) => startLevel(n), // jump straight to a level (1 to 4)
         maze: () => maze && maze.debug,
       },
       snapshot: () => {
