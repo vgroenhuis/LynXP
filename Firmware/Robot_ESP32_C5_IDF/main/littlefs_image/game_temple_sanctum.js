@@ -120,9 +120,9 @@ window.Lynx = window.Lynx || {};
   const KEY = [".kkk......", "k.w.kkkkkk", "k...k..k.k", ".kkk......"];
   const CROWN = ["y....y....y", "yy..yyy..yy", "yyyyyryyyyy", "yyyyyyyyyyy", "ybyryyyrbyy", "yyyyyyyyyyy"];
 
-  const SANDSTONE = { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true };
-  const CRYPT = { top: "#9a8866", side: "#6e5e44", dark: "#4e412e", line: "rgba(20,12,5,0.6)", mortar: true };
-  const STEP_COL = { top: "#d0b070", side: "#a08040", dark: "#7a5e2c", line: "rgba(40,25,10,0.7)" };
+  const SANDSTONE = { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true, tex: "sandstone" };
+  const CRYPT = { top: "#9a8866", side: "#6e5e44", dark: "#4e412e", line: "rgba(20,12,5,0.6)", mortar: true, tex: "crypt" };
+  const STEP_COL = { top: "#d0b070", side: "#a08040", dark: "#7a5e2c", line: "rgba(40,25,10,0.7)", tex: "sandstone" };
   const DAIS_COL = { top: "#e0c060", side: "#b08830", dark: "#806018", line: "rgba(60,40,0,0.8)" };
   const DOOR_COL = {
     red: { top: "#c03030", side: "#a02020", dark: "#801818", line: "rgba(40,0,0,0.8)" },
@@ -706,7 +706,10 @@ window.Lynx = window.Lynx || {};
       // (a light tint); from higher up the video shows it from the wrong
       // height, so looking down a hole or the stairwell you see stone.
       const above = cam().h >= FLOOR_H;
-      floorRects.forEach((q) => fillRect(q, 0.001, above ? "#4a3a26" : "rgba(35,26,16,0.35)", above ? "rgba(20,12,4,0.7)" : "rgba(90,70,40,0.35)"));
+      floorRects.forEach((q) => {
+        fillRect(q, 0.001, above ? "#4a3a26" : "rgba(35,26,16,0.35)", above ? "rgba(20,12,4,0.7)" : "rgba(90,70,40,0.35)");
+        if (above && api.texFloor) api.texFloor(q, 0.001, "darkflag", 0.15);
+      });
       // spike pit
       const pit = api.polyScreen(rectPoly(pitRect, 0.002), 3);
       if (pit) api.fillPoly(pit, "#1a1410", "rgba(120,90,60,0.9)", 2);
@@ -854,7 +857,10 @@ window.Lynx = window.Lynx || {};
     }
 
     function drawSlabTop() {
-      upperRects((i, j, f, r) => upperSurface(i, j, f, r) && cell(1, i, j) !== "D").forEach((q) => fillRect(q, FLOOR_H, "#b09060", "rgba(50,32,12,0.6)"));
+      upperRects((i, j, f, r) => upperSurface(i, j, f, r) && cell(1, i, j) !== "D" && cell(1, i, j) !== "=").forEach((q) => {
+        fillRect(q, FLOOR_H, "#b09060", "rgba(50,32,12,0.6)");
+        if (api.texFloor) api.texFloor(q, FLOOR_H, "flagstone", 0.08);
+      });
       // the bridge while it slides out
       if (bridge > 0 && bridge < 1) fillRect({ ...bridgeRect, r1: bridgeRect.r0 + (bridgeRect.r1 - bridgeRect.r0) * bridge }, FLOOR_H, "#9a7a4a", "#3a2810");
       if (bridge >= 1) fillRect(bridgeRect, FLOOR_H + 0.001, "#9a7a4a", "#3a2810");

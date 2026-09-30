@@ -126,6 +126,7 @@ window.Lynx = window.Lynx || {};
         { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
         { key: "aimAssist", label: "Aim assist", type: "checkbox", def: true },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
+        { key: "textures", label: "Textured stone (turn off if slow)", type: "checkbox", def: true },
       ],
       boards: [{ key: "temple", title: "Temple of LynXP", better: "higher", format: "points" }],
     },

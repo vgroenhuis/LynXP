@@ -400,7 +400,7 @@ Lynx.games = Lynx.games || {};
 
     // Temple frame for exact draw ordering (ar.queue's box); cam is set at
     // the start of each frame.
-    const frame = { cam: { f: 0, r: 0, h: 0 } };
+    const frame = { cam: { f: 0, r: 0, h: 0 }, toWorld: (f, r) => toWorld(f, r) }; // toWorld: so ar.flush can tell which boxes overlap on screen
     const extent = (f0, f1, r0, r1, h0, h1) => ({ frame, f0, f1, r0, r1, h0, h1 });
     const pointAt = (wx, wy, h0, h1) => {
       const l = toLocal(wx, wy);
@@ -421,22 +421,103 @@ Lynx.games = Lynx.games || {};
         if (me.f > q.f1) faces.push([[q.f1, q.r1], [q.f1, q.r0], col.side]);
         if (me.r < q.r0) faces.push([[q.f1, q.r0], [q.f0, q.r0], col.dark]);
         if (me.r > q.r1) faces.push([[q.f0, q.r1], [q.f1, q.r1], col.dark]);
+        const img = texturesOn && col.tex ? Lynx.texture(col.tex) : null;
         faces.forEach(([a, b, fill]) => {
           const p = polyScreen([w3(a[0], a[1], h0), w3(b[0], b[1], h0), w3(b[0], b[1], h1), w3(a[0], a[1], h1)], 3);
-          if (p) fillPoly(p, fill, col.line);
-          if (col.mortar && h1 - h0 > 0.1) {
+          if (!p) return;
+          fillPoly(p, fill, img ? null : col.line);
+          if (img) {
+            // textured stone, shaded by which way the face looks, and hazier with distance
+            const m = toWorld((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+            const d = camZ(m.x, m.y, (h0 + h1) / 2);
+            texFace(a, b, h0, h1, img, d < 0.7);
+            const shade = (fill === col.dark ? 0.3 : 0.1) + Math.max(0, Math.min(0.3, (d - 0.6) * 0.12));
+            fillPoly(p, `rgba(20,12,4,${shade.toFixed(3)})`, col.line);
+          } else if (col.mortar && h1 - h0 > 0.1) {
             for (let h = h0 + 0.07; h < h1 - 0.02; h += 0.07) line3([[a[0], a[1], h], [b[0], b[1], h]], col.line, 1, 0.1);
           }
         });
         if (cw.h > h1) {
           const p = polyScreen([w3(q.f0, q.r0, h1), w3(q.f1, q.r0, h1), w3(q.f1, q.r1, h1), w3(q.f0, q.r1, h1)], 3);
-          if (p) fillPoly(p, col.top, col.line);
+          if (p) {
+            fillPoly(p, col.top, col.line);
+            if (img) texFloor(q, h1, "flagstone");
+          }
         }
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
-    const SANDSTONE = { top: "#d8b878", side: "#a88848", dark: "#806430", line: "rgba(40,25,10,0.55)", mortar: true };
-    const BLOCK = { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true };
-    const PEDESTAL = { top: "#b0a090", side: "#807060", dark: "#605040", line: "rgba(20,15,10,0.6)" };
+    // -- stone textures (ar.js makes them): fixed to the world in tiles of
+    // TEX_WALL_M x TEX_STOREY_M on walls, TEX_FLOOR_M on floors, so the stone
+    // stays put as you move. Surfaces are cut into small quads for drawing
+    // (finer close up); quads the lens can't take are left to the flat fill
+    // drawn under them.
+    const texturesOn = cfg.textures !== false && typeof Lynx.texture === "function" && !!ar.texturedQuad;
+    const TEX_PPM = 256 / 0.6; // texture pixels per meter
+    const TEX_W = 256;
+    const TEX_H = 128;
+    const mod = (a, n) => {
+      const m = ((a % n) + n) % n;
+      return n - m < 0.01 ? 0 : m;
+    };
+    const cuts = (lo, hi, step) => {
+      const out = [lo];
+      for (let s = (Math.floor(lo / step + 1e-6) + 1) * step; s < hi - 1e-6; s += step) out.push(s);
+      out.push(hi);
+      return out;
+    };
+    // A wall face from temple point a to b ([f, r] each), h0..h1.
+    function texFace(a, b, h0, h1, img, near) {
+      const alongR = Math.abs(a[0] - b[0]) < 1e-9;
+      const sA = alongR ? a[1] : a[0];
+      const sB = alongR ? b[1] : b[0];
+      const pt = (s, h) => (alongR ? w3(a[0], s, h) : w3(s, a[1], h));
+      const ss = cuts(Math.min(sA, sB), Math.max(sA, sB), near ? 0.1 : 0.3);
+      const hs = cuts(h0, h1, near ? 0.1 : 0.15);
+      for (let i = 0; i + 1 < ss.length; i++) {
+        const u0 = mod(ss[i] * TEX_PPM, TEX_W);
+        const u1 = u0 + (ss[i + 1] - ss[i]) * TEX_PPM;
+        for (let k = 0; k + 1 < hs.length; k++) {
+          const v0 = mod(-hs[k + 1] * TEX_PPM, TEX_H); // the top of each storey is the texture's top
+          const v1 = v0 + (hs[k + 1] - hs[k]) * TEX_PPM;
+          ar.texturedQuad([pt(ss[i], hs[k + 1]), pt(ss[i + 1], hs[k + 1]), pt(ss[i + 1], hs[k]), pt(ss[i], hs[k])], img,
+            [{ u: u0, v: v0 }, { u: u1, v: v0 }, { u: u1, v: v1 }, { u: u0, v: v1 }]);
+        }
+      }
+    }
+    // A floor rectangle at height h, textured where it's within reach of the
+    // camera (beyond that the flat fill under it is enough). No-op if off.
+    function texFloor(q, h, name, shade = 0) {
+      if (!texturesOn) return;
+      const img = Lynx.texture(name);
+      const cw = ar.cameraWorld();
+      const me = toLocal(cw.x, cw.y);
+      const R = 2.2;
+      const f0 = Math.max(q.f0, me.f - R);
+      const f1 = Math.min(q.f1, me.f + R);
+      const r0 = Math.max(q.r0, me.r - R);
+      const r1 = Math.min(q.r1, me.r + R);
+      if (f0 >= f1 || r0 >= r1) return;
+      const fs = cuts(f0, f1, 0.15);
+      const rs = cuts(r0, r1, 0.15);
+      for (let i = 0; i + 1 < fs.length; i++) {
+        for (let j = 0; j + 1 < rs.length; j++) {
+          const u0 = mod(rs[j] * TEX_PPM, 128);
+          const v0 = mod(-fs[i + 1] * TEX_PPM, 128);
+          const u1 = u0 + (rs[j + 1] - rs[j]) * TEX_PPM;
+          const v1 = v0 + (fs[i + 1] - fs[i]) * TEX_PPM;
+          ar.texturedQuad([w3(fs[i + 1], rs[j], h), w3(fs[i + 1], rs[j + 1], h), w3(fs[i], rs[j + 1], h), w3(fs[i], rs[j], h)], img,
+            [{ u: u0, v: v0 }, { u: u1, v: v0 }, { u: u1, v: v1 }, { u: u0, v: v1 }]);
+        }
+      }
+      if (shade > 0) {
+        const p = polyScreen([w3(q.f0, q.r0, h), w3(q.f1, q.r0, h), w3(q.f1, q.r1, h), w3(q.f0, q.r1, h)], 3);
+        if (p) fillPoly(p, `rgba(20,12,4,${shade})`, null);
+      }
+    }
+
+    const SANDSTONE = { top: "#d8b878", side: "#a88848", dark: "#806430", line: "rgba(40,25,10,0.55)", mortar: true, tex: "sandstone" };
+    const BLOCK = { top: "#c8a868", side: "#98783c", dark: "#705426", line: "rgba(40,25,10,0.6)", mortar: true, tex: "sandstone" };
+    const PEDESTAL = { top: "#b0a090", side: "#807060", dark: "#605040", line: "rgba(20,15,10,0.6)", tex: "crypt" };
 
     // -- game flow -------------------------------------------------------------------
     function say(text, color = "#ffe080") {
@@ -1501,7 +1582,7 @@ Lynx.games = Lynx.games || {};
       ar, d, cfg, img, frame,
       anchor: () => anchor,
       time: () => stateTime,
-      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, extent, pointAt, drawSprite,
+      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, extent, pointAt, drawSprite, texFloor,
       hurt, say,
       addScore: (n) => (score += n),
       heal: () => (hearts < maxHearts ? hearts++ : (score += 100)),
