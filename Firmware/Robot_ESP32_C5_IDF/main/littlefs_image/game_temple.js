@@ -1,14 +1,20 @@
 // Temple of LynXP -- a small Tomb Raider-style adventure laid out on the
-// floor in front of the robot (about 2 x 3 m). Two levels of three chambers.
+// floor in front of the robot (about 2 x 3 m). Six levels, laid out afresh
+// in front of the robot each time; the corridor levels (1 and 3) have three
+// chambers, level 2 is the two-storey maze of game_temple_sanctum.js, level 4
+// the three-wing labyrinth of game_temple_labyrinth.js, level 5 the floating
+// sky citadel (game_temple_sky.js), level 6 the drowned cistern with its
+// push blocks (game_temple_cistern.js); 5 and 6 build on game_temple_kit.js.
 // Level 1, the upper temple:
 //   1. the hall of pits: jump a spike pit and a lava channel, climb stone
-//      blocks for treasure, fend off bats;
+//      blocks for treasure, fend off bats and a spirit;
 //   2. the glyph floor: a lights-out puzzle (stepping on a glyph flips it and
 //      its neighbours -- jump over the ones you don't want to flip) that opens
 //      the portcullis, while scarabs crawl in;
 //   3. the guardian: shoot its three crystals to drop its shield, then shoot
 //      it; jump its floor shockwaves, dodge its fireballs.
-// Level 2, the lower temple (laid out afresh in front of the robot):
+// Level 2, the sunken sanctum: see game_temple_sanctum.js.
+// Level 3, the lower temple:
 //   1. the dart hall: a wide spike pit with a stepping stone in the middle, a
 //      lava channel, and dart traps that shoot low across the floor -- jump
 //      the darts;
@@ -36,13 +42,15 @@ Lynx.games = Lynx.games || {};
   const DIFFICULTY = {
     // scarabs: how many come to the glyph floor in all, one at a time, each
     // `scarabQuiet` seconds after the previous one is gone (time to think)
-    // bats: how many guard the hall of pits, released one at a time
-    // (level 2) seq: glyphs to remember on the memory floor; dartEvery: seconds between a trap's darts
-    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabs: 2, scarabQuiet: 25, bats: 1, batHp: 1, attackEvery: 5, vulnerable: 10, seq: 3, dartEvery: 3.4 },
-    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, attackEvery: 4, vulnerable: 8, seq: 4, dartEvery: 2.8 },
-    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, attackEvery: 3, vulnerable: 6, seq: 5, dartEvery: 2.2 },
+    // bats: how many guard the hall of pits, released one at a time; wisps: the spirits that
+    // follow them (they dart sideways, hard to hit, but close in slowly); bossWisps: with the guardian
+    // grid: the glyph floor's size (level 1); seqGrid, seq: the memory floor's size and how many
+    // glyphs to remember (level 3); dartEvery: seconds between a trap's darts
+    easy: { speed: 0.7, bossHp: 16, gap: 0.13, grid: 3, presses: 3, scarabs: 2, scarabQuiet: 25, bats: 1, batHp: 1, wisps: 1, bossWisps: 0, attackEvery: 5, vulnerable: 10, seqGrid: 4, seq: 7, dartEvery: 3.4 },
+    normal: { speed: 1, bossHp: 24, gap: 0.16, grid: 3, presses: 5, scarabs: 4, scarabQuiet: 18, bats: 2, batHp: 1, wisps: 1, bossWisps: 1, attackEvery: 4, vulnerable: 8, seqGrid: 4, seq: 10, dartEvery: 2.8 },
+    hard: { speed: 1.3, bossHp: 34, gap: 0.2, grid: 4, presses: 7, scarabs: 6, scarabQuiet: 12, bats: 3, batHp: 2, wisps: 2, bossWisps: 2, attackEvery: 3, vulnerable: 6, seqGrid: 4, seq: 12, dartEvery: 2.2 },
   };
-  const LAST_LEVEL = 3;
+  const LAST_LEVEL = 6;
   const SEQ_STEP_S = 0.9; // memory floor: each glyph shows this long (lit for SEQ_ON_S of it)
   const SEQ_ON_S = 0.65;
   const DART_H = 0.05; // darts fly this high: jump over them
@@ -84,6 +92,23 @@ Lynx.games = Lynx.games || {};
     "......pp......",
   ];
   const BAT_PAL = { p: "#6a4a3a", w: "#ffe060", k: "#200000" };
+  const WISP = [
+    "....cc....",
+    "...cwwc...",
+    "..cwwwwc..",
+    ".cwwwwwwc.",
+    ".cwkwwkwc.",
+    ".cwkwwkwc.",
+    "cwwwwwwwwc",
+    "cwwwkkwwwc",
+    "cwwwwwwwwc",
+    "cwwwwwwwwc",
+    "cwcwwcwwcc",
+    "c..cc..c..",
+  ];
+  const WISP_PAL = { c: "#3aa0d8", w: "#d8f4ff", k: "#08243a" };
+  const WISP_SIDE_SPEED = 0.55; // m/s across your line of sight: lead your shots
+  const WISP_CLOSE_SPEED = 0.06; // m/s toward you: slow, so it never rushes you
   const SCARAB = [
     ".k......k.",
     "..kkkkkk..",
@@ -131,6 +156,7 @@ Lynx.games = Lynx.games || {};
       guardian2: Lynx.sprite(GUARDIAN, OBSIDIAN_PAL),
       heart: Lynx.sprite(EYE, { k: "#400010", w: "#ffc0d0", g: "#ff2050" }),
       bat: Lynx.sprite(BAT, BAT_PAL),
+      wisp: Lynx.sprite(WISP, WISP_PAL),
       scarab: Lynx.sprite(SCARAB, SCARAB_PAL),
       gem: Lynx.sprite(GEM, { c: "#30e0a0", w: "#ffffff" }),
       bigGem: Lynx.sprite(GEM, { c: "#ff40a0", w: "#ffffff" }),
@@ -141,17 +167,19 @@ Lynx.games = Lynx.games || {};
 
     // -- the temple -------------------------------------------------------------------
     const G = d.gap;
-    const N = d.grid;
-    const T = N === 3 ? 0.25 : 0.2;
-    const makeGrid = (fc) => ({ f0: fc - (N * T) / 2, f1: fc + (N * T) / 2, r0: (-N * T) / 2, r1: (N * T) / 2 });
+    // An n x n floor of glyph tiles centered at f = fc (tiles: t m square).
+    const makeGrid = (fc, n) => {
+      const t = n === 3 ? 0.25 : 0.2;
+      return { n, t, f0: fc - (n * t) / 2, f1: fc + (n * t) / 2, r0: (-n * t) / 2, r1: (n * t) / 2 };
+    };
     const BOSS = { f: 2.85, r: 0 };
-    const STONE = { f0: 0.3 + G, f1: 0.42 + G }; // level 2: the stepping stone in the wide spike pit
+    const STONE = { f0: 0.3 + G, f1: 0.42 + G }; // level 3: the stepping stone in the wide spike pit
     const LEVELS = {
       1: {
         name: "the upper temple",
         startF: START_F, // where the robot stands when the level is laid out
         gateF: 2.07, // the portcullis
-        grid: makeGrid(1.575),
+        grid: makeGrid(1.575, d.grid),
         puzzle: "lights",
         platforms: [
           { f0: 0.62, f1: 0.87, r0: -HALF_W, r1: -0.5, h: 0.15 },
@@ -177,15 +205,35 @@ Lynx.games = Lynx.games || {};
         bossHp: 1, // times the difficulty's
         rage: 0.5, // below this share of its health the guardian attacks double
         relic: "the Eye of LynXP",
+        guardian: "guardian1",
         intro: "Chamber 1 -- the hall of pits: jump!",
         chamber2: "Chamber 2 -- light every glyph",
       },
+      // a two-storey maze with keys, doors and switches: game_temple_sanctum.js
       2: {
+        name: "the sunken sanctum",
+        maze: "sanctum",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Sun Crown",
+        winTitle: "THE CROWN IS YOURS",
+        intro: "Level 2 -- the sunken sanctum: walls stop you here. Find a way up!",
+      },
+      3: {
         name: "the lower temple",
         // in the entrance, clear of the first dart lane (0.18 +- 0.08), so no dart hits you right at the start
         startF: -0.05,
         gateF: 2.2,
-        grid: makeGrid(1.7),
+        grid: makeGrid(1.7, d.seqGrid),
         puzzle: "sequence",
         platforms: [
           { f0: STONE.f0, f1: STONE.f1, r0: -0.3, r1: 0.3, h: 0.1 },
@@ -214,16 +262,18 @@ Lynx.games = Lynx.games || {};
         bossHp: 1.3,
         rage: 0.75,
         relic: "the Heart of LynXP",
-        intro: "Level 2 -- the dart hall: jump the pits and the darts!",
+        relicSprite: "heart", // what the relic (item "eye") looks like
+        guardian: "guardian2",
+        intro: "Level 3 -- the dart hall: jump the pits and the darts!",
         chamber2: "Chamber 2 -- watch the glyphs, then step on them in order",
       },
-      // a two-storey maze with keys, doors and switches: game_temple_sanctum.js
-      3: {
-        name: "the sunken sanctum",
-        maze: true,
+      // three wings over the same floor, portals, rotating doors: game_temple_labyrinth.js
+      4: {
+        name: "the clockwork labyrinth",
+        maze: "labyrinth",
         startF: 0.15,
         gateF: 99,
-        grid: makeGrid(-10),
+        grid: makeGrid(-10, 3),
         puzzle: "none",
         platforms: [],
         pits: [],
@@ -232,9 +282,47 @@ Lynx.games = Lynx.games || {};
         items: () => [],
         bossHp: 1,
         rage: 0.5,
-        relic: "the Sun Crown",
-        winTitle: "THE CROWN IS YOURS",
-        intro: "Level 3 -- the sunken sanctum: walls stop you here. Find a way up!",
+        relic: "the Moon Idol",
+        winTitle: "THE MOON IDOL IS YOURS",
+        intro: "Level 4 -- the clockwork labyrinth: doors turn, portals lead to other wings. Find the Moon Idol!",
+      },
+      // floating platforms in four tiers, climbing twice round: game_temple_sky.js
+      5: {
+        name: "the sky citadel",
+        maze: "sky",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Sky Orb",
+        winTitle: "THE SKY ORB IS YOURS",
+        intro: "Level 5 -- the sky citadel: climb to the summit!",
+      },
+      // two sections, push blocks, flame vents, a boulder: game_temple_cistern.js
+      6: {
+        name: "the drowned cistern",
+        maze: "cistern",
+        startF: 0.15,
+        gateF: 99,
+        grid: makeGrid(-10, 3),
+        puzzle: "none",
+        platforms: [],
+        pits: [],
+        traps: [],
+        crystals: [],
+        items: () => [],
+        bossHp: 1,
+        rage: 0.5,
+        relic: "the Tide Chalice",
+        winTitle: "THE TIDE CHALICE IS YOURS",
+        intro: "Level 6 -- the drowned cistern: drive into a stone block to push it",
       },
     };
     let level = firstLevel;
@@ -242,6 +330,8 @@ Lynx.games = Lynx.games || {};
     let platforms = lv.platforms;
     let pits = lv.pits;
     let grid = lv.grid;
+    let N = grid.n; // glyph tiles per side, and their size (m): the level's grid
+    let T = grid.t;
     let gateF = lv.gateF;
     const tileCenter = (i, j) => ({ f: grid.f0 + (i + 0.5) * T, r: grid.r0 + (j + 0.5) * T });
 
@@ -251,8 +341,8 @@ Lynx.games = Lynx.games || {};
     let elapsed = 0;
     let levelElapsed = 0;
     let levelBonus = 0;
-    let traps = []; // level 2 dart traps: {f, side, t, dart: null | {r, hit}}
-    let seq = []; // level 2 memory floor: tile indices to step on, in order
+    let traps = []; // level 3 dart traps: {f, side, t, dart: null | {r, hit}}
+    let seq = []; // level 3 memory floor: tile indices to step on, in order
     let seqPos = 0;
     let seqPhase = "wait"; // wait | show | input
     let seqT = 0;
@@ -283,6 +373,9 @@ Lynx.games = Lynx.games || {};
     let batsSent = 0;
     let batTimer = 0;
     let bats = [];
+    let wisps = []; // {f, r, h, dir, turnT, hp, phase, hit, retreat, rect}
+    let wispsSent = 0;
+    let wispTimer = 0;
     let scarabs = [];
     let boss = null;
     let crystals = [];
@@ -294,7 +387,7 @@ Lynx.games = Lynx.games || {};
     let best = null;
     let rankMsg = "";
     let godMode = false; // testing: Lynx.activeGame.debug.god(true) from the console
-    let maze = null; // level 3's game_temple_sanctum.js, while it's on
+    let maze = null; // levels 2, 4, 5 and 6's own file (game_temple_sanctum.js ...), while one is on
     Lynx.bestScore("temple").then((b) => (best = b));
 
     // -- coordinates -----------------------------------------------------------------
@@ -444,6 +537,11 @@ Lynx.games = Lynx.games || {};
             if (img) texFloor(q, h1, "flagstone");
           }
         }
+        // a floating block seen from below (col.under: the color of its underside)
+        if (col.under && cw.h < h0) {
+          const p = polyScreen([w3(q.f0, q.r0, h0), w3(q.f0, q.r1, h0), w3(q.f1, q.r1, h0), w3(q.f1, q.r0, h0)], 3);
+          if (p) fillPoly(p, col.under, col.line);
+        }
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
     // -- stone textures (ar.js makes them): fixed to the world in tiles of
@@ -539,6 +637,8 @@ Lynx.games = Lynx.games || {};
       platforms = lv.platforms;
       pits = lv.pits;
       grid = lv.grid;
+      N = grid.n;
+      T = grid.t;
       gateF = lv.gateF;
       anchor = {
         x: ar.pose.x - lv.startF * Math.cos(ar.pose.theta),
@@ -551,11 +651,14 @@ Lynx.games = Lynx.games || {};
       batsReleased = false;
       scarabsSent = 0;
       batsSent = 0;
+      wispsSent = 0;
+      wispTimer = 0;
       gateOpen = false;
       gateLift = 0;
       standingOn = stuckIn = null;
       onTile = null;
       bats = [];
+      wisps = [];
       scarabs = [];
       fireballs = [];
       rings = [];
@@ -587,7 +690,8 @@ Lynx.games = Lynx.games || {};
       const hp = Math.round(d.bossHp * lv.bossHp);
       boss = { hp, maxHp: hp, state: "sleep", attackT: 3, attackN: 0, openT: 0, hit: 0, t: 0, rect: null };
       spawnCrystals();
-      maze = lv.maze ? Lynx.templeSanctum(mazeApi) : null;
+      const MAZES = { sanctum: "templeSanctum", labyrinth: "templeLabyrinth", sky: "templeSky", cistern: "templeCistern" };
+      maze = lv.maze ? Lynx[MAZES[lv.maze]](mazeApi) : null;
       state = "playing";
       stateTime = 0;
       invulnerable = 1;
@@ -642,6 +746,7 @@ Lynx.games = Lynx.games || {};
       hearts = maxHearts;
       score = Math.max(0, score - 500);
       bats = [];
+      wisps = [];
       scarabs = [];
       fireballs = [];
       rings = [];
@@ -712,6 +817,7 @@ Lynx.games = Lynx.games || {};
         return hit;
       }
       bats.forEach((b) => consider(b, "bat"));
+      wisps.forEach((w) => consider(w, "wisp"));
       scarabs.forEach((s) => consider(s, "scarab"));
       crystals.forEach((c) => c.alive && consider(c, "crystal"));
       if (boss.state !== "sleep" && boss.state !== "dead") consider(boss, "boss");
@@ -769,7 +875,7 @@ Lynx.games = Lynx.games || {};
         Lynx.sfx.play("explode");
       } else {
         o.dead = true;
-        score += t.kind === "bat" ? 100 : 50;
+        score += t.kind === "wisp" ? 200 : t.kind === "bat" ? 100 : 50;
         Lynx.sfx.play("die");
       }
     }
@@ -947,6 +1053,65 @@ Lynx.games = Lynx.games || {};
       Lynx.sfx.play("growl");
     }
 
+    // A wisp (temple coordinates f, r, h up) hovers for a moment where it
+    // appears, then weaves: fast sideways across your line of sight, changing
+    // direction at random, while it only creeps toward you.
+    function spawnWisp(f, r) {
+      wisps.push({ f, r, h: rand(0.12, 0.2), dir: Math.random() < 0.5 ? -1 : 1, turnT: rand(1.5, 2.5), wait: 1.2, hp: d.batHp + 1, phase: Math.random() * 6, hit: 0, retreat: 0, rect: null });
+      Lynx.sfx.play("growl");
+    }
+
+    function updateWisps(dt, me) {
+      const cam = ar.cameraWorld();
+      wisps.forEach((w) => {
+        w.phase += dt * 5;
+        w.hit = Math.max(0, w.hit - dt);
+        w.retreat = Math.max(0, w.retreat - dt);
+        w.turnT -= dt;
+        if (w.turnT <= 0) {
+          w.dir = -w.dir;
+          w.turnT = rand(0.45, 1.3);
+        }
+        if (w.wait > 0) {
+          w.wait -= dt;
+          return;
+        }
+        const df = me.f - w.f;
+        const dr = me.r - w.r;
+        const dist = Math.hypot(df, dr) || 1;
+        const uf = df / dist;
+        const ur = dr / dist;
+        const side = WISP_SIDE_SPEED * d.speed * (w.hit > 0 ? 0.4 : 1);
+        const close = w.retreat > 0 ? -3 * WISP_CLOSE_SPEED : dist > 0.35 ? WISP_CLOSE_SPEED * d.speed : WISP_CLOSE_SPEED * 0.6;
+        w.f += (uf * close - ur * w.dir * side) * dt;
+        w.r += (ur * close + uf * w.dir * side) * dt;
+        // the corridor's walls turn it around
+        const lim = HALF_W - 0.1;
+        if (Math.abs(w.r) > lim) {
+          w.r = Math.sign(w.r) * lim;
+          w.dir = -w.dir;
+          w.turnT = rand(0.45, 1.3);
+        }
+        w.f = Math.max(0.05, Math.min(LEN - 0.1, w.f));
+        w.h += ((cam.h - 0.04 - w.h) * 0.4 + Math.sin(w.phase) * 0.05) * dt;
+        const ww = toWorld(w.f, w.r);
+        if (Math.hypot(ww.x - cam.x, ww.y - cam.y, w.h - cam.h) < TOUCH_M && w.retreat === 0) {
+          hurt("A spirit's chill");
+          w.retreat = 1.5;
+        }
+      });
+      wisps = wisps.filter((w) => !w.dead);
+      // the hall's wisps come after its bats, one at a time
+      if (batsReleased && chamber === 1 && batsSent >= d.bats && bats.length === 0 && wisps.length === 0 && wispsSent < d.wisps) {
+        wispTimer -= dt;
+        if (wispTimer <= 0) {
+          wispsSent++;
+          wispTimer = 4;
+          spawnWisp(Math.min(me.f + rand(0.8, 1.1), gateF - 0.15), rand(-0.4, 0.4));
+        }
+      }
+    }
+
     function updateEnemies(dt, me) {
       const cam = ar.cameraWorld();
       const aimH = cam.h - 0.02;
@@ -995,6 +1160,7 @@ Lynx.games = Lynx.games || {};
       });
       bats = bats.filter((b) => !b.dead);
       scarabs = scarabs.filter((s) => !s.dead);
+      updateWisps(dt, me);
 
       // the hall's bats: one at a time, the next a few seconds after the last is gone
       if (!batsReleased && me.f > 0.25) {
@@ -1027,6 +1193,7 @@ Lynx.games = Lynx.games || {};
           chamber = 3;
           Lynx.sfx.play("growl");
           say("The guardian wakes! Shoot its crystals", "#ff8040");
+          for (let k = 0; k < d.bossWisps; k++) spawnWisp(BOSS.f - 0.35, k % 2 ? 0.5 : -0.5);
         }
         return;
       }
@@ -1045,6 +1212,7 @@ Lynx.games = Lynx.games || {};
           spawnCrystals();
           spawnBat(2.7, -0.5);
           spawnBat(2.7, 0.5);
+          if (d.bossWisps > 0 && wisps.length === 0) spawnWisp(BOSS.f - 0.35, 0);
           Lynx.sfx.play("growl");
           say("The crystals grow back!", "#ff8040");
         }
@@ -1379,10 +1547,14 @@ Lynx.games = Lynx.games || {};
     function drawActors() {
       bats.forEach((b) => drawSprite(b, img.bat, b.x, b.y, b.h + Math.sin(b.phase) * 0.015, 0.06, { flip: Math.sin(b.phase * 0.35) < 0 }));
       scarabs.forEach((s) => drawSprite(s, img.scarab, s.x, s.y, 0, 0.045, { flip: s.flip }));
+      wisps.forEach((w) => {
+        const p = toWorld(w.f, w.r);
+        drawSprite(w, img.wisp, p.x, p.y, w.h - 0.035, 0.075, { flip: w.dir < 0 });
+      });
       items.forEach((it) => {
         const w = toWorld(it.f, it.r);
         const bob = Math.sin(stateTime * 3 + it.f * 7) * 0.012;
-        const spr = it.kind === "eye" && level === 2 ? img.heart : img[it.kind];
+        const spr = it.kind === "eye" && lv.relicSprite ? img[lv.relicSprite] : img[it.kind];
         const size = it.kind === "eye" ? 0.1 : it.kind === "potion" ? 0.06 : 0.05;
         drawSprite(it, spr, w.x, w.y, it.base + 0.03 + bob, size, {
           before: (r) => ar.glow(r.cx, r.y + r.h / 2, r.w * 1.3, [[0, "rgba(255,255,220,0.7)"], [1, "rgba(255,255,200,0)"]]),
@@ -1411,7 +1583,7 @@ Lynx.games = Lynx.games || {};
       });
       if (boss.state !== "dead") {
         const w = toWorld(BOSS.f, BOSS.r);
-        drawSprite(boss, img[`guardian${level}`], w.x, w.y, 0, 0.45, {
+        drawSprite(boss, img[lv.guardian], w.x, w.y, 0, 0.45, {
           after: (rect) => {
             if (boss.state === "shielded") {
               ar.glow(rect.cx, rect.y + rect.h / 2, rect.h * 0.75, [[0, "rgba(80,160,255,0)"], [0.75, "rgba(80,160,255,0.18)"], [1, "rgba(120,200,255,0)"]]);
@@ -1508,6 +1680,7 @@ Lynx.games = Lynx.games || {};
         if (cfg.radar) {
           const blips = [];
           bats.forEach((b) => blips.push({ x: b.x, y: b.y, color: "#ff4040" }));
+          wisps.forEach((w) => blips.push({ ...toWorld(w.f, w.r), color: "#60d0ff" }));
           scarabs.forEach((s) => blips.push({ x: s.x, y: s.y, color: "#ff8040" }));
           crystals.forEach((c) => c.alive && boss.state !== "sleep" && blips.push({ ...toWorld(c.f, c.r), color: "#60c0ff" }));
           items.forEach((it) => blips.push({ ...toWorld(it.f, it.r), color: "#ffd84a", r: 2.5 }));
@@ -1577,7 +1750,7 @@ Lynx.games = Lynx.games || {};
       }
     }
 
-    // What level 3 (game_temple_sanctum.js) gets to work with.
+    // What levels 2, 4, 5 and 6 (game_temple_sanctum.js etc.) get to work with.
     const mazeApi = {
       ar, d, cfg, img, frame,
       anchor: () => anchor,
@@ -1589,7 +1762,7 @@ Lynx.games = Lynx.games || {};
       puff: (p) => puffs.push(p),
       complete: () => relicTaken(),
     };
-    // Level 3's walls stop the robot: drive commands go through the maze first.
+    // The mazes' walls stop the robot: drive commands go through the maze first.
     if (Lynx.control && Lynx.control.setDriveFilter) {
       Lynx.control.setDriveFilter((j1, j2) => (maze && state !== "title" ? maze.filterDrive(j1, j2) : { j1, j2 }));
       ar.onDestroy(() => Lynx.control.setDriveFilter(null));
@@ -1606,6 +1779,8 @@ Lynx.games = Lynx.games || {};
         god: (on) => (godMode = on),
         killScarabs: () => (scarabs = []),
         killBats: () => (bats = []),
+        killWisps: () => (wisps = []),
+        wisps: () => wisps.map((w) => ({ f: w.f, r: w.r, h: w.h })),
         solveGlyphs: () => {
           // memory floor: the order to step in
           if (lv.puzzle === "sequence") return seq.map((k) => [Math.floor(k / N), k % N]);
@@ -1621,7 +1796,7 @@ Lynx.games = Lynx.games || {};
         },
         tileCenter,
         crystals: () => crystals.filter((c) => c.alive).map((c) => ({ f: c.f, r: c.r, h: c.h })),
-        level: (n) => startLevel(n), // jump straight to a level (1 to 3)
+        level: (n) => startLevel(n), // jump straight to a level (1 to 6)
         maze: () => maze && maze.debug,
       },
       snapshot: () => {
@@ -1635,7 +1810,7 @@ Lynx.games = Lynx.games || {};
           feet: +ar.feet().toFixed(3), ground: ar.ground, airborne: ar.airborne, solid, outside,
           lit: lit.map((x) => (x ? 1 : 0)).join(""), onTile, gateOpen,
           boss: boss && { state: boss.state, hp: boss.hp }, crystals: crystals.filter((c) => c.alive).length,
-          bats: bats.length, scarabs: scarabs.length, fireballs: fireballs.length, rings: rings.length, items: items.map((i) => i.kind),
+          bats: bats.length, wisps: wisps.length, scarabs: scarabs.length, fireballs: fireballs.length, rings: rings.length, items: items.map((i) => i.kind),
         };
       },
     };
