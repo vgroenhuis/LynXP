@@ -4,9 +4,14 @@
 // Every frame the live pose (cam.js's subscribeToPose(), interpolated to the
 // display rate) gives the camera's position and aim: chassis heading + pan
 // servo, tilt = mounting tilt minus the tilt servo. Points are projected with
-// the same tilt-aware pinhole model as the floor grid/waypoint overlays
-// (calibrated height/tilt/vertical FOV from the Main page), then mapped onto
-// the letterboxed <img> ("object-fit: contain").
+// a tilt-aware pinhole (calibrated height/tilt from the Main page, focal
+// length from the lens calibration's image center), then mapped onto the
+// letterboxed <img> ("object-fit: contain"). Deliberately WITHOUT the lens's
+// barrel distortion, unlike cam.js's floor grid and coordinate frame (which
+// must line up with the video): straight edges stay straight, and a wall
+// passing right by the lens still projects sensibly -- the distortion model
+// folds points far off-axis back toward the center, which made faces close
+// to the player vanish.
 //
 // Games draw world things through queue()/flush() (painter's algorithm:
 // farthest first) and HUD things straight onto ctx in screen space.
@@ -22,6 +27,7 @@ window.Lynx = window.Lynx || {};
   const JUMP_TIME_S = 0.75; // up and down again
   const GRAVITY = (8 * JUMP_HEIGHT_M) / (JUMP_TIME_S * JUMP_TIME_S);
   const JUMP_SPEED = (4 * JUMP_HEIGHT_M) / JUMP_TIME_S;
+  const SLOPE_FOLLOW_M = 0.015; // a drop in the ground up to this much per frame isn't a fall
   const FALLBACK_IMG_W = 640; // until the stream's first frame arrives
   const FALLBACK_IMG_H = 480;
 
@@ -225,6 +231,12 @@ window.Lynx = window.Lynx || {};
       };
     }
 
+    // Camera-frame point (x right, y down, z forward; z > 0) -> screen.
+    function pinhole(x, y, z) {
+      const v = ar.view;
+      return { x: v.cx + ((v.f * x) / z) * v.scale, y: v.cy + ((v.f * y) / z) * v.scale };
+    }
+
     // World point -> camera frame: right, forward (on the floor plane).
     ar.toCamera = (wx, wy) => {
       const dx = wx - ar.pose.x;
@@ -242,10 +254,8 @@ window.Lynx = window.Lynx || {};
       const zc = rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt);
       if (zc < NEAR_M) return null;
       const yc = vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt);
-      // Through the calibrated lens model (Lynx.lens, lynx_common.js).
-      const p = Lynx.lens.project(rel.right, yc, zc, v.imgW, v.imgH);
-      if (!p) return null;
-      return { x: v.offX + p.u * v.scale, y: v.offY + p.v * v.scale, depth: zc, ppm: (p.scale * v.scale) / zc };
+      const p = pinhole(rel.right, yc, zc);
+      return { x: p.x, y: p.y, depth: zc, ppm: (v.f * v.scale) / zc };
     };
 
     // Is a projected point inside the visible video area (with margin px)?
@@ -574,7 +584,6 @@ window.Lynx = window.Lynx || {};
     function screenBounds(b) {
       const toWorld = b.frame.toWorld;
       if (!toWorld) return undefined;
-      const v = ar.view;
       const cs = [];
       for (const f of [b.f0, b.f1]) {
         for (const r of [b.r0, b.r1]) {
@@ -606,10 +615,7 @@ window.Lynx = window.Lynx || {};
       }
       let out = null;
       pts.forEach((c) => {
-        const p = Lynx.lens.project(c.x, c.y, c.z, v.imgW, v.imgH);
-        if (!p) return;
-        const x = v.offX + p.u * v.scale;
-        const y = v.offY + p.v * v.scale;
+        const { x, y } = pinhole(c.x, c.y, c.z);
         out = out ? { x0: Math.min(out.x0, x), y0: Math.min(out.y0, y), x1: Math.max(out.x1, x), y1: Math.max(out.y1, y) } : { x0: x, y0: y, x1: x, y1: y };
       });
       return out;
@@ -677,8 +683,10 @@ window.Lynx = window.Lynx || {};
       const dt = lastFrameMs === null ? 0 : Math.max(0, Math.min((now - lastFrameMs) / 1000, 0.1));
       lastFrameMs = now;
       // jump / fall physics
-      if (!ar.airborne && ar.z > ar.ground + 1e-4) {
-        ar.airborne = true; // walked off an edge
+      // Walked off an edge: fall. A small drop (walking down a slope, like
+      // the sanctum's stairs) is just followed.
+      if (!ar.airborne && ar.z > ar.ground + SLOPE_FOLLOW_M) {
+        ar.airborne = true;
         ar.vz = 0;
       }
       if (ar.airborne) {

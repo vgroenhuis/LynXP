@@ -1,4 +1,4 @@
-// Temple of LynXP, level 3: the sunken sanctum. A two-storey maze on the same
+// Temple of LynXP, level 2: the sunken sanctum. A two-storey maze on the same
 // 2 x 3 m of floor as the other levels, run by game_temple.js (which keeps
 // the score, hearts, shooting, HUD and game flow) through Lynx.templeSanctum().
 //
@@ -91,6 +91,13 @@ window.Lynx = window.Lynx || {};
   const MAPS = [MAP0.slice().reverse(), MAP1.slice().reverse()]; // [floor][row i][col j]
   const STAIRS = { i0: 6, i1: 11, j0: 10, j1: 11 };
   const stepH = (i) => (FLOOR_H * (i - STAIRS.i0 + 1)) / (STAIRS.i1 - STAIRS.i0 + 1);
+  // What you walk on along the stairs: a smooth slope rather than the steps,
+  // so the view glides up instead of jumping at every edge. It starts one
+  // cell before the first step and meets each step's top at its front edge
+  // (so it's never below the step you're on), reaching the upper floor at
+  // the last step. The steps are still drawn as blocks.
+  const stairRampH = (f) =>
+    Math.max(0, Math.min(FLOOR_H, (FLOOR_H * (f / CELL - STAIRS.i0 + 1)) / (STAIRS.i1 - STAIRS.i0 + 1)));
 
   const COUNTS = {
     easy: { hall: 1, wing: 0, crypt: 1, vault: 0, bats: 1, mummyHp: 3, lavaS: 40 },
@@ -312,12 +319,13 @@ window.Lynx = window.Lynx || {};
       const c0 = cell(0, i, j);
       if (c0 === "#") hs.push(FLOOR_H);
       else if (c0 === "x") hs.push(-PIT_D);
-      else if (c0 === "S") hs.push(stepH(i));
+      else if (c0 === "S") hs.push(stairRampH(f));
       else if (c0 === "o") hs.push(BLOCK_H);
       else {
         const o = doorAt(0, i, j);
         hs.push(o && doorShut(o) ? FLOOR_H : 0);
       }
+      if (i === STAIRS.i0 - 1 && j >= STAIRS.j0 && j <= STAIRS.j1) hs.push(stairRampH(f)); // the foot of the slope
       if (inRect(f, r, lift)) hs.push(lift.h);
       if (upperSurface(i, j, f, r)) hs.push(FLOOR_H);
       if (cell(1, i, j) === "#") hs.push(FLOOR_H + WALL_H);
