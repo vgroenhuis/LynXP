@@ -544,6 +544,40 @@ Lynx.games = Lynx.games || {};
         }
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
+    // The outer walls: a see-through bronze grating instead of stone, so near
+    // the edge of the play area the camera still shows the real room beyond
+    // (you'd drive into what a stone wall hides). Like box, each face the
+    // camera sees: a faint tint, bars, and rails at the bottom, middle, top.
+    const GRATE = { bar: "rgba(70,48,22,0.9)", rail: "rgba(120,86,40,0.95)", tint: "rgba(60,40,20,0.12)" };
+    function fence(q, h0, h1) {
+      const cw = ar.cameraWorld();
+      const me = toLocal(cw.x, cw.y);
+      const mid = toWorld((q.f0 + q.f1) / 2, (q.r0 + q.r1) / 2);
+      const depth = camZ(mid.x, mid.y, (h0 + h1) / 2);
+      if (depth < -0.3) return;
+      ar.queue(depth, () => {
+        const faces = [];
+        if (me.f < q.f0) faces.push([[q.f0, q.r0], [q.f0, q.r1]]);
+        if (me.f > q.f1) faces.push([[q.f1, q.r1], [q.f1, q.r0]]);
+        if (me.r < q.r0) faces.push([[q.f1, q.r0], [q.f0, q.r0]]);
+        if (me.r > q.r1) faces.push([[q.f0, q.r1], [q.f1, q.r1]]);
+        faces.forEach(([a, b]) => {
+          const p = polyScreen([w3(a[0], a[1], h0), w3(b[0], b[1], h0), w3(b[0], b[1], h1), w3(a[0], a[1], h1)], 3);
+          if (p) fillPoly(p, GRATE.tint, null);
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          const n = Math.max(1, Math.round(len / 0.05));
+          for (let k = 0; k <= n; k++) {
+            const f = a[0] + ((b[0] - a[0]) * k) / n;
+            const r = a[1] + ((b[1] - a[1]) * k) / n;
+            line3([[f, r, h0], [f, r, h1]], GRATE.bar, k === 0 || k === n ? 3 : 1.5, 0.1);
+          }
+          [h0 + 0.01, (h0 + h1) / 2, h1].forEach((h) => line3([[a[0], a[1], h], [b[0], b[1], h]], GRATE.rail, 2.5, 0.1));
+        });
+      }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
+    }
+    // Does a map cell lie on the outer ring (drawn as grating: see fence)?
+    const onRim = (i, j, rows, cols) => i === 0 || j === 0 || i === rows - 1 || j === cols - 1;
+
     // -- stone textures (ar.js makes them): fixed to the world in tiles of
     // TEX_WALL_M x TEX_STOREY_M on walls, TEX_FLOOR_M on floors, so the stone
     // stays put as you move. Surfaces are cut into small quads for drawing
@@ -640,6 +674,7 @@ Lynx.games = Lynx.games || {};
       N = grid.n;
       T = grid.t;
       gateF = lv.gateF;
+      if (ar.setCeiling) ar.setCeiling(Infinity); // (level 2 sets one under its upper floor)
       anchor = {
         x: ar.pose.x - lv.startF * Math.cos(ar.pose.theta),
         y: ar.pose.y - lv.startF * Math.sin(ar.pose.theta),
@@ -1494,11 +1529,11 @@ Lynx.games = Lynx.games || {};
     function drawWalls() {
       for (let f = 0; f < LEN; f += 0.25) {
         const f1 = Math.min(LEN, f + 0.25);
-        box({ f0: f, f1, r0: -HALF_W - 0.06, r1: -HALF_W }, 0, WALL_H, SANDSTONE);
-        box({ f0: f, f1, r0: HALF_W, r1: HALF_W + 0.06 }, 0, WALL_H, SANDSTONE);
+        fence({ f0: f, f1, r0: -HALF_W - 0.06, r1: -HALF_W }, 0, WALL_H);
+        fence({ f0: f, f1, r0: HALF_W, r1: HALF_W + 0.06 }, 0, WALL_H);
       }
       for (let r = -HALF_W - 0.06; r < HALF_W + 0.06; r += 0.32) {
-        box({ f0: LEN, f1: LEN + 0.06, r0: r, r1: Math.min(HALF_W + 0.06, r + 0.32) }, 0, WALL_H, SANDSTONE);
+        fence({ f0: LEN, f1: LEN + 0.06, r0: r, r1: Math.min(HALF_W + 0.06, r + 0.32) }, 0, WALL_H);
       }
       // entrance pillars
       box({ f0: -0.07, f1: 0.05, r0: -HALF_W - 0.1, r1: -HALF_W + 0.02 }, 0, 0.32, SANDSTONE);
@@ -1755,7 +1790,7 @@ Lynx.games = Lynx.games || {};
       ar, d, cfg, img, frame,
       anchor: () => anchor,
       time: () => stateTime,
-      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, extent, pointAt, drawSprite, texFloor,
+      toWorld, toLocal, w3, camZ, polyScreen, fillPoly, line3, box, fence, onRim, extent, pointAt, drawSprite, texFloor,
       hurt, say,
       addScore: (n) => (score += n),
       heal: () => (hearts < maxHearts ? hearts++ : (score += 100)),

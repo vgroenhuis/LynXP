@@ -283,6 +283,21 @@ window.Lynx = window.Lynx || {};
     };
     // Height of the player's feet above the floor (0 = on the floor).
     ar.feet = () => ar.z;
+    // A low ceiling over the player: the highest ar.z may go (Infinity: none).
+    // Games under a ceiling set it every frame. A jump under it stays as long
+    // as in the open -- only the view stops at the ceiling while the arc goes
+    // on unseen -- so a pit you can jump in the open you can jump under a
+    // ceiling too, however high the camera sits.
+    let arcZ = 0; // the jump arc's height (ar.z is it, capped by the ceiling)
+    let shownZ = 0; // ar.z as set here last: a game that sets ar.z itself restarts the arc from there
+    ar.ceiling = Infinity;
+    ar.setCeiling = (z) => {
+      ar.ceiling = z;
+      if (ar.z > z) {
+        ar.z = Math.max(ar.ground, z);
+        shownZ = ar.z;
+      }
+    };
 
     // Unit vector of where the camera is looking, in world coordinates.
     ar.aimVector = () => ({
@@ -685,23 +700,26 @@ window.Lynx = window.Lynx || {};
       // jump / fall physics
       // Walked off an edge: fall. A small drop (walking down a slope, like
       // the sanctum's stairs) is just followed.
-      if (!ar.airborne && ar.z > ar.ground + SLOPE_FOLLOW_M) {
+      if (ar.z !== shownZ) arcZ = ar.z; // a game moved the view
+      if (!ar.airborne && arcZ > ar.ground + SLOPE_FOLLOW_M) {
         ar.airborne = true;
         ar.vz = 0;
       }
       if (ar.airborne) {
         // exact for constant gravity, so the jump height doesn't depend on the frame rate
-        ar.z += ar.vz * dt - 0.5 * GRAVITY * dt * dt;
+        arcZ += ar.vz * dt - 0.5 * GRAVITY * dt * dt;
         ar.vz -= GRAVITY * dt;
-        if (ar.vz <= 0 && ar.z <= ar.ground) {
-          ar.z = ar.ground;
+        if (ar.vz <= 0 && arcZ <= ar.ground) {
+          arcZ = ar.ground;
           ar.vz = 0;
           ar.airborne = false;
           ar.landedAt = now; // games can react to a landing
         }
       } else {
-        ar.z = ar.ground;
+        arcZ = ar.ground;
       }
+      ar.z = Math.min(arcZ, Math.max(ar.ground, ar.ceiling));
+      shownZ = ar.z;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       frameCallbacks.forEach((cb) => cb(now, dt));
     });
