@@ -14,6 +14,9 @@
 #include "esp_log.h"
 #include "esp_task_wdt.h"
 #include "esp_phy_init.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "miniz.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -219,6 +222,253 @@ esp_err_t handle_update_post(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// -- compressed web image ------------------------------------------------------
+// POST /update-fs?format=zlib: the same LittleFS image, zlib-compressed. The
+// image is the whole ~12 MB partition but mostly empty (0xFF) blocks, so it
+// compresses to a few hundred KB: the upload takes seconds instead of ~45 s.
+// Writing then only touches the 4 KB sectors that actually differ from what's
+// on flash (each one is read and compared first), so most of the partition is
+// never erased at all. The end result is exactly the image, byte for byte --
+// unlike just skipping empty blocks, which could leave an old LittleFS
+// metadata block where the new image has an erased one.
+//
+// Decompressed twice: pass 1 only checks (a LittleFS image, fits the
+// partition, zlib checksum OK) with nothing touched; pass 2 writes.
+
+constexpr size_t FS_SECTOR = 4096;
+constexpr size_t ZLIB_MAX_UPLOAD = 4 * 1024 * 1024; // a compressed web image is ~0.3 MB
+
+// Takes the idle task off the task watchdog while alive. Checking and
+// rewriting ~12 MB keeps this (httpd) task busy for seconds, and even with a
+// 1-tick pause every 20 ms the idle task hardly got to run (measured: 3 runs in
+// 2.3 s -- other ready tasks take the tick), so the idle check fired and
+// rebooted the robot mid-update. The job is bounded and the robot reboots
+// right after it; the watchdog keeps watching its subscribed tasks meanwhile.
+struct IdleWatchdogPause {
+    static esp_task_wdt_config_t config(uint32_t idleMask) {
+        esp_task_wdt_config_t c = {};
+        c.timeout_ms = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;
+        c.idle_core_mask = idleMask;
+        c.trigger_panic = true;
+        return c;
+    }
+    IdleWatchdogPause() {
+        esp_task_wdt_config_t c = config(0);
+        esp_task_wdt_reconfigure(&c);
+    }
+    ~IdleWatchdogPause() {
+        esp_task_wdt_config_t c = config(1); // CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
+        esp_task_wdt_reconfigure(&c);
+    }
+};
+
+bool is_blank(const uint8_t *p, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (p[i] != 0xFF) return false;
+    }
+    return true;
+}
+
+struct ImageSink {
+    const esp_partition_t *part = nullptr;
+    bool write = false;      // pass 2
+    size_t total = 0;        // decompressed bytes so far
+    uint8_t *sector = nullptr;
+    size_t fill = 0;
+    uint8_t *onFlash = nullptr;
+    bool magic = false;      // "littlefs" at offset 8 of block 0 or 1
+    size_t changed = 0;
+    esp_err_t err = ESP_OK;
+    int64_t lastBreathUs = 0;
+    int64_t maxGapUs = 0;    // diagnostics: longest stretch without a yield
+    int64_t maxFlashUs = 0;  // diagnostics: longest read+erase+write of one sector
+
+    // Decompressing, comparing and rewriting ~12 MB is solid work for this
+    // (httpd) task -- unlike an upload, which keeps waiting on the network.
+    // Give the idle task a tick every 20 ms of it, or the task watchdog's
+    // idle check fires (it did, with a yield only every 64 sectors: an erase
+    // takes tens of ms, and a changed image moves hundreds of sectors).
+    void breathe() {
+        int64_t now = esp_timer_get_time();
+        if (lastBreathUs != 0) maxGapUs = std::max(maxGapUs, now - lastBreathUs);
+        if (lastBreathUs != 0 && now - lastBreathUs < 20000) return;
+        vTaskDelay(1);
+        lastBreathUs = esp_timer_get_time();
+    }
+
+    void flushSector() {
+        size_t index = total / FS_SECTOR - 1; // total already counts this sector
+        if (!write) {
+            if (index <= 1 && std::memcmp(sector + 8, "littlefs", 8) == 0) magic = true;
+            return;
+        }
+        if (index % 512 == 0) {
+            ESP_LOGI(TAG, "zlib write: sector %u, %u rewritten so far (longest without a pause %lld ms, longest sector %lld ms)",
+                     (unsigned) index, (unsigned) changed, (long long) (maxGapUs / 1000), (long long) (maxFlashUs / 1000));
+        }
+        size_t at = index * FS_SECTOR;
+        int64_t t0 = esp_timer_get_time();
+        err = esp_partition_read(part, at, onFlash, FS_SECTOR);
+        if (err != ESP_OK || std::memcmp(onFlash, sector, FS_SECTOR) == 0) return;
+        if (!is_blank(onFlash, FS_SECTOR)) err = esp_partition_erase_range(part, at, FS_SECTOR);
+        if (err == ESP_OK && !is_blank(sector, FS_SECTOR)) err = esp_partition_write(part, at, sector, FS_SECTOR);
+        maxFlashUs = std::max(maxFlashUs, esp_timer_get_time() - t0);
+        changed++;
+    }
+
+    bool put(const uint8_t *p, size_t n) {
+        while (n > 0 && err == ESP_OK) {
+            size_t take = std::min(n, FS_SECTOR - fill);
+            if (total + take > part->size) {
+                err = ESP_ERR_INVALID_SIZE; // bigger than the partition
+                break;
+            }
+            std::memcpy(sector + fill, p, take);
+            fill += take;
+            total += take;
+            p += take;
+            n -= take;
+            if (fill == FS_SECTOR) {
+                flushSector();
+                fill = 0;
+                breathe();
+            }
+        }
+        return err == ESP_OK;
+    }
+
+    // After the stream: a partial last sector is padded with 0xFF, and the
+    // rest of the partition (an image shorter than it) ends up erased too.
+    void finish() {
+        if (err == ESP_OK && fill > 0) {
+            std::memset(sector + fill, 0xFF, FS_SECTOR - fill);
+            total += FS_SECTOR - fill;
+            flushSector();
+            fill = 0;
+        }
+        if (!write) return;
+        for (size_t at = total; err == ESP_OK && at + FS_SECTOR <= part->size; at += FS_SECTOR) {
+            err = esp_partition_read(part, at, onFlash, FS_SECTOR);
+            if (err == ESP_OK && !is_blank(onFlash, FS_SECTOR)) {
+                err = esp_partition_erase_range(part, at, FS_SECTOR);
+                changed++;
+            }
+            breathe();
+        }
+    }
+};
+
+// Runs one decompression pass of the whole zlib stream into sink.
+bool inflate_image(const uint8_t *in, size_t inLen, tinfl_decompressor *d, uint8_t *dict, ImageSink &sink) {
+    tinfl_init(d);
+    size_t inOfs = 0;
+    size_t dictOfs = 0;
+    for (;;) {
+        size_t inBytes = inLen - inOfs;
+        size_t outBytes = TINFL_LZ_DICT_SIZE - dictOfs;
+        tinfl_status st = tinfl_decompress(d, in + inOfs, &inBytes, dict, dict + dictOfs, &outBytes,
+                                           TINFL_FLAG_PARSE_ZLIB_HEADER);
+        inOfs += inBytes;
+        if (outBytes > 0 && !sink.put(dict + dictOfs, outBytes)) return false;
+        dictOfs = (dictOfs + outBytes) & (TINFL_LZ_DICT_SIZE - 1);
+        if (st == TINFL_STATUS_DONE) break;
+        if (st != TINFL_STATUS_HAS_MORE_OUTPUT) return false; // corrupt, or cut short
+    }
+    sink.finish();
+    return sink.err == ESP_OK;
+}
+
+esp_err_t handle_update_fs_zlib(httpd_req_t *req, const esp_partition_t *fsPartition) {
+    auto reject = [&](const char *status, const char *msg) {
+        httpd_resp_set_status(req, status);
+        httpd_resp_sendstr(req, msg);
+        return ESP_OK;
+    };
+    if (req->content_len <= 0 || (size_t) req->content_len > ZLIB_MAX_UPLOAD) {
+        return reject("400 Bad Request", "Compressed image missing or too large -- nothing was changed");
+    }
+    size_t inLen = (size_t) req->content_len;
+    auto *in = (uint8_t *) heap_caps_malloc(inLen, MALLOC_CAP_8BIT);
+    auto *d = (tinfl_decompressor *) heap_caps_malloc(sizeof(tinfl_decompressor), MALLOC_CAP_8BIT);
+    auto *dict = (uint8_t *) heap_caps_malloc(TINFL_LZ_DICT_SIZE, MALLOC_CAP_8BIT);
+    // The two buffers flash reads/writes go through: internal RAM. Flash
+    // operations disable the cache -- and PSRAM with it -- so a PSRAM buffer
+    // would have to go through a small bounce buffer, piece by piece.
+    auto *sector = (uint8_t *) heap_caps_malloc(FS_SECTOR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    auto *onFlash = (uint8_t *) heap_caps_malloc(FS_SECTOR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    auto freeAll = [&]() {
+        heap_caps_free(in);
+        heap_caps_free(d);
+        heap_caps_free(dict);
+        heap_caps_free(sector);
+        heap_caps_free(onFlash);
+    };
+    if (!in || !d || !dict || !sector || !onFlash) {
+        freeAll();
+        return reject("500 Internal Server Error", "Not enough memory for a compressed image -- send it uncompressed");
+    }
+    for (size_t got = 0; got < inLen;) {
+        int n = web_server_recv(req, (char *) in + got, inLen - got);
+        if (n <= 0) {
+            freeAll();
+            return reject("400 Bad Request", "Upload cut short -- nothing was changed");
+        }
+        got += (size_t) n;
+    }
+
+    IdleWatchdogPause idlePause; // until this handler returns (or the robot reboots)
+
+    // Pass 1: check it, change nothing.
+    ImageSink check;
+    check.part = fsPartition;
+    check.sector = sector;
+    bool checked = inflate_image(in, inLen, d, dict, check);
+    ESP_LOGI(TAG, "zlib: %u compressed bytes -> %u, %s", (unsigned) inLen, (unsigned) check.total, checked && check.magic ? "valid" : "INVALID");
+    if (!checked || !check.magic) {
+        freeAll();
+        bool tooBig = check.err == ESP_ERR_INVALID_SIZE;
+        ESP_LOGW(TAG, "/update-fs (zlib) rejected: %s", tooBig ? "too big" : "not a valid compressed LittleFS image");
+        return reject("400 Bad Request", tooBig ? "Image bigger than the storage partition -- nothing was changed"
+                                                : "Not a valid zlib-compressed LittleFS image -- nothing was changed");
+    }
+
+    // Pass 2: write. Same pausing as the uncompressed path below (see its
+    // comment on the control task and the watchdog).
+    stopAllMotion();
+    motors_coast_all();
+    disable_servos();
+    TaskHandle_t ctrlTask = control_task_get_handle();
+    esp_task_wdt_delete(ctrlTask);
+    vTaskSuspend(ctrlTask);
+    esp_vfs_littlefs_unregister("storage");
+
+    int64_t t0 = esp_timer_get_time();
+    ImageSink sink;
+    sink.part = fsPartition;
+    sink.write = true;
+    sink.sector = sector;
+    sink.onFlash = onFlash;
+    bool ok = inflate_image(in, inLen, d, dict, sink);
+    freeAll();
+    if (!ok) {
+        ESP_LOGE(TAG, "compressed filesystem OTA failed: %s", esp_err_to_name(sink.err));
+        vTaskResume(ctrlTask);
+        esp_task_wdt_add(ctrlTask);
+        restore_servos();
+        httpd_resp_send_500(req);
+        littlefs_init();
+        return ESP_OK;
+    }
+    char msg[120];
+    std::snprintf(msg, sizeof(msg), "OK, %u of %u sectors rewritten in %lld ms -- rebooting to remount filesystem...",
+                  (unsigned) sink.changed, (unsigned) (fsPartition->size / FS_SECTOR), (long long) ((esp_timer_get_time() - t0) / 1000));
+    ESP_LOGI(TAG, "%s", msg);
+    httpd_resp_sendstr(req, msg);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+    return ESP_OK;
+}
+
 esp_err_t handle_update_fs_post(httpd_req_t *req) {
     if (!ota_check_basic_auth(req)) {
         ESP_LOGW(TAG, "/update-fs rejected: bad or missing credentials");
@@ -231,6 +481,12 @@ esp_err_t handle_update_fs_post(httpd_req_t *req) {
     if (fsPartition == nullptr) {
         httpd_resp_send_500(req);
         return ESP_OK;
+    }
+    char query[48];
+    char format[12];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+        httpd_query_key_value(query, "format", format, sizeof(format)) == ESP_OK && std::strcmp(format, "zlib") == 0) {
+        return handle_update_fs_zlib(req, fsPartition);
     }
     if ((size_t) req->content_len > fsPartition->size) {
         httpd_resp_set_status(req, "400 Bad Request");

@@ -2701,8 +2701,21 @@ window.addEventListener("DOMContentLoaded", () => {
       status.textContent = "Choose a storage.bin file first.";
       return;
     }
-    status.textContent = `Uploading ${file.name} (${file.size} bytes)...`;
-    fetch("/update-fs", { method: "POST", body: file, headers: otaHeaders() })
+    // Compressed when the browser can (zlib, "deflate" in CompressionStream
+    // terms): the ~12 MB image is mostly empty blocks and shrinks to a few
+    // hundred KB, and the robot then only rewrites the sectors that changed
+    // (/update-fs?format=zlib, ota.cpp). Older browsers send it as-is.
+    const compressed = typeof CompressionStream === "function"
+      ? new Response(file.stream().pipeThrough(new CompressionStream("deflate"))).blob()
+      : Promise.resolve(null);
+    status.textContent = `Preparing ${file.name}...`;
+    compressed
+      .then((z) => {
+        status.textContent = z
+          ? `Uploading ${file.name} compressed (${(file.size / 1e6).toFixed(1)} MB -> ${(z.size / 1e6).toFixed(2)} MB), then the robot writes what changed...`
+          : `Uploading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)...`;
+        return fetch(z ? "/update-fs?format=zlib" : "/update-fs", { method: "POST", body: z || file, headers: otaHeaders() });
+      })
       .then((r) => r.text())
       .then((data) => {
         status.textContent = data;
