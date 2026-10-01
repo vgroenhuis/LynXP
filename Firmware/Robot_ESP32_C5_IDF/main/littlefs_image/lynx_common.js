@@ -175,6 +175,7 @@ window.Lynx = window.Lynx || {};
         { key: "tagFamily", label: "Tag family", type: "select", def: "tag16h5", options: [["tag16h5", "tag16h5 (30 ids, big cells: far)"], ["tag36h11", "tag36h11 (587 ids)"]] },
         { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
         { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
+        { key: "knightCm", label: "Knight's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
         { key: "camDistCm", label: "Camera distance", type: "number", unit: "cm", def: 15, min: 10, max: 30, step: 1 },
         { key: "scan", label: "Look around at the start", type: "checkbox", def: true },
         { key: "showBlocks", label: "Show detected tags and blocks", type: "checkbox", def: true },

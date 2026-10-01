@@ -27,8 +27,16 @@ Lynx.games = Lynx.games || {};
 
   Lynx.games.knightblocks = (ar, cfg) => {
     const K = Lynx.knightKit;
-    const C = K.C;
     const { clamp, lerp, ease, wrap } = K.util;
+    // The knight at its size here (3 cm by default; the Pocket Knight is 7):
+    // lengths, speeds and gravity scale with it, time doesn't -- a stride, a
+    // climb take as long as a person's -- so it walks like a person its size.
+    // Its jump is a bit heroic (60% of its height), enough to vault onto a
+    // block as tall as itself; a stack goes a block at a time.
+    const S = clamp((+cfg.knightCm || 3) / 100, 0.02, 0.07) / K.C.BODY_H;
+    const C = { ...K.C };
+    ["BODY_H", "BODY_R", "STEP_UP", "AIR_STEP_UP", "GRAVITY", "WALK_V", "RUN_V", "ACCEL", "DECEL", "AIR_ACCEL", "MANTLE_MIN", "GRAB_MIN", "GRAB_MAX", "HANG_DROP", "SHIMMY_V"].forEach((k) => (C[k] = K.C[k] * S));
+    C.JUMP_V = Math.sqrt(2 * C.GRAVITY * 0.6 * C.BODY_H);
     const camDist = clamp((+cfg.camDistCm || 15) / 100, 0.1, 0.3);
     // the robot's footprint (see bodyMargin): half its width, and how far it reaches behind the drive wheels' axle
     const robotHalf = clamp((+cfg.robotRadiusCm || 9.5) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
@@ -155,7 +163,7 @@ Lynx.games = Lynx.games || {};
         h.vf = tvf;
         h.vr = tvr;
       }
-      if (inp.speed > 0.004 && !(h.attack && h.attack.u > 0.15)) {
+      if (inp.speed > 0.004 * S && !(h.attack && h.attack.u > 0.15)) {
         const target = Math.atan2(inp.dr, inp.df);
         h.yaw = wrap(h.yaw + clamp(wrap(target - h.yaw), -C.TURN_RATE * dt, C.TURN_RATE * dt));
       }
@@ -179,7 +187,7 @@ Lynx.games = Lynx.games || {};
       collide(up);
       const g = groundAt(h.f, h.r, h.z, up);
       if (h.onGround) {
-        if (g.h >= h.z - 0.006) {
+        if (g.h >= h.z - 0.006 * S) {
           h.z = g.h;
           h.standOn = g.ref;
         } else {
@@ -193,7 +201,7 @@ Lynx.games = Lynx.games || {};
         h.fallFrom = Math.max(h.fallFrom, h.z);
         if (h.vz > 0) {
           for (const b of solids) {
-            if (b.h0 > h.z + 0.01 && b.h0 < h.z + C.BODY_H && inFoot(b, h.f, h.r, C.BODY_R * 0.5)) {
+            if (b.h0 > h.z + 0.01 * S && b.h0 < h.z + C.BODY_H && inFoot(b, h.f, h.r, C.BODY_R * 0.5)) {
               h.z = b.h0 - C.BODY_H;
               h.vz = 0;
             }
@@ -205,8 +213,8 @@ Lynx.games = Lynx.games || {};
           h.vz = 0;
           h.onGround = true;
           h.standOn = g.ref;
-          h.landT = clamp(drop * 4, 0.05, 0.18);
-          if (drop > 0.02) sfx("knock");
+          h.landT = clamp((drop * 4) / S, 0.05, 0.18);
+          if (drop > 0.02 * S) sfx("knock");
           if (h.jumpBuf > 0) {
             h.vz = C.JUMP_V;
             h.onGround = false;
@@ -215,7 +223,7 @@ Lynx.games = Lynx.games || {};
             h.fallFrom = h.z;
             sfx("jump");
           }
-        } else if (h.vz < 0.07 && h.grabCool <= 0 && !h.attack) tryGrab();
+        } else if (h.vz < 0.07 * S && h.grabCool <= 0 && !h.attack) tryGrab();
       }
       if (h.z < 0) h.z = 0; // (the floor is everywhere)
       if (h.attack) {
@@ -230,7 +238,7 @@ Lynx.games = Lynx.games || {};
     function collide(up) {
       const h = hero;
       for (const b of solids) {
-        if (b.h1 <= h.z + up || b.h0 >= h.z + C.BODY_H - 0.004) continue;
+        if (b.h1 <= h.z + up || b.h0 >= h.z + C.BODY_H - 0.004 * S) continue;
         const [u, v] = toB(b, h.f, h.r);
         const e = b.half + C.BODY_R;
         if (Math.abs(u) >= e || Math.abs(v) >= e) continue;
@@ -254,13 +262,13 @@ Lynx.games = Lynx.games || {};
       const h = hero;
       const fx = Math.cos(h.yaw);
       const fy = Math.sin(h.yaw);
-      const pf = h.f + fx * (C.BODY_R + 0.005);
-      const pr = h.r + fy * (C.BODY_R + 0.005);
+      const pf = h.f + fx * (C.BODY_R + 0.005 * S);
+      const pr = h.r + fy * (C.BODY_R + 0.005 * S);
       for (const b of solids) {
         if (!inFoot(b, pf, pr)) continue;
         const rise = b.h1 - h.z;
         if (rise < C.MANTLE_MIN || rise > C.GRAB_MAX) continue;
-        if (solids.some((o) => o !== b && o.h0 < b.h1 + C.BODY_H && o.h1 > b.h1 + 0.002 && inFoot(o, pf, pr, 0.004))) continue; // no room on top
+        if (solids.some((o) => o !== b && o.h0 < b.h1 + C.BODY_H && o.h1 > b.h1 + 0.002 * S && inFoot(o, pf, pr, 0.004 * S))) continue; // no room on top
         const [u, v] = toB(b, h.f, h.r);
         const [c, s] = rot(b);
         const lu = fx * c + fy * s; // facing, in the block's frame
@@ -274,8 +282,8 @@ Lynx.games = Lynx.games || {};
         faces.sort((a, d) => a[0] * lu + a[1] * lv - (d[0] * lu + d[1] * lv));
         const [nu, nv] = faces[0];
         if (nu * lu + nv * lv > -0.4) continue;
-        const out = b.half + C.BODY_R + 0.0008;
-        const along = clamp(nu ? v : u, -b.half + 0.004, b.half - 0.004);
+        const out = b.half + C.BODY_R + 0.0008 * S;
+        const along = clamp(nu ? v : u, -b.half + 0.004 * S, b.half - 0.004 * S);
         const [f, r] = nu ? fromB(b, nu * out, along) : fromB(b, along, nv * out);
         h.f = f;
         h.r = r;
@@ -316,17 +324,17 @@ Lynx.games = Lynx.games || {};
         return;
       }
       if (toward < -0.5 && g.t > 0.2) {
-        dropHang(0.02);
+        dropHang(0.02 * S);
         return;
       }
       if (Math.abs(side) > 0.3) {
         // the edge's coordinate runs along (-nv, nu) in the block's frame
         const sgn = g.nu ? g.nu : -g.nv;
-        g.along = clamp(g.along + Math.sign(side) * sgn * C.SHIMMY_V * dt, -b.half + 0.004, b.half - 0.004);
+        g.along = clamp(g.along + Math.sign(side) * sgn * C.SHIMMY_V * dt, -b.half + 0.004 * S, b.half - 0.004 * S);
         h.phase += dt * 6;
       }
       // follow the block (its estimate can still shift)
-      const out = b.half + C.BODY_R + 0.0008;
+      const out = b.half + C.BODY_R + 0.0008 * S;
       const [f, r] = g.nu ? fromB(b, g.nu * out, g.along) : fromB(b, g.along, g.nv * out);
       h.f = f;
       h.r = r;
@@ -349,7 +357,7 @@ Lynx.games = Lynx.games || {};
     function startClimb(b, nu, nv, rise) {
       const h = hero;
       const k = clamp(rise / C.HANG_DROP, 0, 1);
-      const into = C.BODY_R + 0.0008 + C.BODY_R + 0.006;
+      const into = C.BODY_R + 0.0008 * S + C.BODY_R + 0.006 * S;
       const [nf, nr] = dirFromB(b, nu, nv);
       h.mode = "climb";
       h.vf = h.vr = h.vz = 0;
@@ -483,12 +491,12 @@ Lynx.games = Lynx.games || {};
         }
         return { f: best.f, r: best.r, why: "backing off a block" };
       }
-      const eye = [h.f, h.r, h.z + 0.04];
+      const eye = [h.f, h.r, h.z + 0.04 * S];
       const camH = ar.cameraWorld().h;
       // viewpoints round the knight, best first
       const spots = [];
       for (const extra of [0, 0.04, 0.08, 0.13, -0.03]) {
-        const dist = camDist + 0.8 * Math.max(0, h.z - 0.04) + extra;
+        const dist = camDist + 0.8 * Math.max(0, h.z - 0.04 * S) + extra;
         for (let k = 0; k <= 26; k++) {
           const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.13; // 0, +-7.5 deg, ... +-97 deg
           const b = want + off;
@@ -558,7 +566,7 @@ Lynx.games = Lynx.games || {};
           cam.lastGotoMs = now;
         }
       }
-      aimAt([h.f + h.vf * 0.15, h.r + h.vr * 0.15, h.z + 0.04], dt, now);
+      aimAt([h.f + h.vf * 0.15, h.r + h.vr * 0.15, h.z + 0.04 * S], dt, now);
     }
     function aimAt(pt, dt, now) {
       const cw = ar.cameraWorld();
@@ -617,7 +625,7 @@ Lynx.games = Lynx.games || {};
         for (const d of [camDist, camDist + 0.05, camDist + 0.1]) {
           const f = rl.f + d * Math.cos(a);
           const r = rl.r + d * Math.sin(a);
-          if (solids.every((b) => footDist(b, f, r) > C.BODY_R + 0.004)) {
+          if (solids.every((b) => footDist(b, f, r) > C.BODY_R + 0.004 * S)) {
             spot = { f, r, a };
             break;
           }
@@ -693,7 +701,7 @@ Lynx.games = Lynx.games || {};
       const h = hero;
       h.speed = h.onGround && h.mode === "move" ? Math.hypot(h.vf, h.vr) : 0;
       const run = clamp((h.speed - C.WALK_V) / (C.RUN_V - C.WALK_V), 0, 1);
-      h.phase += (dt * 2 * Math.PI * h.speed) / lerp(0.056, 0.12, run);
+      h.phase += (dt * 2 * Math.PI * h.speed) / (lerp(0.056, 0.12, run) * S);
       steerRobot(dt, now);
     }
 
@@ -755,8 +763,8 @@ Lynx.games = Lynx.games || {};
     function queueShadow() {
       const h = hero;
       const g = groundAt(h.f, h.r, h.z + 0.0005, 0.0005);
-      const k = clamp(1 - (h.z - g.h) / 0.12, 0.3, 1);
-      const rad = 0.007 * (0.6 + 0.4 * k);
+      const k = clamp(1 - (h.z - g.h) / (0.12 * S), 0.3, 1);
+      const rad = 0.007 * S * (0.6 + 0.4 * k);
       const pts = [];
       for (let i = 0; i < 12; i++) pts.push([h.f + rad * Math.cos((i / 12) * 2 * Math.PI), h.r + rad * Math.sin((i / 12) * 2 * Math.PI), g.h + 0.0008]);
       const m = w.project(h.f, h.r, g.h);
@@ -769,19 +777,21 @@ Lynx.games = Lynx.games || {};
     function queueHero() {
       const h = hero;
       queueShadow();
-      const m = w.project(h.f, h.r, h.z + 0.035);
+      const m = w.project(h.f, h.r, h.z + 0.035 * S);
       if (!m) return;
       ar.queue(m.depth, () => {
         const J = K.bodyJoints({
-          time, speed: h.speed, phase: h.phase, air: h.mode === "move" && !h.onGround ? h.vz : null, land: h.landT > 0 ? h.landT / 0.18 : 0,
+          // (the body's animation is in Pocket Knight units: speeds at its size)
+          time, speed: h.speed / S, phase: h.phase, air: h.mode === "move" && !h.onGround ? h.vz / S : null, land: h.landT > 0 ? h.landT / 0.18 : 0,
           hang: h.mode === "hang", climb: h.mode === "climb" ? h.climb.anim : null, attack: h.attack ? { n: h.attack.n, u: h.attack.u } : null,
           hurt: 0, dead: 0, brace: 0, armed: true,
         });
-        const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw), K.KNIGHT_LOOK, { speed: h.speed, time });
+        const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw, S), K.KNIGHT_LOOK, { speed: h.speed / S, time });
+        prims.forEach((p) => p.rad && (p.rad *= S)); // limbs as thick as the knight is small
         const c = w.camLocal();
         const near = clamp((Math.hypot(c.f - h.f, c.r - h.r) - 0.05) / 0.04, 0.35, 1);
         K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near);
-      }, w.extent(h.f - 0.014, h.f + 0.014, h.r - 0.014, h.r + 0.014, h.z, h.z + C.BODY_H));
+      }, w.extent(h.f - 0.014 * S, h.f + 0.014 * S, h.r - 0.014 * S, h.r + 0.014 * S, h.z, h.z + C.BODY_H));
     }
     // the tags found in the last picture, outlined where they were
     function drawTags() {
@@ -820,7 +830,7 @@ Lynx.games = Lynx.games || {};
         ar.text("Run: stick / WASD · Jump: A / Space · Behind: Y / C · Rescan: RB / Tab", v.cx, v.y + v.h - 20, { size: 13, align: "center" });
         if (cam.why) ar.text(`Robot: ${cam.why}`, v.x + 12, v.y + 42, { size: 12, color: "#ffd080" });
         const k = w.toWorld(hero.f, hero.r);
-        ar.edgeArrow(k.x, k.y, hero.z + 0.035, "#80d0ff");
+        ar.edgeArrow(k.x, k.y, hero.z + 0.035 * S, "#80d0ff");
       }
       if (note && note.t < 3) ar.text(note.text, v.cx, v.y + 70, { size: 16, align: "center", color: note.color, alpha: clamp(3 - note.t, 0, 1) });
     }
