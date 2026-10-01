@@ -37,21 +37,33 @@ Lynx.games = Lynx.games || {};
     const C = { ...K.C };
     ["BODY_H", "BODY_R", "STEP_UP", "AIR_STEP_UP", "GRAVITY", "WALK_V", "RUN_V", "ACCEL", "DECEL", "AIR_ACCEL", "MANTLE_MIN", "GRAB_MIN", "GRAB_MAX", "HANG_DROP", "SHIMMY_V"].forEach((k) => (C[k] = K.C[k] * S));
     C.JUMP_V = Math.sqrt(2 * C.GRAVITY * 0.6 * C.BODY_H);
-    const camDist = clamp((+cfg.camDistCm || 15) / 100, 0.1, 0.3);
+    // In-game choices remembered in this browser (the settings give the defaults).
+    const remembered = (key, def) => {
+      try {
+        const v = localStorage.getItem(key);
+        return v === null ? def : JSON.parse(v);
+      } catch (e) {
+        return def; // (storage blocked)
+      }
+    };
+    const remember = (key, v) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(v));
+      } catch (e) {
+        // (not remembered)
+      }
+    };
+    // Zoom: how far the robot keeps from the knight (+ / - keys, RB / LB, the buttons).
+    const ZOOM_MIN = 0.1;
+    const ZOOM_MAX = 0.4;
+    const ZOOM_STEP = 0.025;
+    let camDist = clamp(+remembered("knightblocksCamDist", (+cfg.camDistCm || 15) / 100) || 0.15, ZOOM_MIN, ZOOM_MAX);
     // the robot's footprint (see bodyMargin): half its width, and how far it reaches behind the drive wheels' axle
     const robotHalf = clamp((+cfg.robotRadiusCm || 9.5) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
     const robotRear = Math.max(robotHalf, clamp((+cfg.robotRearCm || 18) / 100, 0.04, 0.4) + ROBOT_MARGIN_M);
-    const showBlocks = cfg.showBlocks !== false;
-    // the green outlines of the tags found: the setting's default, then the
-    // in-game switch (remembered in this browser)
-    const TAGS_KEY = "knightblocksShowTags";
-    let showTags = cfg.showTags !== false;
-    try {
-      const v = localStorage.getItem(TAGS_KEY);
-      if (v !== null) showTags = v === "1";
-    } catch (e) {
-      // (storage blocked: the setting's default)
-    }
+    // the cyan block outlines and the green tag outlines: switches in the game
+    let showBlocks = Boolean(remembered("knightblocksShowBlocks", cfg.showBlocks !== false));
+    let showTags = Boolean(remembered("knightblocksShowTags", cfg.showTags !== false)); // (older versions stored 0 / 1)
     const doScan = cfg.scan !== false;
     const w = Lynx.world3d(ar, { textures: false });
     const family = cfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
@@ -676,22 +688,41 @@ Lynx.games = Lynx.games || {};
       return true;
     });
     Lynx.onAction("camera", () => state === "playing" && (cam.behind = true));
-    Lynx.onAction("weapon", () => state !== "title" && rescan());
+    function zoom(dir) {
+      // dir +1: closer (zoom in), -1: farther
+      camDist = clamp(Math.round((camDist - dir * ZOOM_STEP) / ZOOM_STEP) * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+      remember("knightblocksCamDist", camDist);
+      cam.planMs = -1e9; // plan for it straight away
+      say(`Camera ${Math.round(camDist * 100)} cm from the knight`, "#c0f0ff");
+    }
+    // RB / Tab: zoom in, LB: out (the weapon buttons -- no weapons to switch here)
+    Lynx.onAction("weapon", (wpn) => (wpn === "prev" ? zoom(-1) : wpn === "next" ? zoom(1) : null));
+    const onKey = (e) => {
+      const t = e.target;
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA"))) return;
+      if (e.key === "+" || e.key === "=") zoom(1);
+      else if (e.key === "-" || e.key === "_") zoom(-1);
+      else if (e.code === "KeyR" && state !== "title") rescan();
+    };
+    window.addEventListener("keydown", onKey);
     const touch = Lynx.touchButtons();
     touch.add("⤒ Jump", () => Lynx.jumpAction());
     touch.add("\u{1F3A5} Behind", () => Lynx.cameraAction());
+    touch.add("\u2795 Zoom in", () => zoom(1));
+    touch.add("\u2796 Zoom out", () => zoom(-1));
     touch.add("\u{1F50D} Rescan", () => state !== "title" && rescan());
-    const tagsLabel = () => `\u{1F3F7}\uFE0F Tags: ${showTags ? "on" : "off"}`;
-    const tagsBtn = touch.add(tagsLabel(), () => {
-      showTags = !showTags;
-      tagsBtn.textContent = tagsLabel();
-      try {
-        localStorage.setItem(TAGS_KEY, showTags ? "1" : "0");
-      } catch (e) {
-        // (not remembered)
-      }
-    });
+    const toggle = (label, get, set, key) => {
+      const text = () => `${label}: ${get() ? "on" : "off"}`;
+      const btn = touch.add(text(), () => {
+        set(!get());
+        btn.textContent = text();
+        remember(key, get());
+      });
+    };
+    toggle("\u{1F9F1} Blocks", () => showBlocks, (v) => (showBlocks = v), "knightblocksShowBlocks");
+    toggle("\u{1F3F7}\uFE0F Tags", () => showTags, (v) => (showTags = v), "knightblocksShowTags");
     ar.onDestroy(() => {
+      window.removeEventListener("keydown", onKey);
       alive = false;
       tb.stop();
       if (state !== "title") Lynx.control.send({ type: "joystick", j1: 0, j2: 0 }); // out of goto: stop
@@ -847,7 +878,7 @@ Lynx.games = Lynx.games || {};
       }
       if (state === "scan") ar.text(`Looking around... ${Math.min(100, Math.round((SCAN_RATE * stateTime * 100) / (2 * Math.PI)))}%  (Fire: start now)`, v.cx, v.y + v.h - 20, { size: 14, align: "center" });
       if (state === "playing") {
-        ar.text("Run: stick / WASD · Jump: A / Space · Behind: Y / C · Rescan: RB / Tab", v.cx, v.y + v.h - 20, { size: 13, align: "center" });
+        ar.text("Run: stick / WASD · Jump: A / Space · Behind: Y / C · Zoom: + / \u2212, RB / LB · Rescan: R", v.cx, v.y + v.h - 20, { size: 13, align: "center" });
         if (cam.why) ar.text(`Robot: ${cam.why}`, v.x + 12, v.y + 42, { size: 12, color: "#ffd080" });
         const k = w.toWorld(hero.f, hero.r);
         ar.edgeArrow(k.x, k.y, hero.z + 0.035 * S, "#80d0ff");
