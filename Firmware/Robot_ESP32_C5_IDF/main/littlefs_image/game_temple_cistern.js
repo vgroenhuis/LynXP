@@ -574,7 +574,7 @@ window.Lynx = window.Lynx || {};
     // flickering, swaying tip (white-hot core, orange, red and fading), a
     // glow on the floor and embers rising off it. They flare up when the vent
     // fires and die down at the end; while off, a small blue pilot flame.
-    const TONGUES = [[0, 0, 1, 0.034], [-0.03, 0.02, 0.75, 0.024], [0.03, -0.015, 0.8, 0.024]]; // [dr, df, height, half width] (m)
+    const TONGUES = [[0, 0, 1, 0.026], [-0.035, 0.02, 0.7, 0.017], [0.035, -0.015, 0.78, 0.017]]; // [dr, df, height, half width] (m)
     function tongue(c, base, tip, halfW, sway, stops) {
       const ax = tip.x - base.x;
       const ay = tip.y - base.y;
@@ -593,9 +593,9 @@ window.Lynx = window.Lynx || {};
       c.quadraticCurveTo(...P(-0.15, 0), ...P(0, -halfW));
       c.fill();
     }
-    const OUTER = [[0, "rgba(255,250,210,0.95)"], [0.2, "rgba(255,200,70,0.9)"], [0.55, "rgba(255,110,20,0.75)"], [1, "rgba(190,30,0,0)"]];
-    const INNER = [[0, "rgba(255,255,255,0.95)"], [0.35, "rgba(255,240,170,0.85)"], [1, "rgba(255,190,60,0)"]];
-    const PILOT = [[0, "rgba(160,210,255,0.9)"], [0.6, "rgba(60,110,255,0.6)"], [1, "rgba(40,60,255,0)"]];
+    const OUTER = [[0, "rgba(255,230,150,0.85)"], [0.25, "rgba(255,170,50,0.8)"], [0.6, "rgba(235,90,15,0.6)"], [1, "rgba(160,30,0,0)"]];
+    const INNER = [[0, "rgba(255,255,230,0.7)"], [0.4, "rgba(255,230,140,0.45)"], [1, "rgba(255,190,60,0)"]];
+    const PILOT = [[0, "rgba(170,215,255,0.75)"], [0.6, "rgba(70,120,255,0.45)"], [1, "rgba(40,60,255,0)"]];
     function queueFlames() {
       for (let i = 0; i < ROWS; i++) {
         for (let j = 0; j < COLS; j++) {
@@ -612,11 +612,10 @@ window.Lynx = window.Lynx || {};
           ar.queue(pr.depth, () => {
             const c = ar.ctx;
             c.save();
-            c.globalCompositeOperation = "lighter";
             if (!on) {
               const b = ar.project(w.x, w.y, 0.004);
-              const t = ar.project(w.x, w.y, 0.03 + 0.004 * Math.sin(time * 20 + seed));
-              if (b && t) tongue(c, b, t, 0.012 * b.ppm, 0, PILOT);
+              const t = ar.project(w.x, w.y, 0.02 + 0.003 * Math.sin(time * 20 + seed));
+              if (b && t) tongue(c, b, t, 0.007 * b.ppm, 0, PILOT);
               c.restore();
               return;
             }
@@ -632,7 +631,11 @@ window.Lynx = window.Lynx || {};
               const sway = (0.012 * Math.sin(time * 6 + seed + k * 1.3) + 0.006 * Math.sin(time * 13 + k)) * b.ppm;
               tongue(c, b, t, hw * b.ppm, sway, OUTER);
               const ti = ar.project(tw.x, tw.y, 0.004 + h * 0.5);
-              if (ti) tongue(c, b, ti, hw * 0.5 * b.ppm, sway * 0.5, INNER);
+              // the white-hot core adds light (the rest is drawn normally, or over
+              // the bright video a row of flames washes out into one white wall)
+              c.globalCompositeOperation = "lighter";
+              if (ti) tongue(c, b, ti, hw * 0.45 * b.ppm, sway * 0.5, INNER);
+              c.globalCompositeOperation = "source-over";
             });
             // embers
             for (let k = 0; k < 4; k++) {
