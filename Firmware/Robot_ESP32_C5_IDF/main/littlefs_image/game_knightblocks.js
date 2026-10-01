@@ -31,12 +31,13 @@ Lynx.games = Lynx.games || {};
     const { clamp, lerp, ease, wrap } = K.util;
     const camDist = clamp((+cfg.camDistCm || 15) / 100, 0.1, 0.3);
     // the robot's footprint (see bodyMargin): half its width, and how far it reaches behind the drive wheels' axle
-    const robotHalf = clamp((+cfg.robotRadiusCm || 8) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
+    const robotHalf = clamp((+cfg.robotRadiusCm || 9.5) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
     const robotRear = Math.max(robotHalf, clamp((+cfg.robotRearCm || 18) / 100, 0.04, 0.4) + ROBOT_MARGIN_M);
     const showBlocks = cfg.showBlocks !== false;
     const doScan = cfg.scan !== false;
     const w = Lynx.world3d(ar, { textures: false });
-    const tb = Lynx.tagBlocks(ar, { tagMm: +cfg.tagMm || 22.5, blockMm: +cfg.blockMm || 30 });
+    const family = cfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
+    const tb = Lynx.tagBlocks(ar, { family, tagMm: +cfg.tagMm || 22.5, blockMm: +cfg.blockMm || 30 });
     tb.start();
 
     let state = "title"; // title | scan | playing
@@ -810,7 +811,7 @@ Lynx.games = Lynx.games || {};
       ar.text(status, v.x + 12, v.y + 24, { size: 13, color: s.error ? "#ff8080" : "#c0f0ff" });
       if (state === "title") {
         ar.banner("KNIGHT ON BLOCKS", "Fire to start -- the robot looks around for the tagged blocks first");
-        ar.text(`Blocks: ${+cfg.blockMm || 30} mm cubes with ${+cfg.tagMm || 22.5} mm tag36h11 AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
+        ar.text(`Blocks: ${+cfg.blockMm || 30} mm cubes with ${+cfg.tagMm || 22.5} mm ${family} AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
         ar.text(`Tags to print: ${location.host}/tags.html`, v.cx, v.cy + 92, { size: 13, align: "center", color: "#c0f0ff" });
         return;
       }

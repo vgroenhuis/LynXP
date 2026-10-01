@@ -4,11 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LynXP block tags</title>
-  <!-- AprilTag tag36h11 sheets for the Knight on Blocks game: each tag on a
-       square the size of a block face, to cut out and glue on. The tag
-       images are the official AprilRobotics/apriltag-imgs (BSD-2-Clause) from
-       jsDelivr at a pinned commit; each is 10 x 10 cells (the 8-cell black
-       square plus a white border), drawn at exact millimetre sizes. -->
+  <!-- AprilTag sheets for the Knight on Blocks game: each tag on a square
+       the size of a block face, to cut out and glue on. The tag images are
+       the official AprilRobotics/apriltag-imgs (BSD-2-Clause) from jsDelivr at
+       a pinned commit, with their one-cell white border (tag16h5: 8 x 8 cells,
+       a 6-cell black square; tag36h11: 10 x 10, an 8-cell one), drawn at exact
+       millimetre sizes. -->
   <style>
     body { font-family: system-ui, sans-serif; margin: 16px; color: #222; background: #fff; }
     .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 12px; }
@@ -29,36 +30,44 @@
   </style>
 </head>
 <body>
-  <h1>Block tags (AprilTag tag36h11)</h1>
+  <h1>Block tags (AprilTag)</h1>
   <div class="controls">
+    <label>Family <select id="family"><option value="tag16h5">tag16h5</option><option value="tag36h11">tag36h11</option></select></label>
     <label>First tag id <input id="first" type="number" value="0" min="0" max="586"></label>
-    <label>How many <input id="count" type="number" value="24" min="1" max="200"></label>
+    <label>How many <input id="count" type="number" value="30" min="1" max="200"></label>
     <label>Tag size (black square, mm) <input id="tagMm" type="number" value="22.5" min="5" max="150" step="0.5"></label>
     <label>Block face (mm) <input id="faceMm" type="number" value="30" min="5" max="200" step="0.5"></label>
     <button id="print">Print</button>
   </div>
-  <p class="note">Print at 100% scale ("actual size", no "fit to page"), then check one black square with a ruler. Cut along the dashed lines and glue one tag per face, centered; a block can have tags on any faces (each tag id on one face only, in all your blocks). Matte paper is best -- glare hides tags. Sizes must match the game's settings (Games &amp; apps: Knight on Blocks).</p>
+  <p class="note">Print at 100% scale ("actual size", no "fit to page"), then check one black square with a ruler. Cut along the dashed lines and glue a tag on each face, centered: the same id on all of a block's faces (or different ones), but each id on one block only. Matte paper is best -- glare hides tags. Sizes must match the game's settings (Games &amp; apps: Knight on Blocks).</p>
   <div class="sheet" id="sheet"></div>
   <script>
-    const BASE = "https://cdn.jsdelivr.net/gh/AprilRobotics/apriltag-imgs@f3fd9a7add5bfd82a886fc65240fdb8e3c9ac5a1/tag36h11/";
+    const IMGS = "https://cdn.jsdelivr.net/gh/AprilRobotics/apriltag-imgs@f3fd9a7add5bfd82a886fc65240fdb8e3c9ac5a1/";
+    // cells across the image (incl. the white border) / across the black square; how many ids
+    const FAMILIES = {
+      tag16h5: { dir: "tag16h5/", file: "tag16_05_", cells: 8, black: 6, ids: 30 },
+      tag36h11: { dir: "tag36h11/", file: "tag36_11_", cells: 10, black: 8, ids: 587 },
+    };
     const $ = (id) => document.getElementById(id);
     function render() {
-      const first = Math.max(0, Math.min(586, Math.round(+$("first").value || 0)));
+      const fam = FAMILIES[$("family").value] || FAMILIES.tag16h5;
+      const first = Math.max(0, Math.min(fam.ids - 1, Math.round(+$("first").value || 0)));
       const count = Math.max(1, Math.min(200, Math.round(+$("count").value || 1)));
       const tagMm = +$("tagMm").value || 22.5;
-      const faceMm = Math.max(+$("faceMm").value || 30, (tagMm * 10) / 8);
+      const imgMm = (tagMm * fam.cells) / fam.black;
+      const faceMm = Math.max(+$("faceMm").value || 30, imgMm);
       const sheet = $("sheet");
       sheet.innerHTML = "";
-      for (let id = first; id < Math.min(587, first + count); id++) {
+      for (let id = first; id < Math.min(fam.ids, first + count); id++) {
         const cell = document.createElement("div");
         cell.className = "cell";
         const face = document.createElement("div");
         face.className = "face";
         face.style.width = face.style.height = `${faceMm}mm`;
         const img = document.createElement("img");
-        img.src = `${BASE}tag36_11_${String(id).padStart(5, "0")}.png`;
+        img.src = `${IMGS}${fam.dir}${fam.file}${String(id).padStart(5, "0")}.png`;
         img.alt = `tag ${id}`;
-        img.style.width = img.style.height = `${(tagMm * 10) / 8}mm`; // 10 cells incl. the white border
+        img.style.width = img.style.height = `${imgMm}mm`; // incl. the white border
         const label = document.createElement("div");
         label.className = "id";
         label.textContent = `${id}`;
@@ -67,7 +76,7 @@
         sheet.append(cell);
       }
     }
-    ["first", "count", "tagMm", "faceMm"].forEach((id) => $(id).addEventListener("input", render));
+    ["family", "first", "count", "tagMm", "faceMm"].forEach((id) => $(id).addEventListener("input", render));
     $("print").addEventListener("click", () => window.print());
     render();
   </script>

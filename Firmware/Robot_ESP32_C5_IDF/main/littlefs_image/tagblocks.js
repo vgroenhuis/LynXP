@@ -1,10 +1,11 @@
 // Real blocks on the floor, found by their AprilTags: 30 mm cubes with a
-// 22.5 mm tag36h11 tag on one or more faces (sizes configurable). A map of
+// 22.5 mm tag16h5 tag on one or more faces -- the same tag on all of a
+// block's faces, or different ones (family and sizes configurable). A map of
 // them in the robot's odometry frame, for games that put virtual things on
 // and around real ones (game_knightblocks.js).
 //
 // Every ~120 ms a frame of the camera stream (CORS mode, see
-// Lynx.cam.enableCors) goes to apriltag_worker.js. Each tag found: its four
+// Lynx.cam.enableCors) goes to tag_worker.js. Each tag found: its four
 // corners are undistorted with the lens calibration (Lynx.lens -- the C
 // library's own pose ignores the barrel distortion), a homography from the
 // tag's square gives its pose in the camera, and the camera's pose when the
@@ -23,7 +24,7 @@
 // level stands on blocks below, which are inferred if not seen themselves.
 // Nothing is forgotten on its own -- clear() (a rescan) starts over.
 //
-// Lynx.tagBlocks(ar, {tagMm, blockMm}) -> {start(), stop(), clear(), blocks()
+// Lynx.tagBlocks(ar, {family, tagMm, blockMm}) -> {start(), stop(), clear(), blocks()
 //   -> [{id, x, y, yaw, level, h0, h1, half, inferred, n, seen}], state
 //   {ready, error, fps, detectMs, tags, lastDetections}}
 
@@ -138,8 +139,9 @@ window.Lynx = window.Lynx || {};
       if (worker) return;
       if (Lynx.cam && Lynx.cam.enableCors) Lynx.cam.enableCors();
       state.error = null;
-      worker = new Worker("apriltag_worker.js");
+      worker = new Worker("tag_worker.js");
       worker.onmessage = onMessage;
+      worker.postMessage({ type: "family", family: opts.family || "tag16h5" });
       worker.onerror = (e) => (state.error = `AprilTag worker failed${e && e.message ? ": " + e.message : ""}`);
       timer = setInterval(grab, INTERVAL_MS);
     }
