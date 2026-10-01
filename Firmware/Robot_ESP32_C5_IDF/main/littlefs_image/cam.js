@@ -278,6 +278,13 @@ window.addEventListener("DOMContentLoaded", () => {
   // matching CORS header). Off by default so an older camera firmware
   // without that header still shows a picture.
   Lynx.cam = {
+    // fn(nowMs) -> {yaw (rad, odometry frame), tiltDeg} or null: where the
+    // camera should point, each frame (null = back to the player's input).
+    // Only with absolute aim (Lynx.control.absoluteAim()); without it a game
+    // has to send "aim" itself.
+    setAimOverride(fn) {
+      aimOverride = fn;
+    },
     enableCors() {
       if (img.crossOrigin === "anonymous") return;
       img.crossOrigin = "anonymous";
@@ -449,6 +456,7 @@ window.addEventListener("DOMContentLoaded", () => {
 let gameMode = "none"; // "none", "monster_hunt" (below), or the id of a running game_*.js / detect.js game
 let aimView = true; // the general "Smooth aim" setting (see withAim())
 let aimParams = null; // calib.aim once loaded, if the pan servo follows the control frame (absolute aim, see stepAim())
+let aimOverride = null; // a game pointing the camera itself (Lynx.cam.setAimOverride)
 let fireballSpeedMps = 0.5;
 const FIREBALL_RADIUS_M = 0.08;
 const FIREBALL_START_DISTANCE_M = 0.2; // launched a short distance out, not exactly at the camera (a projection singularity)
@@ -986,6 +994,14 @@ function subscribeToPose(callback) {
     if (aimCurve(rot, a) !== 0 || aimCurve(tilt, a) !== 0) aim.activeAt = now;
     aim.yaw += ((aimCurve(rot, a) * a.panRateDeg * Math.PI) / 180) * dt;
     aim.tiltDeg = Math.max(a.tiltMinDeg, Math.min(a.tiltMaxDeg, aim.tiltDeg + aimCurve(tilt, a) * a.tiltRateDeg * dt));
+    // A game pointing the camera itself (Lynx.cam.setAimOverride): it says
+    // where, the rates above only feed its own controls.
+    const o = aimOverride && aimOverride(now);
+    if (o) {
+      aim.yaw += wrapToPi(o.yaw - aim.yaw); // the history stays continuous
+      aim.tiltDeg = Math.max(a.tiltMinDeg, Math.min(a.tiltMaxDeg, o.tiltDeg));
+      aim.activeAt = now;
+    }
     if (aimSteering(now)) {
       aim.errYaw = aim.errTilt = 0; // this page is the one steering
       sendAim(now);

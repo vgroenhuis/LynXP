@@ -137,6 +137,28 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "temple", title: "Temple of LynXP", better: "higher", format: "points" }],
     },
     {
+      id: "knight",
+      kind: "game",
+      name: "Pocket Knight",
+      icon: "⚔️",
+      blurb:
+        "A third-person sword-and-parkour adventure at 1:25 scale: you play a 7 cm knight on the floor, and the robot " +
+        "follows it with its camera by itself -- about 15 cm away, from wherever it is (camera button: round behind the " +
+        "knight; the look controls orbit it). Run, jump, catch ledges and climb, push crates onto plates, ride moving " +
+        "platforms over chasms, strike levers -- and fight skeletons with your sword: they wind up before they strike. " +
+        "Needs a clear floor of about 1.3 x 2.5 m.",
+      settings: [
+        { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
+          options: [["easy", "Easy (slow enemies)"], ["normal", "Normal"], ["hard", "Hard (more, quicker enemies)"]] },
+        { key: "startLevel", label: "Start at level", type: "select", def: "1",
+          options: [["1", "1 -- the ruined keep"], ["2", "2 -- the clockwork bridge"]] },
+        { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
+        { key: "camDistCm", label: "Camera distance", type: "number", unit: "cm", def: 15, min: 10, max: 30, step: 1 },
+        { key: "textures", label: "Textured stone (turn off if slow)", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "knight", title: "Pocket Knight", better: "higher", format: "points" }],
+    },
+    {
       id: "race",
       kind: "game",
       name: "Time Trial",

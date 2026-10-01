@@ -9,6 +9,8 @@
 //   Z / Ctrl     fire / action (hold = auto)   1-3     pick weapon
 //   Space        jump in games with jumping,   Tab     next weapon
 //                else fire / action (like gamepad A; J jumps too)
+//   C            camera action (games that have one, e.g. the knight:
+//                the robot goes round behind the character; gamepad Y)
 // (Ctrl + W is the browser's "close tab", which a page can't block -- Z is
 // the safer fire key while driving.)
 //
@@ -101,7 +103,9 @@ window.Lynx = window.Lynx || {};
 
   // A game can keep the robot out of its virtual walls: every drive command
   // (keyboard, gamepad, touch joystick) goes through its filter, which gets
-  // the control-frame j1 (right) / j2 (forward) and returns what to send.
+  // the control-frame j1 (right) / j2 (forward) and returns what to send --
+  // or null to send nothing at all (a game that drives the robot itself and
+  // takes the input for its own character, see driveInput()).
   // refreshDrive() re-sends the last real input through the filter when the
   // filter's answer changed (the robot reached a wall between two resends),
   // but only while that input is still being resent -- never on its own.
@@ -109,13 +113,14 @@ window.Lynx = window.Lynx || {};
   let rawDrive = { j1: 0, j2: 0, at: -1e9 };
   let sentDrive = { j1: 0, j2: 0 };
   const round2 = (v) => Math.round(v * 100) / 100;
-  function filterDrive(j1, j2) {
+  function filterDriveOrNull(j1, j2) {
     if (!driveFilter) return { j1, j2 };
     const f = driveFilter(j1, j2);
-    return { j1: round2(Math.max(-1, Math.min(1, f.j1))), j2: round2(Math.max(-1, Math.min(1, f.j2))) };
+    return f ? { j1: round2(Math.max(-1, Math.min(1, f.j1))), j2: round2(Math.max(-1, Math.min(1, f.j2))) } : null;
   }
   function sendDrive(obj) {
-    const f = filterDrive(Number(obj.j1) || 0, Number(obj.j2) || 0);
+    const f = filterDriveOrNull(Number(obj.j1) || 0, Number(obj.j2) || 0);
+    if (!f) return; // the game keeps this input for itself
     sentDrive = f;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ...obj, j1: f.j1, j2: f.j2 }));
   }
@@ -148,8 +153,15 @@ window.Lynx = window.Lynx || {};
     },
     refreshDrive() {
       if (performance.now() - rawDrive.at > 1000) return; // the input stopped: the robot's own watchdog stops it
-      const f = filterDrive(rawDrive.j1, rawDrive.j2);
-      if (f.j1 !== sentDrive.j1 || f.j2 !== sentDrive.j2) sendDrive({ type: "control_joystick", j1: rawDrive.j1, j2: rawDrive.j2 });
+      const f = filterDriveOrNull(rawDrive.j1, rawDrive.j2);
+      if (f && (f.j1 !== sentDrive.j1 || f.j2 !== sentDrive.j2)) sendDrive({ type: "control_joystick", j1: rawDrive.j1, j2: rawDrive.j2 });
+    },
+    // The drive input as given (keyboard, gamepad, touch joystick; before any
+    // filter): j1 right, j2 forward. Zero once it hasn't been resent for a
+    // second (held input is resent every ~150 ms, release sends zero).
+    driveInput() {
+      if (performance.now() - rawDrive.at > 1000) return { j1: 0, j2: 0 };
+      return { j1: rawDrive.j1, j2: rawDrive.j2 };
     },
     start: ensureStarted,
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
@@ -169,7 +181,7 @@ window.Lynx = window.Lynx || {};
   const held = new Set();
   let heartbeat = null;
   let lastSent = { j1: 0, j2: 0, rot: 0, tilt: 0 };
-  const listeners = { fire: [], weapon: [], jump: [] };
+  const listeners = { fire: [], weapon: [], jump: [], camera: [] };
 
   Lynx.onAction = (name, cb) => listeners[name].push(cb);
   Lynx.clearActions = () => Object.values(listeners).forEach((l) => (l.length = 0));
@@ -179,6 +191,9 @@ window.Lynx = window.Lynx || {};
   // now (e.g. playing, not on a title screen); jumpAction() returns whether
   // any did, so gamepad A can fall back to fire when it doesn't.
   Lynx.jumpAction = () => listeners.jump.map((cb) => !!cb()).some(Boolean);
+  // Camera action (C, gamepad Y, or a game's touch button), for games that
+  // steer the camera themselves.
+  Lynx.cameraAction = () => listeners.camera.forEach((cb) => cb());
   // True while Space / the on-screen action button is held -- for
   // automatic weapons. Presses still go through fireAction() too.
   Lynx.input = { fireHeld: false };
@@ -270,6 +285,10 @@ window.Lynx = window.Lynx || {};
         if (!e.repeat) Lynx.jumpAction();
         return;
       }
+      if (e.code === "KeyC") {
+        if (!e.repeat) Lynx.cameraAction();
+        return;
+      }
       if (e.code === "Tab") {
         e.preventDefault();
         listeners.weapon.forEach((cb) => cb("next"));
@@ -310,7 +329,7 @@ window.Lynx = window.Lynx || {};
   const PAD_POLL_MS = 50;
   const DEADZONE = 0.15;
   // Standard-layout button indices (https://w3c.github.io/gamepad/#remapping).
-  const BTN = { A: 0, B: 1, X: 2, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const FIRE_BUTTONS = [BTN.RT, BTN.X, BTN.START];
 
   const pad = { j1: 0, j2: 0, rot: 0, tilt: 0, slow: false };
@@ -406,6 +425,7 @@ window.Lynx = window.Lynx || {};
     if (justDown(BTN.RB)) listeners.weapon.forEach((cb) => cb("next"));
     if (justDown(BTN.LB)) listeners.weapon.forEach((cb) => cb("prev"));
     if (justDown(BTN.B)) Lynx.jumpAction(); // the old jump button, still works
+    if (justDown(BTN.Y)) Lynx.cameraAction();
     prevPressed = pressed;
   }
 
