@@ -1,5 +1,5 @@
-// Real blocks on the floor, found by their AprilTags: 40 mm cubes with a
-// 30 mm tag36h11 tag on one or more faces (sizes configurable). A map of
+// Real blocks on the floor, found by their AprilTags: 30 mm cubes with a
+// 22.5 mm tag36h11 tag on one or more faces (sizes configurable). A map of
 // them in the robot's odometry frame, for games that put virtual things on
 // and around real ones (game_knightblocks.js).
 //
@@ -11,8 +11,8 @@
 // frame was shown (ar.pose, already delayed to match the video; pan, tilt,
 // height) puts it in the world. A tag is on a block's top (its normal points
 // up) or on a side (horizontal normal): the block's center is half a block
-// behind the tag, its height snapped to a stacking level (bottom at 0, 4,
-// 8 cm...), its heading the face's normal (or the tag's edge, on top) modulo
+// behind the tag, its height snapped to a stacking level (bottom at 0, 1, 2
+// block heights...), its heading the face's normal (or the tag's edge, on top) modulo
 // 90 degrees -- a cube looks the same every quarter turn.
 //
 // The map: tags seen near each other at the same level are one block (any
@@ -116,8 +116,8 @@ window.Lynx = window.Lynx || {};
   }
 
   Lynx.tagBlocks = (ar, opts = {}) => {
-    const TAG = (opts.tagMm || 30) / 1000;
-    const BLOCK = (opts.blockMm || 40) / 1000;
+    const TAG = (opts.tagMm || 22.5) / 1000;
+    const BLOCK = (opts.blockMm || 30) / 1000;
     const HALF = BLOCK / 2;
     const state = { ready: false, error: null, fps: 0, detectMs: 0, tags: 0, lastDetections: [] };
     const blocks = new Map(); // id -> block

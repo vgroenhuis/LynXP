@@ -1,5 +1,5 @@
 // Knight on Blocks -- the Pocket Knight (game_knight.js) on real blocks:
-// 40 mm cubes with AprilTags, found by tagblocks.js. The knight walks
+// 30 mm cubes with AprilTags, found by tagblocks.js. The knight walks
 // around them, jumps or vaults onto them, catches the edge of a stack and
 // climbs it -- and walks behind them: a real block nearer than the knight
 // hides it (its silhouette is cut out of the overlay, so the video shows
@@ -8,8 +8,10 @@
 // The robot follows the knight as in Pocket Knight (a leash at ~15 cm, the
 // camera button circles it round behind, the look controls orbit it), but
 // keeps its body clear of every block it knows: it only drives to a spot
-// whose robot-sized circle, and the straight way there, stay clear of the
-// blocks; with none, it holds still (or backs off one that's too close).
+// where its whole footprint fits -- from the drive wheels back to the
+// caster, oriented the way it will arrive -- and that it can reach, turning
+// and driving, without touching one; else via a detour point; with none, it
+// holds still (or eases off a block it's touching).
 // It can only avoid blocks it has seen -- so it starts by looking around
 // (turning in place; Fire skips it), and Rescan forgets them all and looks
 // again.
@@ -28,11 +30,13 @@ Lynx.games = Lynx.games || {};
     const C = K.C;
     const { clamp, lerp, ease, wrap } = K.util;
     const camDist = clamp((+cfg.camDistCm || 15) / 100, 0.1, 0.3);
-    const robotR = clamp((+cfg.robotRadiusCm || 8) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
+    // the robot's footprint (see bodyMargin): half its width, and how far it reaches behind the drive wheels' axle
+    const robotHalf = clamp((+cfg.robotRadiusCm || 8) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
+    const robotRear = Math.max(robotHalf, clamp((+cfg.robotRearCm || 18) / 100, 0.04, 0.4) + ROBOT_MARGIN_M);
     const showBlocks = cfg.showBlocks !== false;
     const doScan = cfg.scan !== false;
     const w = Lynx.world3d(ar, { textures: false });
-    const tb = Lynx.tagBlocks(ar, { tagMm: +cfg.tagMm || 30, blockMm: +cfg.blockMm || 40 });
+    const tb = Lynx.tagBlocks(ar, { tagMm: +cfg.tagMm || 22.5, blockMm: +cfg.blockMm || 30 });
     tb.start();
 
     let state = "title"; // title | scan | playing
@@ -380,15 +384,57 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- the robot ----------------------------------------------------------------------------------
-    // Clear of the blocks at (f, r) with the robot's radius?
+    // Its footprint: from the drive wheels' axle (the odometry point) back to
+    // the caster, robotRear behind it, and robotHalf to each side (and in
+    // front of the axle) -- a capsule along the chassis heading. The chassis
+    // heading is the robot's own (its pose messages): the page's smooth aim
+    // gives the camera's heading instead.
+    const chassis = { x: 0, y: 0, th: 0, at: -1e9 };
+    let alive = true;
+    Lynx.control.onMessage("pose", (m) => {
+      if (alive && typeof m.theta === "number") Object.assign(chassis, { x: m.x, y: m.y, th: m.theta, at: performance.now() });
+    });
+    function chassisLocal() {
+      const fresh = performance.now() - chassis.at < 1000;
+      const x = fresh ? chassis.x : ar.pose.x;
+      const y = fresh ? chassis.y : ar.pose.y;
+      const th = fresh ? chassis.th : ar.pose.theta; // (no telemetry: the view's heading)
+      const l = w.toLocal(x, y);
+      return { f: l.f, r: l.r, th: wrap(w.anchor().th - th) };
+    }
     const clearance = (f, r) => solids.reduce((m, b) => Math.min(m, footDist(b, f, r)), Infinity);
-    function pathClear(f0, r0, f1, r1) {
-      const n = Math.max(1, Math.ceil(Math.hypot(f1 - f0, r1 - r0) / 0.01));
+    // how far the footprint at (f, r) facing th (floor frame) stays from the blocks, beyond robotHalf
+    function bodyMargin(f, r, th) {
+      const c = Math.cos(th);
+      const s = Math.sin(th);
+      const len = Math.max(0, robotRear - robotHalf);
+      const n = Math.max(1, Math.ceil(len / 0.02));
+      let m = Infinity;
+      for (let i = 0; i <= n; i++) {
+        const d = (len * i) / n;
+        m = Math.min(m, clearance(f - c * d, r - s * d) - robotHalf);
+      }
+      return m;
+    }
+    const bodyClear = (f, r, th) => bodyMargin(f, r, th) >= 0;
+    // Driving from (f0, r0) facing th0 to (f1, r1): goto turns toward the
+    // target -- or its back to it, reversing to one behind -- then drives
+    // straight. Checks the body over the turn on the spot and all the way;
+    // returns the heading it arrives with, or null if it would touch a block.
+    function moveClear(f0, r0, th0, f1, r1) {
+      const dist = Math.hypot(f1 - f0, r1 - r0);
+      if (dist < 0.01) return bodyClear(f1, r1, th0) ? th0 : null;
+      const dir = Math.atan2(r1 - r0, f1 - f0);
+      const th1 = Math.cos(dir - th0) >= 0 ? dir : wrap(dir + Math.PI);
+      const turn = wrap(th1 - th0);
+      const nt = Math.ceil(Math.abs(turn) / 0.2);
+      for (let i = 1; i <= nt; i++) if (!bodyClear(f0, r0, th0 + (turn * i) / nt)) return null;
+      const n = Math.max(1, Math.ceil(dist / 0.02));
       for (let i = 1; i <= n; i++) {
         const t = i / n;
-        if (clearance(f0 + (f1 - f0) * t, r0 + (r1 - r0) * t) < robotR) return false;
+        if (!bodyClear(f0 + (f1 - f0) * t, r0 + (r1 - r0) * t, th1)) return null;
       }
-      return true;
+      return th1;
     }
     // does a block stand between the camera and the knight?
     function hidden(c, p) {
@@ -418,40 +464,36 @@ Lynx.games = Lynx.games || {};
       });
     }
     // Where the robot should go: a spot at ~camDist from the knight at bearing
-    // `want` (or as near it as possible) that's clear of the blocks and
-    // reachable in a straight line; holds still if there's none, backs away
-    // from a block it's too close to.
-    function planRobot(rl, want) {
+    // `want` (or as near it as possible) where its whole footprint fits, and
+    // that it can drive to (turn included) without touching a block -- else a
+    // detour point first; holds still if there's none, and eases forward or
+    // back if it's touching one already.
+    function planRobot(want) {
       const h = hero;
-      const here = clearance(rl.f, rl.r);
-      if (here < robotR) {
-        // too close (a block just found, or the estimate moved): straight away from it
+      const ch = chassisLocal();
+      if (!bodyClear(ch.f, ch.r, ch.th)) {
+        // too close (a block just found, or the estimate moved): straight forward or back, whichever frees it most
         let best = null;
-        for (const b of solids) {
-          const d = footDist(b, rl.f, rl.r);
-          if (!best || d < best.d) best = { b, d };
+        for (const d of [0.03, -0.03, 0.06, -0.06, 0.1, -0.1]) {
+          const f = ch.f + d * Math.cos(ch.th);
+          const r = ch.r + d * Math.sin(ch.th);
+          const m = bodyMargin(f, r, ch.th);
+          if (!best || m > best.m + 1e-4) best = { f, r, m };
         }
-        const [u, v] = toB(best.b, rl.f, rl.r);
-        const cu = clamp(u, -best.b.half, best.b.half);
-        const cv = clamp(v, -best.b.half, best.b.half);
-        let [df, dr] = dirFromB(best.b, u - cu, v - cv);
-        const l = Math.hypot(df, dr);
-        if (l < 1e-6) [df, dr] = [rl.f - best.b.cf, rl.r - best.b.cr];
-        const k = (robotR - here + 0.02) / (Math.hypot(df, dr) || 1);
-        return { f: rl.f + df * k, r: rl.r + dr * k, why: "backing off a block" };
+        return { f: best.f, r: best.r, why: "backing off a block" };
       }
       const eye = [h.f, h.r, h.z + 0.04];
       const camH = ar.cameraWorld().h;
-      // viewpoints round the knight that the robot fits at, best first
+      // viewpoints round the knight, best first
       const spots = [];
-      for (const extra of [0, 0.04, 0.08, -0.03]) {
+      for (const extra of [0, 0.04, 0.08, 0.13, -0.03]) {
         const dist = camDist + 0.8 * Math.max(0, h.z - 0.04) + extra;
         for (let k = 0; k <= 26; k++) {
           const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.13; // 0, +-7.5 deg, ... +-97 deg
           const b = want + off;
           const f = h.f + dist * Math.cos(b);
           const r = h.r + dist * Math.sin(b);
-          if (clearance(f, r) < robotR) continue;
+          if (clearance(f, r) < robotHalf) continue; // (the axle at least; the rest once the heading is known)
           let cost = Math.abs(off) + Math.abs(extra) * 4;
           if (hidden({ f, r, h: camH }, eye)) cost += 0.6;
           spots.push({ f, r, cost, why: off || extra ? "around the blocks" : "" });
@@ -459,24 +501,26 @@ Lynx.games = Lynx.games || {};
       }
       spots.sort((a, b) => a.cost - b.cost);
       // the best one it can drive straight to...
-      const direct = spots.find((s) => pathClear(rl.f, rl.r, s.f, s.r));
+      const direct = spots.find((s) => moveClear(ch.f, ch.r, ch.th, s.f, s.r) !== null);
       if (direct) return direct;
-      // ...or a detour: a clear point from which one is in a straight line
+      // ...or a detour: a point from which one is in a straight line
       let best = null;
-      for (const s of spots.slice(0, 12)) {
+      for (const s of spots.slice(0, 8)) {
         for (const d of [0.08, 0.15, 0.22]) {
-          for (let k = 0; k < 16; k++) {
-            const a = (k / 16) * 2 * Math.PI;
-            const f = rl.f + d * Math.cos(a);
-            const r = rl.r + d * Math.sin(a);
+          for (let k = 0; k < 12; k++) {
+            const a = (k / 12) * 2 * Math.PI;
+            const f = ch.f + d * Math.cos(a);
+            const r = ch.r + d * Math.sin(a);
             const cost = s.cost + 2 * (d + Math.hypot(s.f - f, s.r - r));
             if (best && cost >= best.cost) continue;
-            if (clearance(f, r) < robotR || !pathClear(rl.f, rl.r, f, r) || !pathClear(f, r, s.f, s.r)) continue;
+            if (clearance(f, r) < robotHalf) continue;
+            const th = moveClear(ch.f, ch.r, ch.th, f, r);
+            if (th === null || moveClear(f, r, th, s.f, s.r) === null) continue;
             best = { f, r, cost, why: "going round the blocks" };
           }
         }
       }
-      return best || { f: rl.f, r: rl.r, why: "no clear way: holding" };
+      return best || { f: ch.f, r: ch.r, why: "no clear way: holding" };
     }
 
     function steerRobot(dt, now) {
@@ -500,7 +544,7 @@ Lynx.games = Lynx.games || {};
       cam.tiltOff = clamp(cam.tiltOff + tiltIn * 25 * dt, -20, 20);
       if (now - cam.planMs > PLAN_EVERY_MS) {
         cam.planMs = now;
-        const p = planRobot(rl, cam.b);
+        const p = planRobot(cam.b);
         cam.target = p;
         cam.why = p.why;
       }
@@ -619,6 +663,7 @@ Lynx.games = Lynx.games || {};
     touch.add("\u{1F3A5} Behind", () => Lynx.cameraAction());
     touch.add("\u{1F50D} Rescan", () => state !== "title" && rescan());
     ar.onDestroy(() => {
+      alive = false;
       tb.stop();
       if (state !== "title") Lynx.control.send({ type: "joystick", j1: 0, j2: 0 }); // out of goto: stop
       takeControl(false);
@@ -765,7 +810,7 @@ Lynx.games = Lynx.games || {};
       ar.text(status, v.x + 12, v.y + 24, { size: 13, color: s.error ? "#ff8080" : "#c0f0ff" });
       if (state === "title") {
         ar.banner("KNIGHT ON BLOCKS", "Fire to start -- the robot looks around for the tagged blocks first");
-        ar.text(`Blocks: ${+cfg.blockMm || 40} mm cubes with ${+cfg.tagMm || 30} mm tag36h11 AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
+        ar.text(`Blocks: ${+cfg.blockMm || 30} mm cubes with ${+cfg.tagMm || 22.5} mm tag36h11 AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
         ar.text(`Tags to print: ${location.host}/tags.html`, v.cx, v.cy + 92, { size: 13, align: "center", color: "#c0f0ff" });
         return;
       }

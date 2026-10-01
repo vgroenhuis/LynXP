@@ -15,7 +15,7 @@ const BASE = "https://cdn.jsdelivr.net/gh/arenaxr/apriltag-js-standalone@f0fe556
 
 let mod = null;
 let api = null;
-const opts = { decimate: 1.5, sigma: 0.0, refine: 1 };
+const opts = { decimate: 1.0, sigma: 0.0, refine: 1 }; // full resolution: small tags (22.5 mm) get sharper corners
 
 function applyOptions() {
   // decimate, sigma, nthreads, refine_edges, max_detections (0 = all), return_pose, return_solutions
