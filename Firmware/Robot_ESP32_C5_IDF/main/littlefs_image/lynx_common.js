@@ -159,6 +159,27 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "knight", title: "Pocket Knight", better: "higher", format: "points" }],
     },
     {
+      id: "knightblocks",
+      kind: "game",
+      name: "Knight on Blocks",
+      icon: "\u{1F9F1}",
+      blurb:
+        "The Pocket Knight on real blocks: 40 mm cubes with 30 mm AprilTags (tag36h11) on one or more faces. " +
+        "The robot finds them with its camera; the knight walks around them, jumps and climbs onto them, catches the edge " +
+        "of a stack -- and the robot follows it without bumping into any block it has seen. It looks around first " +
+        "(turning in place); Rescan when you've moved blocks out of view. Needs internet once (the tag detector). " +
+        "Printable tags: open /tags.html on the robot.",
+      settings: [
+        { key: "blockMm", label: "Block size", type: "number", unit: "mm", def: 40, min: 20, max: 100, step: 1 },
+        { key: "tagMm", label: "Tag size (black square)", type: "number", unit: "mm", def: 30, min: 10, max: 90, step: 1 },
+        { key: "robotRadiusCm", label: "Robot radius (keep-out)", type: "number", unit: "cm", def: 8, min: 4, max: 20, step: 0.5 },
+        { key: "camDistCm", label: "Camera distance", type: "number", unit: "cm", def: 15, min: 10, max: 30, step: 1 },
+        { key: "scan", label: "Look around at the start", type: "checkbox", def: true },
+        { key: "showBlocks", label: "Show detected tags and blocks", type: "checkbox", def: true },
+      ],
+      boards: [],
+    },
+    {
       id: "race",
       kind: "game",
       name: "Time Trial",

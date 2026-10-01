@@ -602,6 +602,16 @@ Lynx.games = Lynx.games || {};
     return `rgb(${a.map((v, i) => Math.round(lerp(v, b[i], t))).join(",")})`;
   }
 
+  // The knight -- body, animation, drawing, moves -- for other games (game_knightblocks.js).
+  Lynx.knightKit = {
+    bodyJoints, knightPrims, placer, drawPrims, KNIGHT_LOOK,
+    C: {
+      BODY_H, BODY_R, STEP_UP, AIR_STEP_UP, GRAVITY, JUMP_V, WALK_V, RUN_V, ACCEL, DECEL, AIR_ACCEL, TURN_RATE, COYOTE_S, JUMP_BUFFER_S,
+      MANTLE_MIN, GRAB_MIN, GRAB_MAX, HANG_DROP, CLIMB_S, SHIMMY_V, FALL_HURT_M, SWINGS, CAM_DIST, ORBIT_RATE, BEHIND_RATE, GOTO_EVERY_MS, GOTO_MOVE_M,
+    },
+    util: { clamp, lerp, ease, wrap, approach },
+  };
+
   const DIFF_RANK = { easy: 0, normal: 1, hard: 2 };
 
   Lynx.games.knight = (ar, cfg) => {
