@@ -42,6 +42,16 @@ Lynx.games = Lynx.games || {};
     const robotHalf = clamp((+cfg.robotRadiusCm || 9.5) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
     const robotRear = Math.max(robotHalf, clamp((+cfg.robotRearCm || 18) / 100, 0.04, 0.4) + ROBOT_MARGIN_M);
     const showBlocks = cfg.showBlocks !== false;
+    // the green outlines of the tags found: the setting's default, then the
+    // in-game switch (remembered in this browser)
+    const TAGS_KEY = "knightblocksShowTags";
+    let showTags = cfg.showTags !== false;
+    try {
+      const v = localStorage.getItem(TAGS_KEY);
+      if (v !== null) showTags = v === "1";
+    } catch (e) {
+      // (storage blocked: the setting's default)
+    }
     const doScan = cfg.scan !== false;
     const w = Lynx.world3d(ar, { textures: false });
     const family = cfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
@@ -671,6 +681,16 @@ Lynx.games = Lynx.games || {};
     touch.add("⤒ Jump", () => Lynx.jumpAction());
     touch.add("\u{1F3A5} Behind", () => Lynx.cameraAction());
     touch.add("\u{1F50D} Rescan", () => state !== "title" && rescan());
+    const tagsLabel = () => `\u{1F3F7}\uFE0F Tags: ${showTags ? "on" : "off"}`;
+    const tagsBtn = touch.add(tagsLabel(), () => {
+      showTags = !showTags;
+      tagsBtn.textContent = tagsLabel();
+      try {
+        localStorage.setItem(TAGS_KEY, showTags ? "1" : "0");
+      } catch (e) {
+        // (not remembered)
+      }
+    });
     ar.onDestroy(() => {
       alive = false;
       tb.stop();
@@ -842,7 +862,7 @@ Lynx.games = Lynx.games || {};
         if (state === "playing") queueHero();
         ar.flush();
       }
-      if (showBlocks) drawTags();
+      if (showTags) drawTags();
       hud();
     }
 
