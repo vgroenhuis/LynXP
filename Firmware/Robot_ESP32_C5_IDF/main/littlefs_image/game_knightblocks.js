@@ -906,7 +906,7 @@ Lynx.games = Lynx.games || {};
       actionLabel: "⚔️ Sword",
       debug: { hero: () => hero, cam: () => cam, world: () => w, tags: () => tb, solids: () => solids, startPlay, startScan, rescan, teleport: (f, r) => placeHero(f, r, hero.yaw) },
       snapshot: () => ({
-        state, blocks: solids.map((b) => `${b.id}${b.inferred ? "i" : ""}@${b.cf.toFixed(3)},${b.cr.toFixed(3)} L${Math.round(b.h0 / tb.BLOCK)}`),
+        state, blocks: solids.map((b) => `${b.id}${b.inferred ? "i" : ""}@${b.cf.toFixed(3)},${b.cr.toFixed(3)} h${(b.h0 * 1000).toFixed(0)}..${(b.h1 * 1000).toFixed(0)}mm`),
         hero: { f: +hero.f.toFixed(3), r: +hero.r.toFixed(3), z: +hero.z.toFixed(3), mode: hero.mode, onGround: hero.onGround, on: hero.standOn },
         detector: { ready: tb.state.ready, error: tb.state.error, fps: +tb.state.fps.toFixed(1), ms: +tb.state.detectMs.toFixed(1), tags: tb.state.tags },
         robot: cam.why,

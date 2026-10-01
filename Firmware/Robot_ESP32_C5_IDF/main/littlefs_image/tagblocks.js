@@ -12,9 +12,12 @@
 // frame was shown (ar.pose, already delayed to match the video; pan, tilt,
 // height) puts it in the world. A tag is on a block's top (its normal points
 // up) or on a side (horizontal normal): the block's center is half a block
-// behind the tag, its height snapped to a stacking level (bottom at 0, 1, 2
-// block heights...), its heading the face's normal (or the tag's edge, on top) modulo
-// 90 degrees -- a cube looks the same every quarter turn.
+// behind the tag, at the height it's seen at -- not snapped to the floor: the
+// camera's height and tilt calibration needn't be perfect, and a block drawn
+// where it's seen lines up with the video -- with a stacking level (0 on the
+// floor, 1 on a block...) from the nearest multiple of the block size; its
+// heading the face's normal (or the tag's edge, on top) modulo 90 degrees --
+// a cube looks the same every quarter turn.
 //
 // The map: tags seen near each other at the same level are one block (any
 // faces), averaged over observations; a tag seen far from its block, three
@@ -262,8 +265,8 @@ window.Lynx = window.Lynx || {};
         yaw = Math.atan2(uy, ux);
       } else return null; // neither: a bad pose
       const level = Math.round((ch - HALF) / BLOCK);
-      if (level < 0 || level > 5 || Math.abs(ch - (HALF + level * BLOCK)) > 0.4 * BLOCK) return null;
-      return { x, y, level, yaw: modQuarter(yaw), face, rawH: ch };
+      if (level < 0 || level > 5 || Math.abs(ch - (HALF + level * BLOCK)) > 0.45 * BLOCK) return null;
+      return { x, y, h: ch, level, yaw: modQuarter(yaw), face };
     }
 
     function add(o, tagId, now) {
@@ -274,7 +277,7 @@ window.Lynx = window.Lynx || {};
         if (m && m.level === o.level && Math.hypot(m.x - o.x, m.y - o.y) < 0.02) m.n++;
         else b.move = { x: o.x, y: o.y, level: o.level, n: 1 };
         if (b.move.n < MOVE_N) return;
-        Object.assign(b, { x: o.x, y: o.y, level: o.level, yaw: o.yaw, n: 1, moved: now, move: null });
+        Object.assign(b, { x: o.x, y: o.y, h: o.h, level: o.level, yaw: o.yaw, n: 1, moved: now, move: null });
       } else if (!b) {
         // another face of a block we know?
         let best = null;
@@ -288,7 +291,7 @@ window.Lynx = window.Lynx || {};
         }
         b = best;
         if (!b) {
-          b = { id: nextId++, x: o.x, y: o.y, level: o.level, yaw: o.yaw, n: 0, tags: new Set(), seen: now };
+          b = { id: nextId++, x: o.x, y: o.y, h: o.h, level: o.level, yaw: o.yaw, n: 0, tags: new Set(), seen: now };
           blocks.set(b.id, b);
         }
         b.tags.add(tagId);
@@ -298,6 +301,7 @@ window.Lynx = window.Lynx || {};
       const a = Math.max(0.15, 1 / (b.n + 1));
       b.x += (o.x - b.x) * a;
       b.y += (o.y - b.y) * a;
+      b.h += (o.h - b.h) * a; // the center's height, as seen
       const c4 = (1 - a) * Math.cos(4 * b.yaw) + a * Math.cos(4 * o.yaw);
       const s4 = (1 - a) * Math.sin(4 * b.yaw) + a * Math.sin(4 * o.yaw);
       b.yaw = Math.atan2(s4, c4) / 4;
@@ -321,14 +325,15 @@ window.Lynx = window.Lynx || {};
       const out = [];
       for (const b of blocks.values()) {
         if (b.n < CONFIRM_N) continue;
-        out.push({ id: b.id, x: b.x, y: b.y, yaw: b.yaw, level: b.level, h0: b.level * BLOCK, h1: (b.level + 1) * BLOCK, half: HALF, inferred: false, n: b.n, seen: b.seen, tags: [...b.tags] });
+        out.push({ id: b.id, x: b.x, y: b.y, yaw: b.yaw, level: b.level, h0: b.h - HALF, h1: b.h + HALF, half: HALF, inferred: false, n: b.n, seen: b.seen, tags: [...b.tags] });
       }
-      // what the ones up a level stand on
+      // what the ones up a level stand on: right under them, a block lower each
       const real = out.slice();
       real.forEach((b) => {
         for (let k = 0; k < b.level; k++) {
           if (out.some((o) => o.level === k && Math.hypot(o.x - b.x, o.y - b.y) < BLOCK * 0.75)) continue;
-          out.push({ ...b, id: `${b.id}.${k}`, level: k, h0: k * BLOCK, h1: (k + 1) * BLOCK, inferred: true, tags: [] });
+          const down = (b.level - k) * BLOCK;
+          out.push({ ...b, id: `${b.id}.${k}`, level: k, h0: b.h0 - down, h1: b.h1 - down, inferred: true, tags: [] });
         }
       });
       return out;
