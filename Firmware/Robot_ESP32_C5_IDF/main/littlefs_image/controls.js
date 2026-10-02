@@ -182,7 +182,8 @@ window.Lynx = window.Lynx || {};
     const rot = now - camStick.rotAt < 1000 ? camStick.rot : 0; // (held input is resent; 1 s silent = released)
     const tilt = now - camStick.tiltAt < 1000 ? camStick.tilt : 0;
     const axis = (v, full) => (Math.abs(v) < ROBOT_CAM_DEADZONE ? 0 : Math.max(-1, Math.min(1, v / full)));
-    return { pan: Math.round(axis(rot, ROBOT_CAM_FULL_ROT) * ROBOT_CAM_PAN_DEG), tilt: Math.round(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
+    const tenth = (v) => Math.round(v * 10) / 10;
+    return { pan: tenth(axis(rot, ROBOT_CAM_FULL_ROT) * ROBOT_CAM_PAN_DEG), tilt: tenth(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
   }
   // Each tick: the robot gets the stick's angles (sent when they change,
   // else every ROBOT_CAM_SEND_MS to keep the mode) and eases the servos
@@ -360,6 +361,11 @@ window.Lynx = window.Lynx || {};
   // Analog stick values are rounded so tiny jitter doesn't turn into a
   // stream of "changed" commands.
   const quantize = (v) => Math.round(v * 20) / 20;
+  // The look axes keep the stick's full resolution (Hall-effect sticks like
+  // the GameSir G8's are precise; in the robot drive mode they set the camera
+  // angle directly, where 5% steps were 4 deg jumps). Still rounded a little
+  // so sensor noise at rest doesn't count as a change.
+  const quantizeFine = (v) => Math.round(v * 1000) / 1000;
 
   function computeAndSend(force) {
     const slow = held.has("ShiftLeft") || held.has("ShiftRight") || pad.slow ? 0.5 : 1;
@@ -367,8 +373,8 @@ window.Lynx = window.Lynx || {};
       j1: quantize(clamp1(axis("KeyA", "KeyD") * DRIVE_SPEED + pad.j1) * slow),
       j2: quantize(clamp1(axis("KeyS", "KeyW") * DRIVE_SPEED + pad.j2) * slow),
       // Rotate is positive to the LEFT, matching the right touch joystick's mapping.
-      rot: quantize(clamp1((axis("ArrowRight", "ArrowLeft") + axis("KeyE", "KeyQ")) * TURN_SPEED + pad.rot) * slow),
-      tilt: quantize(clamp1(axis("ArrowDown", "ArrowUp") * TILT_SPEED + pad.tilt) * slow),
+      rot: quantizeFine(clamp1((axis("ArrowRight", "ArrowLeft") + axis("KeyE", "KeyQ")) * TURN_SPEED + pad.rot) * slow),
+      tilt: quantizeFine(clamp1(axis("ArrowDown", "ArrowUp") * TILT_SPEED + pad.tilt) * slow),
     };
     const driveChanged = cmd.j1 !== lastSent.j1 || cmd.j2 !== lastSent.j2;
     const lookChanged = cmd.rot !== lastSent.rot || cmd.tilt !== lastSent.tilt;
