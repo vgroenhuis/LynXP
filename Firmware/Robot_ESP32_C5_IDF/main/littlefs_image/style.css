@@ -148,6 +148,22 @@ body.cam-body {
   padding: 6px;
 }
 
+/* The Menu panel in two columns: a phone held sideways isn't tall enough for
+   all its buttons in one. The game/app choice and the gamepad line span
+   both; still too tall, it scrolls rather than run off the screen. */
+#camMenuPanel .cam-menu-panel-body {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  max-height: calc(100vh - 70px);
+  max-height: calc(100dvh - 70px);
+  overflow-y: auto;
+}
+
+#camMenuPanel .cam-mode-label,
+#camMenuPanel .cam-gamepad-status {
+  grid-column: 1 / -1;
+}
+
 /* Second instance of the same collapsible-panel pattern, anchored to the
    opposite corner so it doesn't stack on top of the Menu panel -- e.g. the
    "Overlays" panel. */
