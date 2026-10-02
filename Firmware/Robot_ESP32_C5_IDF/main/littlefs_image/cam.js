@@ -421,6 +421,48 @@ window.addEventListener("DOMContentLoaded", () => {
     startActive(calib, app);
   });
 
+  // Gamepad stick readout (Menu panel): the raw axes as the browser reports
+  // them -- before any dead zone -- plus each axis's largest value since it
+  // was opened and the sticks' radius, to see where the controller itself
+  // stops (an outer dead zone: full scale before the stick's physical edge).
+  (function setupStickReadout() {
+    const btn = document.getElementById("camStickReadoutBtn");
+    const box = document.createElement("div");
+    box.style.cssText = "position:absolute;left:12px;bottom:12px;z-index:30;padding:8px 10px;border-radius:8px;background:rgba(0,0,0,0.7);color:#e8f4ff;font:13px/1.45 ui-monospace,Consolas,monospace;white-space:pre;pointer-events:none;display:none";
+    document.querySelector(".cam-fullscreen").appendChild(box);
+    let timer = null;
+    let peak = [0, 0, 0, 0];
+    const f = (v) => (v >= 0 ? " " : "") + v.toFixed(3);
+    const render = () => {
+      const a = Lynx.gamepad.rawAxes || [];
+      if (!a.length) {
+        box.textContent = "No gamepad yet -- press a button on it";
+        return;
+      }
+      for (let i = 0; i < 4; i++) peak[i] = Math.max(peak[i], Math.abs(a[i] || 0));
+      const r = (i) => Math.hypot(a[i] || 0, a[i + 1] || 0);
+      box.textContent =
+        `           x       y      radius\n` +
+        `left   ${f(a[0] || 0)}  ${f(a[1] || 0)}   ${r(0).toFixed(3)}\n` +
+        `right  ${f(a[2] || 0)}  ${f(a[3] || 0)}   ${r(2).toFixed(3)}\n` +
+        `peak L ${peak[0].toFixed(3)}   ${peak[1].toFixed(3)}\n` +
+        `peak R ${peak[2].toFixed(3)}   ${peak[3].toFixed(3)}`;
+    };
+    btn.addEventListener("click", () => {
+      btn.blur();
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        box.style.display = "none";
+        return;
+      }
+      peak = [0, 0, 0, 0];
+      box.style.display = "block";
+      render();
+      timer = setInterval(render, 50);
+    });
+  })();
+
   // Free drive's drive mode switch (also M / gamepad Back): the default
   // (camera frame) or the robot mode (chassis frame, see controls.js).
   function setupDriveModeButton() {

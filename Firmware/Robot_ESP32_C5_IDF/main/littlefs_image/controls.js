@@ -511,6 +511,7 @@ window.Lynx = window.Lynx || {};
   Lynx.gamepad = {
     state: typeof navigator.getGamepads === "function" ? "waiting" : "unsupported",
     id: "",
+    rawAxes: [], // the axes as the browser reports them (before any dead zone), for the stick readout
     insecure: !window.isSecureContext,
     onChange: null,
   };
@@ -565,6 +566,7 @@ window.Lynx = window.Lynx || {};
     const justDown = (i) => down(i) && !prevPressed[i];
     if (pressed.some((p, i) => p && !prevPressed[i])) Lynx.sfx.unlock();
 
+    Lynx.gamepad.rawAxes = Array.from(g.axes);
     const ax = (i) => deadzone(g.axes[i] || 0, i >= 2 ? LOOK_DEADZONE : DEADZONE);
     const dpad = (neg, pos) => (down(pos) ? 1 : 0) - (down(neg) ? 1 : 0);
     pad.j1 = ax(0) * DRIVE_SPEED;
