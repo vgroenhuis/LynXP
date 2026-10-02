@@ -134,14 +134,18 @@ window.Lynx = window.Lynx || {};
   // the chassis turns under it. The robot mode works in the CHASSIS frame:
   // the left stick drives it like a car (up/down = forward/back, left/right =
   // turn on the spot) and the right stick points the camera relative to the
-  // chassis -- absolutely: released, the camera looks straight ahead; held,
-  // it looks the way the stick points (up = ahead, left = 90 deg left, ...,
-  // as far as the pan servo's +-90 deg go) -- and turns with the robot.
-  // Sent as "joystick" (tank drive) and "camera_relative" (the pan angle to
-  // the chassis, resent every ROBOT_CAM_SEND_MS; the robot falls back to the
-  // default behaviour within half a second of it stopping).
+  // chassis -- absolutely: released, the camera looks straight ahead and
+  // level; held, left/right set the pan (full = 90 deg to that side) and
+  // up/down the tilt (full = ROBOT_CAM_TILT_DEG up / down) -- and it turns
+  // with the robot. Sent as "joystick" (tank drive) and "camera_relative"
+  // (pan to the chassis + tilt, resent every ROBOT_CAM_SEND_MS; the robot
+  // falls back to the default behaviour within half a second of it stopping).
   const ROBOT_TURN_GAIN = 0.4; // full left/right = 40% of the wheels' top speed, opposite ways (~100 deg/s)
-  const ROBOT_CAM_MIN = 0.25; // right-stick deflection that counts as pointing
+  const ROBOT_CAM_DEADZONE = 0.08; // per axis, around the stick's centre
+  const ROBOT_CAM_TILT_DEG = 60;
+  // full deflection: keyboard / gamepad send the look axes scaled by TURN_SPEED / TILT_SPEED (below), touch up to 1
+  const ROBOT_CAM_FULL_ROT = 0.7;
+  const ROBOT_CAM_FULL_TILT = 0.8;
   const ROBOT_CAM_SEND_MS = 100;
   const DRIVE_MODE_KEY = "camDriveMode";
   let robotModeOn = false;
@@ -153,24 +157,25 @@ window.Lynx = window.Lynx || {};
   let robotModeAllowed = false; // only in Free drive (games steer the camera and drive themselves)
   const camStick = { rot: 0, tilt: 0, rotAt: -1e9, tiltAt: -1e9 };
   let camTimer = null;
-  let lastCamPan = null;
+  let lastCam = null;
   let camSendQueued = false;
   const robotMode = () => robotModeOn && robotModeAllowed;
   const modeListeners = [];
-  // The camera's angle to the chassis (deg, positive = left) from the right stick.
-  function robotCamPanDeg() {
+  // From the right stick: the camera's pan to the chassis (deg, positive =
+  // left) and tilt (deg, positive = up).
+  function robotCam() {
     const now = performance.now();
     const rot = now - camStick.rotAt < 1000 ? camStick.rot : 0; // (held input is resent; 1 s silent = released)
     const tilt = now - camStick.tiltAt < 1000 ? camStick.tilt : 0;
-    if (Math.hypot(rot, tilt) < ROBOT_CAM_MIN) return 0;
-    return Math.max(-90, Math.min(90, (Math.atan2(rot, tilt) * 180) / Math.PI));
+    const axis = (v, full) => (Math.abs(v) < ROBOT_CAM_DEADZONE ? 0 : Math.max(-1, Math.min(1, v / full)));
+    return { pan: Math.round(axis(rot, ROBOT_CAM_FULL_ROT) * 90), tilt: Math.round(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
   }
   function sendRobotCam(force) {
     if (!ws || ws.readyState !== WebSocket.OPEN || document.hidden) return;
-    const pan = Math.round(robotCamPanDeg());
-    if (!force && pan === lastCamPan) return;
-    lastCamPan = pan;
-    ws.send(JSON.stringify({ type: "camera_relative", pan }));
+    const c = robotCam();
+    if (!force && lastCam && c.pan === lastCam.pan && c.tilt === lastCam.tilt) return;
+    lastCam = c;
+    ws.send(JSON.stringify({ type: "camera_relative", pan: c.pan, tilt: c.tilt }));
   }
   let wasRobotMode = false;
   function applyDriveMode() {
@@ -179,7 +184,7 @@ window.Lynx = window.Lynx || {};
     if (on === wasRobotMode) return;
     wasRobotMode = on;
     if (on && camTimer === null) {
-      lastCamPan = null;
+      lastCam = null;
       camTimer = setInterval(() => sendRobotCam(true), ROBOT_CAM_SEND_MS);
       sendRobotCam(true);
     } else if (!on && camTimer !== null) {
@@ -281,7 +286,8 @@ window.Lynx = window.Lynx || {};
     },
     onDriveModeChange: (cb) => modeListeners.push(cb),
     // In the robot mode: the camera's angle to the chassis (rad, positive = left); else null.
-    robotCamPanRad: () => (robotMode() ? (robotCamPanDeg() * Math.PI) / 180 : null),
+    robotCamPanRad: () => (robotMode() ? (robotCam().pan * Math.PI) / 180 : null),
+    robotCamTiltDeg: () => (robotMode() ? robotCam().tilt : null),
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
     onMessage(type, cb) {
       if (!messageListeners.has(type)) messageListeners.set(type, []);

@@ -214,13 +214,26 @@ void handle_ws_message(int fd, const char *body) {
     } else if (std::strcmp(type, "camera_relative") == 0) {
         // Robot-relative camera (see cameraRelativePanRad's doc comment):
         // pan = the angle to the chassis heading (deg, positive = left),
-        // clamped to the servo's range. Replaces any rate input; tilt is
-        // left as it is.
+        // clamped to the servo's range; tilt (deg, optional) the tilt angle.
+        // Replaces any rate input.
         float panDeg = std::clamp((float) getNum("pan"), std::max(settings.servoMinAngleDeg, -90.0f), std::min(settings.servoMaxAngleDeg, 90.0f));
         cameraRelativePanRad = panDeg * (float) M_PI / 180.0f;
-        lastCameraRelativeMsgMs = millis_now();
+        unsigned long nowMs = millis_now();
+        lastCameraRelativeMsgMs = nowMs;
         controlFrameRotateInput = 0.0f;
-        lastControlFrameRotateMsgMs = lastCameraRelativeMsgMs;
+        lastControlFrameRotateMsgMs = nowMs;
+        cJSON *tiltItem = cJSON_GetObjectItemCaseSensitive(root, "tilt");
+        if (cJSON_IsNumber(tiltItem)) {
+            tiltRateInput = 0.0f;
+            lastTiltRateMsgMs = nowMs;
+            float tilt = std::clamp((float) tiltItem->valuedouble, settings.tiltMinAngleDeg, settings.tiltMaxAngleDeg);
+            if (tilt != currentTiltAngleDeg) {
+                currentTiltAngleDeg = tilt;
+                lastTiltActiveMs = nowMs;
+                tiltServoIdle = false;
+                writeTiltServoPulse();
+            }
+        }
     } else if (std::strcmp(type, "calibrate_deadzone") == 0) {
         switchModeIfNeeded(DEADZONE_CALIBRATION);
         startDeadzoneCalibrationFlag = true;

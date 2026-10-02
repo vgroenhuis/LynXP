@@ -1024,7 +1024,8 @@ function subscribeToPose(callback) {
     const robotPan = Lynx.control.robotCamPanRad();
     if (robotPan !== null && wsSamples.length) {
       aim.yaw += wrapToPi(wsSamples[wsSamples.length - 1].pose.theta + robotPan - aim.yaw);
-      aim.errYaw = 0;
+      aim.tiltDeg = Math.max(a.tiltMinDeg, Math.min(a.tiltMaxDeg, Lynx.control.robotCamTiltDeg()));
+      aim.errYaw = aim.errTilt = 0;
     }
     // A game pointing the camera itself (Lynx.cam.setAimOverride): it says
     // where, the rates above only feed its own controls.
