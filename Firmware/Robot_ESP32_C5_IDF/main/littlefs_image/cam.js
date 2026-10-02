@@ -370,6 +370,8 @@ window.addEventListener("DOMContentLoaded", () => {
   // without another tap.
   function startActive(calib, app) {
     stopActive();
+    // the robot drive mode is a Free-drive thing (games drive and aim themselves)
+    Lynx.control.setRobotModeAllowed(app.active === "none");
     if (!calib || app.active === "none") return;
 
     // Declutter: a game wants the view, not the menus (still one tap away).
@@ -414,8 +416,31 @@ window.addEventListener("DOMContentLoaded", () => {
     if (aimParams) subscribeToPose(() => {});
     Lynx.sfx.volume = app.general.volume;
     setupModeSelect(calib, app);
+    setupDriveModeButton();
     startActive(calib, app);
   });
+
+  // Free drive's drive mode switch (also M / gamepad Back): the default
+  // (camera frame) or the robot mode (chassis frame, see controls.js).
+  function setupDriveModeButton() {
+    const btn = document.getElementById("camDriveModeBtn");
+    let shown = Lynx.control.driveMode();
+    const render = (mode) => {
+      const allowed = Lynx.control.robotModeAllowed();
+      btn.style.display = allowed ? "" : "none";
+      btn.textContent = mode === "robot" ? "\u{1F697} Drive: robot frame" : "\u{1F3A5} Drive: camera frame";
+      if (mode !== shown && allowed) {
+        showToast(mode === "robot" ? "\u{1F697} Robot frame: left stick drives and turns, right stick points the camera" : "\u{1F3A5} Camera frame: the default drive mode");
+      }
+      shown = mode;
+    };
+    btn.addEventListener("click", () => {
+      Lynx.control.toggleDriveMode();
+      btn.blur();
+    });
+    Lynx.control.onDriveModeChange(render);
+    render(shown);
+  }
 
   // Quick switch between games/apps from the Menu panel: saved robot-side
   // like everything on the Games & apps page, and swapped in place.
@@ -994,6 +1019,13 @@ function subscribeToPose(callback) {
     if (aimCurve(rot, a) !== 0 || aimCurve(tilt, a) !== 0) aim.activeAt = now;
     aim.yaw += ((aimCurve(rot, a) * a.panRateDeg * Math.PI) / 180) * dt;
     aim.tiltDeg = Math.max(a.tiltMinDeg, Math.min(a.tiltMaxDeg, aim.tiltDeg + aimCurve(tilt, a) * a.tiltRateDeg * dt));
+    // The robot drive mode: the camera sits at an angle to the chassis that
+    // the robot itself holds ("camera_relative", nothing to send from here).
+    const robotPan = Lynx.control.robotCamPanRad();
+    if (robotPan !== null && wsSamples.length) {
+      aim.yaw += wrapToPi(wsSamples[wsSamples.length - 1].pose.theta + robotPan - aim.yaw);
+      aim.errYaw = 0;
+    }
     // A game pointing the camera itself (Lynx.cam.setAimOverride): it says
     // where, the rates above only feed its own controls.
     const o = aimOverride && aimOverride(now);

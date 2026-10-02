@@ -211,6 +211,16 @@ void handle_ws_message(int fd, const char *body) {
             tiltServoIdle = false;
             writeTiltServoPulse();
         }
+    } else if (std::strcmp(type, "camera_relative") == 0) {
+        // Robot-relative camera (see cameraRelativePanRad's doc comment):
+        // pan = the angle to the chassis heading (deg, positive = left),
+        // clamped to the servo's range. Replaces any rate input; tilt is
+        // left as it is.
+        float panDeg = std::clamp((float) getNum("pan"), std::max(settings.servoMinAngleDeg, -90.0f), std::min(settings.servoMaxAngleDeg, 90.0f));
+        cameraRelativePanRad = panDeg * (float) M_PI / 180.0f;
+        lastCameraRelativeMsgMs = millis_now();
+        controlFrameRotateInput = 0.0f;
+        lastControlFrameRotateMsgMs = lastCameraRelativeMsgMs;
     } else if (std::strcmp(type, "calibrate_deadzone") == 0) {
         switchModeIfNeeded(DEADZONE_CALIBRATION);
         startDeadzoneCalibrationFlag = true;
@@ -618,6 +628,13 @@ void ws_poll_task(void *arg) {
                 }
             }
             float headingDiffRad = wrapToPi(controlFrameThetaRad - predictedThetaRad);
+            if (cameraRelativeActive()) {
+                // Robot-relative camera: a fixed angle to the chassis, turning
+                // with it (no counter-rotation, no lead); the control frame
+                // just tags along for telemetry.
+                headingDiffRad = cameraRelativePanRad;
+                controlFrameThetaRad = wrapToPi(poseThetaRad + cameraRelativePanRad);
+            }
             float newAngle = std::clamp(headingDiffRad * 180.0f / (float) M_PI, -90.0f, 90.0f);
             // Only counts as "active" (and only re-writes the pulse) if the
             // needed angle actually moved -- a stationary robot/control

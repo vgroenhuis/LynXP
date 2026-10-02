@@ -11,6 +11,8 @@
 //                else fire / action (like gamepad A; J jumps too)
 //   C            camera action (games that have one, e.g. the knight:
 //                the robot goes round behind the character; gamepad Y)
+//   M            Free drive: switch between the default and the robot drive
+//                mode (gamepad Back / Select; see "robot drive mode" below)
 // (Ctrl + W is the browser's "close tab", which a page can't block -- Z is
 // the safer fire key while driving.)
 //
@@ -125,9 +127,99 @@ window.Lynx = window.Lynx || {};
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ...obj, j1: f.j1, j2: f.j2 }));
   }
 
+  // -- robot drive mode (Free drive only) ------------------------------------
+  // The default drive mode works in the camera's frame: the left stick moves
+  // the robot toward where the camera looks (strafing), the right stick turns
+  // and tilts the camera at a rate, and the camera keeps its heading while
+  // the chassis turns under it. The robot mode works in the CHASSIS frame:
+  // the left stick drives it like a car (up/down = forward/back, left/right =
+  // turn on the spot) and the right stick points the camera relative to the
+  // chassis -- absolutely: released, the camera looks straight ahead; held,
+  // it looks the way the stick points (up = ahead, left = 90 deg left, ...,
+  // as far as the pan servo's +-90 deg go) -- and turns with the robot.
+  // Sent as "joystick" (tank drive) and "camera_relative" (the pan angle to
+  // the chassis, resent every ROBOT_CAM_SEND_MS; the robot falls back to the
+  // default behaviour within half a second of it stopping).
+  const ROBOT_TURN_GAIN = 0.4; // full left/right = 40% of the wheels' top speed, opposite ways (~100 deg/s)
+  const ROBOT_CAM_MIN = 0.25; // right-stick deflection that counts as pointing
+  const ROBOT_CAM_SEND_MS = 100;
+  const DRIVE_MODE_KEY = "camDriveMode";
+  let robotModeOn = false;
+  try {
+    robotModeOn = localStorage.getItem(DRIVE_MODE_KEY) === "robot";
+  } catch (e) {
+    // (storage blocked: the default mode)
+  }
+  let robotModeAllowed = false; // only in Free drive (games steer the camera and drive themselves)
+  const camStick = { rot: 0, tilt: 0, rotAt: -1e9, tiltAt: -1e9 };
+  let camTimer = null;
+  let lastCamPan = null;
+  let camSendQueued = false;
+  const robotMode = () => robotModeOn && robotModeAllowed;
+  const modeListeners = [];
+  // The camera's angle to the chassis (deg, positive = left) from the right stick.
+  function robotCamPanDeg() {
+    const now = performance.now();
+    const rot = now - camStick.rotAt < 1000 ? camStick.rot : 0; // (held input is resent; 1 s silent = released)
+    const tilt = now - camStick.tiltAt < 1000 ? camStick.tilt : 0;
+    if (Math.hypot(rot, tilt) < ROBOT_CAM_MIN) return 0;
+    return Math.max(-90, Math.min(90, (Math.atan2(rot, tilt) * 180) / Math.PI));
+  }
+  function sendRobotCam(force) {
+    if (!ws || ws.readyState !== WebSocket.OPEN || document.hidden) return;
+    const pan = Math.round(robotCamPanDeg());
+    if (!force && pan === lastCamPan) return;
+    lastCamPan = pan;
+    ws.send(JSON.stringify({ type: "camera_relative", pan }));
+  }
+  let wasRobotMode = false;
+  function applyDriveMode() {
+    const on = robotMode();
+    modeListeners.forEach((cb) => cb(Lynx.control.driveMode()));
+    if (on === wasRobotMode) return;
+    wasRobotMode = on;
+    if (on && camTimer === null) {
+      lastCamPan = null;
+      camTimer = setInterval(() => sendRobotCam(true), ROBOT_CAM_SEND_MS);
+      sendRobotCam(true);
+    } else if (!on && camTimer !== null) {
+      clearInterval(camTimer);
+      camTimer = null;
+    }
+    // stop whatever the other mode was doing
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: on ? "control_joystick" : "joystick", j1: 0, j2: 0 }));
+      ws.send(JSON.stringify({ type: "control_frame_rotate", value: 0 }));
+      ws.send(JSON.stringify({ type: "tilt_rate", value: 0 }));
+    }
+    Object.assign(camStick, { rot: 0, tilt: 0 });
+    Object.assign(aimInput, { rot: 0, tilt: 0 });
+  }
+
   Lynx.control = {
     send(obj) {
       ensureStarted();
+      if (robotMode() && obj.type === "control_joystick") {
+        const j1 = Number(obj.j1) || 0;
+        const j2 = Number(obj.j2) || 0;
+        rawDrive = { j1, j2, at: performance.now() };
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "joystick", j1: round2(j1 * ROBOT_TURN_GAIN), j2: round2(j2) }));
+        return;
+      }
+      if (robotMode() && (obj.type === "control_frame_rotate" || obj.type === "tilt_rate")) {
+        const v = Math.max(-1, Math.min(1, Number(obj.value) || 0));
+        if (obj.type === "control_frame_rotate") Object.assign(camStick, { rot: v, rotAt: performance.now() });
+        else Object.assign(camStick, { tilt: v, tiltAt: performance.now() });
+        // (both axes arrive back to back: send once, with both)
+        if (!camSendQueued) {
+          camSendQueued = true;
+          queueMicrotask(() => {
+            camSendQueued = false;
+            sendRobotCam(false);
+          });
+        }
+        return;
+      }
       if (obj.type === "control_joystick") {
         rawDrive = { j1: Number(obj.j1) || 0, j2: Number(obj.j2) || 0, at: performance.now() };
         sendDrive(obj);
@@ -164,6 +256,32 @@ window.Lynx = window.Lynx || {};
       return { j1: rawDrive.j1, j2: rawDrive.j2 };
     },
     start: ensureStarted,
+    // The drive mode: "default" (camera frame) or "robot" (chassis frame, see
+    // above). The robot mode is a preference that only applies where allowed.
+    driveMode: () => (robotModeOn ? "robot" : "default"),
+    robotModeActive: robotMode,
+    robotModeAllowed: () => robotModeAllowed,
+    setDriveMode(mode) {
+      robotModeOn = mode === "robot";
+      try {
+        localStorage.setItem(DRIVE_MODE_KEY, robotModeOn ? "robot" : "default");
+      } catch (e) {
+        // (not remembered)
+      }
+      applyDriveMode();
+    },
+    toggleDriveMode() {
+      if (!robotModeAllowed) return;
+      Lynx.control.setDriveMode(robotModeOn ? "default" : "robot");
+    },
+    setRobotModeAllowed(allowed) {
+      if (robotModeAllowed === allowed) return;
+      robotModeAllowed = allowed;
+      applyDriveMode();
+    },
+    onDriveModeChange: (cb) => modeListeners.push(cb),
+    // In the robot mode: the camera's angle to the chassis (rad, positive = left); else null.
+    robotCamPanRad: () => (robotMode() ? (robotCamPanDeg() * Math.PI) / 180 : null),
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
     onMessage(type, cb) {
       if (!messageListeners.has(type)) messageListeners.set(type, []);
@@ -289,6 +407,10 @@ window.Lynx = window.Lynx || {};
         if (!e.repeat) Lynx.cameraAction();
         return;
       }
+      if (e.code === "KeyM") {
+        if (!e.repeat) Lynx.control.toggleDriveMode();
+        return;
+      }
       if (e.code === "Tab") {
         e.preventDefault();
         listeners.weapon.forEach((cb) => cb("next"));
@@ -329,7 +451,7 @@ window.Lynx = window.Lynx || {};
   const PAD_POLL_MS = 50;
   const DEADZONE = 0.15;
   // Standard-layout button indices (https://w3c.github.io/gamepad/#remapping).
-  const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const FIRE_BUTTONS = [BTN.RT, BTN.X, BTN.START];
 
   const pad = { j1: 0, j2: 0, rot: 0, tilt: 0, slow: false };
@@ -426,6 +548,7 @@ window.Lynx = window.Lynx || {};
     if (justDown(BTN.LB)) listeners.weapon.forEach((cb) => cb("prev"));
     if (justDown(BTN.B)) Lynx.jumpAction(); // the old jump button, still works
     if (justDown(BTN.Y)) Lynx.cameraAction();
+    if (justDown(BTN.BACK)) Lynx.control.toggleDriveMode();
     prevPressed = pressed;
   }
 

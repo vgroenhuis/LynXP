@@ -25,6 +25,13 @@ float controlFrameThetaRad = 0.0f;
 float controlFrameRotateInput = 0.0f;
 volatile float aimTargetOmegaRadPerSec = 0.0f;
 volatile unsigned long lastAimMsgMs = 0;
+volatile float cameraRelativePanRad = 0.0f;
+volatile unsigned long lastCameraRelativeMsgMs = 0;
+
+bool cameraRelativeActive() {
+    unsigned long nowMs = (unsigned long) (esp_timer_get_time() / 1000); // (millis_now(), defined further down)
+    return lastCameraRelativeMsgMs != 0 && nowMs - lastCameraRelativeMsgMs < CAMERA_RELATIVE_ACTIVE_MS;
+}
 
 float goalX_m = 0.0f;
 float goalY_m = 0.0f;
@@ -210,7 +217,7 @@ void driveTowardWorldDirection(float worldDirX, float worldDirY) {
 // (while the rotate trackpad is held) proactively adds chassis rotation to
 // cover whatever the servo can't keep up with on its own.
 void applyServoTrackingConstraints(float targetVelRevPerSec[2]) {
-    if (!settings.servoFollowControlFrame) {
+    if (!settings.servoFollowControlFrame || cameraRelativeActive()) {
         return;
     }
 

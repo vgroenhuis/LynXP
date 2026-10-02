@@ -33,6 +33,19 @@ extern volatile float aimTargetOmegaRadPerSec;
 extern volatile unsigned long lastAimMsgMs;
 constexpr unsigned long AIM_ACTIVE_MS = 300; // the page sends ~30 Hz while the aim moves
 
+// Robot-relative camera (ws_broadcast.cpp's "camera_relative" message, the
+// first-person page's "robot" drive mode): the pan servo holds this angle to
+// the chassis (rad, positive = CCW) instead of following the control frame,
+// which is kept at chassis heading + this angle so telemetry stays
+// consistent. Resent ~10 Hz while that mode is on; once it stops for
+// CAMERA_RELATIVE_ACTIVE_MS, everything is back to normal. While active,
+// applyServoTrackingConstraints() leaves the chassis alone -- the camera
+// turning with the robot is the point, not something to compensate.
+extern volatile float cameraRelativePanRad;
+extern volatile unsigned long lastCameraRelativeMsgMs;
+constexpr unsigned long CAMERA_RELATIVE_ACTIVE_MS = 500;
+bool cameraRelativeActive();
+
 // Applies settings.cameraJoystickCurve to a raw signed joystick deflection
 // fraction in [-1, 1] (linear: unchanged; quadratic: sign(value)*value^2,
 // same max but gentler near center -- a common FPS camera-look feel).
