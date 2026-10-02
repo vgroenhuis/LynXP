@@ -100,3 +100,8 @@ CONFIG_I2C_PORT_0=y
 # SH1106 panels -- here it shifted every row right and wrapped the last two
 # columns around to the left edge.
 CONFIG_OFFSETX=0
+
+# The panic handler runs from internal RAM: when the flash stops answering
+# (supply dips from the servos, 2026-10-03) it can still print what failed
+# instead of locking up fetching its own code from flash.
+CONFIG_ESP_PANIC_HANDLER_IRAM=y

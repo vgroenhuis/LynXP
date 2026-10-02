@@ -135,18 +135,30 @@ window.Lynx = window.Lynx || {};
   // the left stick drives it like a car (up/down = forward/back, left/right =
   // turn on the spot) and the right stick points the camera relative to the
   // chassis -- absolutely: released, the camera looks straight ahead and
-  // level; held, left/right set the pan (full = 90 deg to that side) and
+  // level; held, left/right set the pan (full = ROBOT_CAM_PAN_DEG to that side) and
   // up/down the tilt (full = ROBOT_CAM_TILT_DEG up / down) -- and it turns
   // with the robot. Sent as "joystick" (tank drive) and "camera_relative"
   // (pan to the chassis + tilt, resent every ROBOT_CAM_SEND_MS; the robot
   // falls back to the default behaviour within half a second of it stopping).
+  // The camera doesn't jump to the stick's angle: it moves there at the
+  // default mode's rates (panMaxSpeedDegPerSec / tiltMaxSpeedDegPerSec) --
+  // both servos slamming across at full speed at once dipped the supply
+  // enough to upset the flash (CPU lockup, then "SPI flash busy" boot loops
+  // until a power cycle; it happened three times with only the servos moving).
   const ROBOT_TURN_GAIN = 0.4; // full left/right = 40% of the wheels' top speed, opposite ways (~100 deg/s)
   const ROBOT_CAM_DEADZONE = 0.08; // per axis, around the stick's centre
   const ROBOT_CAM_TILT_DEG = 60;
+  // Full left/right pan. Not the servo's whole +-90: at full left it went past
+  // 90 (calibration) and the robot froze twice there -- a stalled servo's
+  // current dipping the supply is the suspect.
+  const ROBOT_CAM_PAN_DEG = 80;
   // full deflection: keyboard / gamepad send the look axes scaled by TURN_SPEED / TILT_SPEED (below), touch up to 1
   const ROBOT_CAM_FULL_ROT = 0.7;
   const ROBOT_CAM_FULL_TILT = 0.8;
-  const ROBOT_CAM_SEND_MS = 100;
+  const ROBOT_CAM_SEND_MS = 100; // keep-alive
+  const ROBOT_CAM_TICK_MS = 40; // steps while the camera moves
+  const ROBOT_CAM_PAN_RATE = 180; // deg/s (the robot's panMaxSpeedDegPerSec default)
+  const ROBOT_CAM_TILT_RATE = 120; // deg/s (tiltMaxSpeedDegPerSec)
   const DRIVE_MODE_KEY = "camDriveMode";
   let robotModeOn = false;
   try {
@@ -157,8 +169,10 @@ window.Lynx = window.Lynx || {};
   let robotModeAllowed = false; // only in Free drive (games steer the camera and drive themselves)
   const camStick = { rot: 0, tilt: 0, rotAt: -1e9, tiltAt: -1e9 };
   let camTimer = null;
-  let lastCam = null;
-  let camSendQueued = false;
+  let lastCam = null; // what was last sent, and when
+  let camCmd = null; // where the camera is being moved to now: {pan, tilt, at}
+  // the servos' angles as the robot reports them (where the camera starts from)
+  const servoNow = { pan: 0, tilt: 0 };
   const robotMode = () => robotModeOn && robotModeAllowed;
   const modeListeners = [];
   // From the right stick: the camera's pan to the chassis (deg, positive =
@@ -168,13 +182,23 @@ window.Lynx = window.Lynx || {};
     const rot = now - camStick.rotAt < 1000 ? camStick.rot : 0; // (held input is resent; 1 s silent = released)
     const tilt = now - camStick.tiltAt < 1000 ? camStick.tilt : 0;
     const axis = (v, full) => (Math.abs(v) < ROBOT_CAM_DEADZONE ? 0 : Math.max(-1, Math.min(1, v / full)));
-    return { pan: Math.round(axis(rot, ROBOT_CAM_FULL_ROT) * 90), tilt: Math.round(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
+    return { pan: Math.round(axis(rot, ROBOT_CAM_FULL_ROT) * ROBOT_CAM_PAN_DEG), tilt: Math.round(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
   }
-  function sendRobotCam(force) {
+  // Each tick: the commanded angles step toward the stick's at the rates
+  // above; sent when they moved, else every ROBOT_CAM_SEND_MS to keep the mode.
+  function sendRobotCam() {
+    const now = performance.now();
+    const want = robotCam();
+    if (!camCmd) camCmd = { pan: servoNow.pan, tilt: servoNow.tilt, at: now };
+    const dt = Math.min(0.2, (now - camCmd.at) / 1000);
+    camCmd.at = now;
+    const toward = (v, w, rate) => v + Math.max(-rate * dt, Math.min(rate * dt, w - v));
+    camCmd.pan = toward(camCmd.pan, want.pan, ROBOT_CAM_PAN_RATE);
+    camCmd.tilt = toward(camCmd.tilt, want.tilt, ROBOT_CAM_TILT_RATE);
     if (!ws || ws.readyState !== WebSocket.OPEN || document.hidden) return;
-    const c = robotCam();
-    if (!force && lastCam && c.pan === lastCam.pan && c.tilt === lastCam.tilt) return;
-    lastCam = c;
+    const c = { pan: Math.round(camCmd.pan * 10) / 10, tilt: Math.round(camCmd.tilt * 10) / 10 };
+    if (lastCam && c.pan === lastCam.pan && c.tilt === lastCam.tilt && now - lastCam.at < ROBOT_CAM_SEND_MS) return;
+    lastCam = { ...c, at: now };
     ws.send(JSON.stringify({ type: "camera_relative", pan: c.pan, tilt: c.tilt }));
   }
   let wasRobotMode = false;
@@ -185,8 +209,9 @@ window.Lynx = window.Lynx || {};
     wasRobotMode = on;
     if (on && camTimer === null) {
       lastCam = null;
-      camTimer = setInterval(() => sendRobotCam(true), ROBOT_CAM_SEND_MS);
-      sendRobotCam(true);
+      camCmd = null; // (from where the servos are)
+      camTimer = setInterval(sendRobotCam, ROBOT_CAM_TICK_MS);
+      sendRobotCam();
     } else if (!on && camTimer !== null) {
       clearInterval(camTimer);
       camTimer = null;
@@ -200,6 +225,13 @@ window.Lynx = window.Lynx || {};
     Object.assign(camStick, { rot: 0, tilt: 0 });
     Object.assign(aimInput, { rot: 0, tilt: 0 });
   }
+
+  messageListeners.set("pose", [
+    (m) => {
+      if (typeof m.servoAngleDeg === "number") servoNow.pan = m.servoAngleDeg;
+      if (typeof m.tiltAngleDeg === "number") servoNow.tilt = m.tiltAngleDeg;
+    },
+  ]);
 
   Lynx.control = {
     send(obj) {
@@ -215,15 +247,7 @@ window.Lynx = window.Lynx || {};
         const v = Math.max(-1, Math.min(1, Number(obj.value) || 0));
         if (obj.type === "control_frame_rotate") Object.assign(camStick, { rot: v, rotAt: performance.now() });
         else Object.assign(camStick, { tilt: v, tiltAt: performance.now() });
-        // (both axes arrive back to back: send once, with both)
-        if (!camSendQueued) {
-          camSendQueued = true;
-          queueMicrotask(() => {
-            camSendQueued = false;
-            sendRobotCam(false);
-          });
-        }
-        return;
+        return; // (the tick moves the camera there)
       }
       if (obj.type === "control_joystick") {
         rawDrive = { j1: Number(obj.j1) || 0, j2: Number(obj.j2) || 0, at: performance.now() };
@@ -286,8 +310,8 @@ window.Lynx = window.Lynx || {};
     },
     onDriveModeChange: (cb) => modeListeners.push(cb),
     // In the robot mode: the camera's angle to the chassis (rad, positive = left); else null.
-    robotCamPanRad: () => (robotMode() ? (robotCam().pan * Math.PI) / 180 : null),
-    robotCamTiltDeg: () => (robotMode() ? robotCam().tilt : null),
+    robotCamPanRad: () => (robotMode() && camCmd ? (camCmd.pan * Math.PI) / 180 : null),
+    robotCamTiltDeg: () => (robotMode() && camCmd ? camCmd.tilt : null),
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
     onMessage(type, cb) {
       if (!messageListeners.has(type)) messageListeners.set(type, []);
