@@ -146,7 +146,6 @@ window.Lynx = window.Lynx || {};
   // enough to upset the flash (CPU lockup, then "SPI flash busy" boot loops
   // until a power cycle; it happened three times with only the servos moving).
   const ROBOT_TURN_GAIN = 0.4; // full left/right = 40% of the wheels' top speed, opposite ways (~100 deg/s)
-  const ROBOT_CAM_DEADZONE = 0.08; // per axis, around the stick's centre
   const ROBOT_CAM_TILT_DEG = 60;
   // Full left/right pan. Not the servo's whole +-90: at full left it went past
   // 90 (calibration) and the robot froze twice there -- a stalled servo's
@@ -181,7 +180,7 @@ window.Lynx = window.Lynx || {};
     const now = performance.now();
     const rot = now - camStick.rotAt < 1000 ? camStick.rot : 0; // (held input is resent; 1 s silent = released)
     const tilt = now - camStick.tiltAt < 1000 ? camStick.tilt : 0;
-    const axis = (v, full) => (Math.abs(v) < ROBOT_CAM_DEADZONE ? 0 : Math.max(-1, Math.min(1, v / full)));
+    const axis = (v, full) => Math.max(-1, Math.min(1, v / full)); // (no dead zone here: the gamepad's own is enough)
     const tenth = (v) => Math.round(v * 10) / 10;
     return { pan: tenth(axis(rot, ROBOT_CAM_FULL_ROT) * ROBOT_CAM_PAN_DEG), tilt: tenth(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
   }
@@ -491,7 +490,8 @@ window.Lynx = window.Lynx || {};
 
   // -- gamepad ------------------------------------------------------------------
   const PAD_POLL_MS = 50;
-  const DEADZONE = 0.15;
+  const DEADZONE = 0.15; // the left (drive) stick
+  const LOOK_DEADZONE = 0.03; // the right (look) stick: just its noise at rest -- it aims the camera precisely
   // Standard-layout button indices (https://w3c.github.io/gamepad/#remapping).
   const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const FIRE_BUTTONS = [BTN.RT, BTN.X, BTN.START];
@@ -516,9 +516,9 @@ window.Lynx = window.Lynx || {};
   };
   const notify = () => Lynx.gamepad.onChange && Lynx.gamepad.onChange(Lynx.gamepad);
 
-  function deadzone(v) {
+  function deadzone(v, dz = DEADZONE) {
     const a = Math.abs(v);
-    return a < DEADZONE ? 0 : (Math.sign(v) * (a - DEADZONE)) / (1 - DEADZONE);
+    return a < dz ? 0 : (Math.sign(v) * (a - dz)) / (1 - dz);
   }
 
   function readPad() {
@@ -565,7 +565,7 @@ window.Lynx = window.Lynx || {};
     const justDown = (i) => down(i) && !prevPressed[i];
     if (pressed.some((p, i) => p && !prevPressed[i])) Lynx.sfx.unlock();
 
-    const ax = (i) => deadzone(g.axes[i] || 0);
+    const ax = (i) => deadzone(g.axes[i] || 0, i >= 2 ? LOOK_DEADZONE : DEADZONE);
     const dpad = (neg, pos) => (down(pos) ? 1 : 0) - (down(neg) ? 1 : 0);
     pad.j1 = ax(0) * DRIVE_SPEED;
     pad.j2 = -ax(1) * DRIVE_SPEED;
