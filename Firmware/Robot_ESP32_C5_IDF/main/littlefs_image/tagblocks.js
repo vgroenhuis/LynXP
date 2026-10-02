@@ -19,12 +19,19 @@
 // heading the face's normal (or the tag's edge, on top) modulo 90 degrees --
 // a cube looks the same every quarter turn.
 //
-// The map: tags seen near each other at the same level are one block (any
-// faces), averaged over observations; a tag seen far from its block, three
-// times in agreement, means the block was moved, and the whole block goes
-// there (one stray observation doesn't move it). A block counts once seen
-// twice (one-off false detections don't). Blocks don't float: one seen up a
-// level stands on blocks below, which are inferred if not seen themselves.
+// The map: a sighting belongs to the known block at its level that it's
+// nearest to, if it's close -- by position, not by tag: several cubes may
+// carry the same tag (a stack of two of them is two blocks, not one block
+// jumping between levels). Blocks are averaged over sightings. A tag seen
+// far from every block, while the one block with that tag isn't seen where
+// it was, three times in agreement, means that block was moved, and it goes
+// there (one stray observation doesn't move it); with the old spot still in
+// sight (or several blocks with the tag) it's another cube. One face is enough for a
+// whole cube -- the others may be hidden behind another cube -- and one
+// clear sighting of it too; a faint one needs a second (stray quads decode
+// as tag16h5 tags now and then, with low margins). Blocks don't float: one
+// seen up a level stands on blocks below, which are inferred if not seen
+// themselves.
 // Nothing is forgotten on its own -- clear() (a rescan) starts over.
 //
 // Lynx.tagBlocks(ar, {family, tagMm, blockMm}) -> {start(), stop(), clear(), blocks()
@@ -37,10 +44,13 @@ window.Lynx = window.Lynx || {};
   const INTERVAL_MS = 120;
   const MAX_RANGE_M = 1.0;
   const MIN_SIDE_PX = 10; // smaller tags give poses too rough to use
-  const CONFIRM_N = 2;
-  const MOVE_N = 3; // a block counts as moved after this many sightings elsewhere (in agreement)
+  const MIN_FACING_COS = 0.5; // tags seen more than 60 degrees off-axis are skipped
+  const CONFIRM_N = 2; // sightings for a block from weak detections...
+  const STRONG_MARGIN = 40; // ...one is enough with a decision margin this good (or a tag36h11 tag)
+  const MOVE_N = 3; // a block counts as moved after this many sightings elsewhere (in agreement)...
+  const MOVED_UNSEEN_MS = 1000; // ...and not seen where it was for this long
   const MAX_TURN_RAD_S = 0.6; // pictures taken while the camera turns faster are skipped (blur, lag)
-  const FORGET_UNCONFIRMED_MS = 3000;
+  const FORGET_UNCONFIRMED_MS = 10000;
 
   // 4-point homography (model X, Y -> image x, y), h33 = 1: 8 x 8 linear solve.
   function homography(model, img) {
@@ -116,6 +126,9 @@ window.Lynx = window.Lynx || {};
     const t = h3.map((v) => v * lambda);
     let n = cross3(r1, r2);
     if (dot3(n, t) > 0) n = n.map((v) => -v); // the side facing the camera
+    // seen too nearly edge-on, the pose is a guess (a cube's face 60+ degrees
+    // off-axis can come out centimetres off); its other faces do better
+    if (-dot3(n, t) / Math.hypot(...t) < MIN_FACING_COS) return null;
     return { t, r1, r2, n };
   }
 
@@ -125,7 +138,6 @@ window.Lynx = window.Lynx || {};
     const HALF = BLOCK / 2;
     const state = { ready: false, error: null, fps: 0, detectMs: 0, tags: 0, lastDetections: [] };
     const blocks = new Map(); // id -> block
-    const tagToBlock = new Map();
     let nextId = 1;
     let worker = null;
     let timer = null;
@@ -210,14 +222,11 @@ window.Lynx = window.Lynx || {};
       state.lastDetections = m.detections.map((d) => ({ id: d.id, corners: d.corners, w: pending.snap.w, h: pending.snap.hgt, at: now }));
       m.detections.forEach((d) => {
         const o = observe(d, pending.snap);
-        if (o) add(o, d.id, now);
+        if (o) add(o, d.id, now, typeof d.margin !== "number" || d.margin >= STRONG_MARGIN);
       });
-      // one-offs that never got a second look
+      // faint one-offs that never got a second look
       for (const [id, b] of blocks) {
-        if (b.n < CONFIRM_N && now - b.seen > FORGET_UNCONFIRMED_MS) {
-          blocks.delete(id);
-          b.tags.forEach((t) => tagToBlock.get(t) === id && tagToBlock.delete(t));
-        }
+        if (!b.ok && now - b.seen > FORGET_UNCONFIRMED_MS) blocks.delete(id);
       }
     }
 
@@ -269,34 +278,36 @@ window.Lynx = window.Lynx || {};
       return { x, y, h: ch, level, yaw: modQuarter(yaw), face };
     }
 
-    function add(o, tagId, now) {
-      let b = tagToBlock.has(tagId) ? blocks.get(tagToBlock.get(tagId)) : null;
-      if (b && (b.level !== o.level || Math.hypot(b.x - o.x, b.y - o.y) > 0.03)) {
-        // seen elsewhere: moved? (only once it's seen there a few times in agreement)
-        const m = b.move;
-        if (m && m.level === o.level && Math.hypot(m.x - o.x, m.y - o.y) < 0.02) m.n++;
-        else b.move = { x: o.x, y: o.y, level: o.level, n: 1 };
-        if (b.move.n < MOVE_N) return;
-        Object.assign(b, { x: o.x, y: o.y, h: o.h, level: o.level, yaw: o.yaw, n: 1, moved: now, move: null });
-      } else if (!b) {
-        // another face of a block we know?
-        let best = null;
-        let bestD = HALF * 1.25;
-        for (const k of blocks.values()) {
-          const dd = Math.hypot(k.x - o.x, k.y - o.y);
-          if (k.level === o.level && dd < bestD) {
-            best = k;
-            bestD = dd;
-          }
+    function add(o, tagId, now, strong) {
+      // a face of the nearest known block at its level (a little more leeway if it's had this tag before)
+      let b = null;
+      let bestD = Infinity;
+      for (const k of blocks.values()) {
+        if (k.level !== o.level) continue;
+        const d = Math.hypot(k.x - o.x, k.y - o.y);
+        if (d < (k.tags.has(tagId) ? 0.75 : 0.6) * BLOCK && d < bestD) {
+          b = k;
+          bestD = d;
         }
-        b = best;
-        if (!b) {
+      }
+      if (!b) {
+        // far from every block: the one with this tag moved? (only once it's seen there a few times in agreement)
+        const owners = [...blocks.values()].filter((k) => k.tags.has(tagId));
+        const m = owners.length === 1 && now - owners[0].seen > MOVED_UNSEEN_MS ? owners[0] : null;
+        if (m) {
+          const mv = m.move;
+          if (mv && mv.level === o.level && Math.hypot(mv.x - o.x, mv.y - o.y) < 0.02) mv.n++;
+          else m.move = { x: o.x, y: o.y, level: o.level, n: 1 };
+          if (m.move.n < MOVE_N) return;
+          Object.assign(m, { x: o.x, y: o.y, h: o.h, level: o.level, yaw: o.yaw, n: 1, moved: now, move: null });
+          b = m;
+        } else {
+          // a new block (or another cube with the same tag)
           b = { id: nextId++, x: o.x, y: o.y, h: o.h, level: o.level, yaw: o.yaw, n: 0, tags: new Set(), seen: now };
           blocks.set(b.id, b);
         }
-        b.tags.add(tagId);
-        tagToBlock.set(tagId, b.id);
       }
+      b.tags.add(tagId);
       // a running average (newer counts more once there's a history)
       const a = Math.max(0.15, 1 / (b.n + 1));
       b.x += (o.x - b.x) * a;
@@ -306,16 +317,15 @@ window.Lynx = window.Lynx || {};
       const s4 = (1 - a) * Math.sin(4 * b.yaw) + a * Math.sin(4 * o.yaw);
       b.yaw = Math.atan2(s4, c4) / 4;
       b.n++;
+      b.ok = b.ok || strong || b.n >= CONFIRM_N;
       b.seen = now;
       b.move = null;
       // two blocks where there's room for one: the better-known one stays
       for (const k of blocks.values()) {
         if (k === b || k.level !== b.level || Math.hypot(k.x - b.x, k.y - b.y) > BLOCK * 0.7) continue;
         const [keep, drop] = k.n >= b.n ? [k, b] : [b, k];
-        drop.tags.forEach((t) => {
-          keep.tags.add(t);
-          tagToBlock.set(t, keep.id);
-        });
+        keep.ok = keep.ok || drop.ok;
+        drop.tags.forEach((t) => keep.tags.add(t));
         blocks.delete(drop.id);
         if (drop === b) break;
       }
@@ -324,7 +334,7 @@ window.Lynx = window.Lynx || {};
     function list() {
       const out = [];
       for (const b of blocks.values()) {
-        if (b.n < CONFIRM_N) continue;
+        if (!b.ok) continue;
         out.push({ id: b.id, x: b.x, y: b.y, yaw: b.yaw, level: b.level, h0: b.h - HALF, h1: b.h + HALF, half: HALF, inferred: false, n: b.n, seen: b.seen, tags: [...b.tags] });
       }
       // what the ones up a level stand on: right under them, a block lower each
@@ -341,7 +351,6 @@ window.Lynx = window.Lynx || {};
 
     function clear() {
       blocks.clear();
-      tagToBlock.clear();
     }
 
     return { start, stop, clear, blocks: list, state, BLOCK, TAG, observeForTest: observe, tagPose };

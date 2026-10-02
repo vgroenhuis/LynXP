@@ -12,9 +12,13 @@
 // caster, oriented the way it will arrive -- and that it can reach, turning
 // and driving, without touching one; else via a detour point; with none, it
 // holds still (or eases off a block it's touching).
-// It can only avoid blocks it has seen -- so it starts by looking around
-// (turning in place; Fire skips it), and Rescan forgets them all and looks
-// again.
+// It can only avoid blocks it has seen: the game starts straight away with
+// the ones in view (looking around first, turning on the spot, is a
+// setting), and Rescan forgets them all and looks again.
+// It moves slowly and smoothly -- the spot it drives to glides along at a
+// few cm/s, the camera eases round -- so the video and the overlay (which
+// lags it a little) stay lined up, and estimates jittering a few mm don't
+// shake the picture.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -24,6 +28,10 @@ Lynx.games = Lynx.games || {};
   const SCAN_TILT_DEG = -24; // looking down at the floor around the robot
   const ROBOT_MARGIN_M = 0.01;
   const PLAN_EVERY_MS = 150;
+  const ROBOT_GLIDE_MPS = 0.05; // how fast the spot the robot drives to may move
+  const PLAN_DEADBAND_M = 0.015; // a new plan this close to the old one isn't worth moving for
+  const AIM_EASE = 2.5; // 1/s: the camera eases toward the knight (time constant 0.4 s)
+  const AIM_MAX_RAD_S = 0.5; // and pans no faster than this (the tag finder skips blurred pictures above 0.6)
 
   Lynx.games.knightblocks = (ar, cfg) => {
     const K = Lynx.knightKit;
@@ -64,7 +72,7 @@ Lynx.games = Lynx.games || {};
     // the cyan block outlines and the green tag outlines: switches in the game
     let showBlocks = Boolean(remembered("knightblocksShowBlocks", cfg.showBlocks !== false));
     let showTags = Boolean(remembered("knightblocksShowTags", cfg.showTags !== false)); // (older versions stored 0 / 1)
-    const doScan = cfg.scan !== false;
+    const doScan = cfg.scan === true;
     const w = Lynx.world3d(ar, { textures: false });
     const family = cfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
     const tb = Lynx.tagBlocks(ar, { family, tagMm: +cfg.tagMm || 30, blockMm: +cfg.blockMm || 40 });
@@ -80,7 +88,7 @@ Lynx.games = Lynx.games || {};
       f: 0, r: 0, z: 0, vf: 0, vr: 0, vz: 0, yaw: 0, onGround: true, standOn: null, mode: "move", coyote: 0, jumpBuf: 0, fallFrom: 0,
       hang: null, climb: null, attack: null, attackQueued: false, landT: 0, phase: 0, speed: 0, grabCool: 0, towardT: 0,
     };
-    const cam = { b: Math.PI, behind: false, orbitAt: -1e9, tiltOff: 0, aimYaw: null, aimTilt: 0, aimPt: null, lastGoto: null, lastGotoMs: -1e9, lastAimMs: -1e9, planMs: -1e9, target: null, why: "" };
+    const cam = { b: Math.PI, behind: false, orbitAt: -1e9, tiltOff: 0, aimYaw: null, aimTilt: 0, aimPt: null, lastGoto: null, lastGotoMs: -1e9, lastAimMs: -1e9, planMs: -1e9, target: null, cmd: null, why: "" };
     const scan = { yaw0: 0 };
 
     const say = (text, color = "#ffe080") => (note = { text, color, t: 0 });
@@ -576,11 +584,26 @@ Lynx.games = Lynx.games || {};
       if (now - cam.planMs > PLAN_EVERY_MS) {
         cam.planMs = now;
         const p = planRobot(cam.b);
-        cam.target = p;
+        // (a spot hardly different from the last one: stay with that -- no creeping on jitter)
+        const same = cam.target && p.why === cam.target.why && Math.hypot(p.f - cam.target.f, p.r - cam.target.r) < PLAN_DEADBAND_M;
+        if (!same) cam.target = p;
         cam.why = p.why;
       }
       if (cam.target) {
-        const t = w.toWorld(cam.target.f, cam.target.r);
+        // the spot sent to the robot glides toward the planned one
+        if (!cam.cmd) {
+          const ch = chassisLocal();
+          cam.cmd = { f: ch.f, r: ch.r };
+        }
+        const df = cam.target.f - cam.cmd.f;
+        const dr = cam.target.r - cam.cmd.r;
+        const d = Math.hypot(df, dr);
+        const step = ROBOT_GLIDE_MPS * dt;
+        if (d > step) {
+          cam.cmd.f += (df / d) * step;
+          cam.cmd.r += (dr / d) * step;
+        } else cam.cmd = { f: cam.target.f, r: cam.target.r };
+        const t = w.toWorld(cam.cmd.f, cam.cmd.r);
         const moved = !cam.lastGoto || Math.hypot(t.x - cam.lastGoto.x, t.y - cam.lastGoto.y) > C.GOTO_MOVE_M;
         if (moved || now - cam.lastGotoMs > C.GOTO_EVERY_MS) {
           Lynx.control.send({ type: "goto", x: +t.x.toFixed(4), y: +t.y.toFixed(4), maintainSpeed: false });
@@ -588,18 +611,25 @@ Lynx.games = Lynx.games || {};
           cam.lastGotoMs = now;
         }
       }
-      aimAt([h.f + h.vf * 0.15, h.r + h.vr * 0.15, h.z + 0.04 * S], dt, now);
+      aimAt([h.f + h.vf * 0.3, h.r + h.vr * 0.3, h.z + 0.04 * S], dt, now);
     }
+    // the camera eases toward the point, panning and tilting at a limited rate
     function aimAt(pt, dt, now) {
       const cw = ar.cameraWorld();
-      if (!cam.aimPt) cam.aimPt = pt;
-      const k = 1 - Math.exp(-dt * 8);
+      const fresh = !cam.aimPt;
+      if (fresh) cam.aimPt = pt;
+      const k = 1 - Math.exp(-dt * AIM_EASE);
       cam.aimPt = cam.aimPt.map((v, i) => v + (pt[i] - v) * k);
       const P = w.toWorld(cam.aimPt[0], cam.aimPt[1]);
       const hd = Math.hypot(P.x - cw.x, P.y - cw.y);
-      if (hd > 0.03 || cam.aimYaw === null) cam.aimYaw = Math.atan2(P.y - cw.y, P.x - cw.x);
+      const yaw = Math.atan2(P.y - cw.y, P.x - cw.x);
+      const turn = AIM_MAX_RAD_S * dt;
+      if (fresh || cam.aimYaw === null) cam.aimYaw = yaw;
+      else if (hd > 0.03) cam.aimYaw = wrap(cam.aimYaw + clamp(wrap(yaw - cam.aimYaw), -turn, turn));
       const down = Math.atan2(cw.h - cam.aimPt[2], Math.max(hd, 0.03));
-      cam.aimTilt = ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff;
+      const tilt = ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff;
+      const tiltStep = (turn * 180) / Math.PI;
+      cam.aimTilt = fresh ? tilt : cam.aimTilt + clamp(tilt - cam.aimTilt, -tiltStep, tiltStep);
       sendAimIfNeeded(now);
     }
     function sendAimIfNeeded(now) {
@@ -657,6 +687,8 @@ Lynx.games = Lynx.games || {};
       placeHero(spot.f, spot.r, spot.a);
       cam.b = Math.atan2(rl.r - hero.r, rl.f - hero.f);
       cam.aimPt = null;
+      cam.cmd = null;
+      cam.target = null;
       state = "playing";
       stateTime = 0;
       sfx("go");
@@ -871,7 +903,7 @@ Lynx.games = Lynx.games || {};
       const status = s.error ? s.error : !s.ready ? "Loading the tag detector..." : `${real} block${real === 1 ? "" : "s"} · ${s.tags} tag${s.tags === 1 ? "" : "s"} in view · ${s.fps.toFixed(1)}/s`;
       ar.text(status, v.x + 12, v.y + 24, { size: 13, color: s.error ? "#ff8080" : "#c0f0ff" });
       if (state === "title") {
-        ar.banner("KNIGHT ON BLOCKS", "Fire to start -- the robot looks around for the tagged blocks first");
+        ar.banner("KNIGHT ON BLOCKS", doScan ? "Fire to start -- the robot looks around for the tagged blocks first" : "Fire to start -- with the tagged blocks in view");
         ar.text(`Blocks: ${+cfg.blockMm || 40} mm cubes with ${+cfg.tagMm || 30} mm ${family} AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
         ar.text(`Tags to print: ${location.host}/tags.html`, v.cx, v.cy + 92, { size: 13, align: "center", color: "#c0f0ff" });
         return;

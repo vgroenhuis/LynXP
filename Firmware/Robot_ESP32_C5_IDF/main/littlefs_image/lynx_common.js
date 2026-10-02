@@ -177,7 +177,7 @@ window.Lynx = window.Lynx || {};
         { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
         { key: "knightCm", label: "Knight's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
         { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
-        { key: "scan", label: "Look around at the start", type: "checkbox", def: true },
+        { key: "scan", label: "Look around at the start (turning on the spot)", type: "checkbox", def: false },
         { key: "showBlocks", label: "Show detected blocks (cyan outlines; also a switch in the game)", type: "checkbox", def: true },
         { key: "showTags", label: "Show tag detections (green outlines; also a switch in the game)", type: "checkbox", def: true },
       ],
