@@ -1,5 +1,5 @@
 // Knight on Blocks -- the Pocket Knight (game_knight.js) on real blocks:
-// 30 mm cubes with AprilTags, found by tagblocks.js. The knight walks
+// 40 mm cubes with AprilTags, found by tagblocks.js. The knight walks
 // around them, jumps or vaults onto them, catches the edge of a stack and
 // climbs it -- and walks behind them: a real block nearer than the knight
 // hides it (its silhouette is cut out of the overlay, so the video shows
@@ -67,7 +67,7 @@ Lynx.games = Lynx.games || {};
     const doScan = cfg.scan !== false;
     const w = Lynx.world3d(ar, { textures: false });
     const family = cfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
-    const tb = Lynx.tagBlocks(ar, { family, tagMm: +cfg.tagMm || 22.5, blockMm: +cfg.blockMm || 30 });
+    const tb = Lynx.tagBlocks(ar, { family, tagMm: +cfg.tagMm || 30, blockMm: +cfg.blockMm || 40 });
     tb.start();
 
     let state = "title"; // title | scan | playing
@@ -872,7 +872,7 @@ Lynx.games = Lynx.games || {};
       ar.text(status, v.x + 12, v.y + 24, { size: 13, color: s.error ? "#ff8080" : "#c0f0ff" });
       if (state === "title") {
         ar.banner("KNIGHT ON BLOCKS", "Fire to start -- the robot looks around for the tagged blocks first");
-        ar.text(`Blocks: ${+cfg.blockMm || 30} mm cubes with ${+cfg.tagMm || 22.5} mm ${family} AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
+        ar.text(`Blocks: ${+cfg.blockMm || 40} mm cubes with ${+cfg.tagMm || 30} mm ${family} AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
         ar.text(`Tags to print: ${location.host}/tags.html`, v.cx, v.cy + 92, { size: 13, align: "center", color: "#c0f0ff" });
         return;
       }

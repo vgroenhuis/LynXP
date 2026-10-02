@@ -1,5 +1,5 @@
-// Real blocks on the floor, found by their AprilTags: 30 mm cubes with a
-// 22.5 mm tag16h5 tag on one or more faces -- the same tag on all of a
+// Real blocks on the floor, found by their AprilTags: 40 mm cubes with a
+// 30 mm tag16h5 tag on one or more faces -- the same tag on all of a
 // block's faces, or different ones (family and sizes configurable). A map of
 // them in the robot's odometry frame, for games that put virtual things on
 // and around real ones (game_knightblocks.js).
@@ -120,8 +120,8 @@ window.Lynx = window.Lynx || {};
   }
 
   Lynx.tagBlocks = (ar, opts = {}) => {
-    const TAG = (opts.tagMm || 22.5) / 1000;
-    const BLOCK = (opts.blockMm || 30) / 1000;
+    const TAG = (opts.tagMm || 30) / 1000;
+    const BLOCK = (opts.blockMm || 40) / 1000;
     const HALF = BLOCK / 2;
     const state = { ready: false, error: null, fps: 0, detectMs: 0, tags: 0, lastDetections: [] };
     const blocks = new Map(); // id -> block

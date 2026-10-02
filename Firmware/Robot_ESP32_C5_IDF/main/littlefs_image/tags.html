@@ -35,8 +35,8 @@
     <label>Family <select id="family"><option value="tag16h5">tag16h5</option><option value="tag36h11">tag36h11</option></select></label>
     <label>First tag id <input id="first" type="number" value="0" min="0" max="586"></label>
     <label>How many <input id="count" type="number" value="30" min="1" max="200"></label>
-    <label>Tag size (black square, mm) <input id="tagMm" type="number" value="22.5" min="5" max="150" step="0.5"></label>
-    <label>Block face (mm) <input id="faceMm" type="number" value="30" min="5" max="200" step="0.5"></label>
+    <label>Tag size (black square, mm) <input id="tagMm" type="number" value="30" min="5" max="150" step="0.5"></label>
+    <label>Block face (mm) <input id="faceMm" type="number" value="40" min="5" max="200" step="0.5"></label>
     <button id="print">Print</button>
   </div>
   <p class="note">Print at 100% scale ("actual size", no "fit to page"), then check one black square with a ruler. Cut along the dashed lines and glue a tag on each face, centered: the same id on all of a block's faces (or different ones), but each id on one block only. Matte paper is best -- glare hides tags. Sizes must match the game's settings (Games &amp; apps: Knight on Blocks).</p>
@@ -53,9 +53,9 @@
       const fam = FAMILIES[$("family").value] || FAMILIES.tag16h5;
       const first = Math.max(0, Math.min(fam.ids - 1, Math.round(+$("first").value || 0)));
       const count = Math.max(1, Math.min(200, Math.round(+$("count").value || 1)));
-      const tagMm = +$("tagMm").value || 22.5;
+      const tagMm = +$("tagMm").value || 30;
       const imgMm = (tagMm * fam.cells) / fam.black;
-      const faceMm = Math.max(+$("faceMm").value || 30, imgMm);
+      const faceMm = Math.max(+$("faceMm").value || 40, imgMm);
       const sheet = $("sheet");
       sheet.innerHTML = "";
       for (let id = first; id < Math.min(fam.ids, first + count); id++) {
