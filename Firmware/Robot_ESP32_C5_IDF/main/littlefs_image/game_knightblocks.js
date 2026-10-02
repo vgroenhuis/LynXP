@@ -527,14 +527,14 @@ Lynx.games = Lynx.games || {};
       const spots = [];
       for (const extra of [0, 0.04, 0.08, 0.13, -0.03]) {
         const dist = camDist + 0.8 * Math.max(0, h.z - 0.04 * S) + extra;
-        for (let k = 0; k <= 26; k++) {
-          const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.13; // 0, +-7.5 deg, ... +-97 deg
+        for (let k = 0; k <= 48; k++) {
+          const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.13; // 0, +-7.5 deg, ... +-179 deg
           const b = want + off;
           const f = h.f + dist * Math.cos(b);
           const r = h.r + dist * Math.sin(b);
           if (clearance(f, r) < robotHalf) continue; // (the axle at least; the rest once the heading is known)
           let cost = Math.abs(off) + Math.abs(extra) * 4;
-          if (hidden({ f, r, h: camH }, eye)) cost += 0.6;
+          if (hidden({ f, r, h: camH }, eye)) cost += 3.5; // (going all the way round beats losing sight of the knight)
           spots.push({ f, r, cost, why: off || extra ? "around the blocks" : "" });
         }
       }
@@ -857,8 +857,10 @@ Lynx.games = Lynx.games || {};
         if (p) w.fillPoly(p, `rgba(0,0,0,${(0.35 * k).toFixed(3)})`, null);
       }, w.extent(h.f - rad, h.f + rad, h.r - rad, h.r + rad, g.h, g.h + 0.0008));
     }
+    let heroPrims = null; // the knight's last drawn primitives (for its silhouette behind blocks)
     function queueHero() {
       const h = hero;
+      heroPrims = null;
       queueShadow();
       const m = w.project(h.f, h.r, h.z + 0.035 * S);
       if (!m) return;
@@ -871,10 +873,21 @@ Lynx.games = Lynx.games || {};
         });
         const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw, S), K.KNIGHT_LOOK, { speed: h.speed / S, time });
         prims.forEach((p) => p.rad && (p.rad *= S)); // limbs as thick as the knight is small
+        heroPrims = prims;
         const c = w.camLocal();
         const near = clamp((Math.hypot(c.f - h.f, c.r - h.r) - 0.05) / 0.04, 0.35, 1);
         K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near);
       }, w.extent(h.f - 0.014 * S, h.f + 0.014 * S, h.r - 0.014 * S, h.r + 0.014 * S, h.z, h.z + C.BODY_H));
+    }
+    // Behind a block (hanging on its far side, say) the knight would be lost
+    // from view: a faint silhouette shows where it is, over the block.
+    function drawHeroSilhouette() {
+      if (!heroPrims) return;
+      const h = hero;
+      const c = w.camLocal();
+      const pts = [0.1, 0.5, 0.9].map((k) => [h.f, h.r, h.z + k * C.BODY_H]);
+      if (!pts.some((p) => hidden(c, p))) return;
+      K.drawPrims(w, heroPrims, ar, "rgba(255,255,255,0.9)", 0.55);
     }
     // the tags found in the last picture, outlined where they were
     function drawTags() {
@@ -924,6 +937,7 @@ Lynx.games = Lynx.games || {};
         solids.forEach(queueBlock);
         if (state === "playing") queueHero();
         ar.flush();
+        if (state === "playing") drawHeroSilhouette();
       }
       if (showTags) drawTags();
       hud();
