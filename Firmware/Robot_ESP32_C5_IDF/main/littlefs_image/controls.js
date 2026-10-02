@@ -157,8 +157,8 @@ window.Lynx = window.Lynx || {};
   const ROBOT_CAM_FULL_TILT = 0.8;
   const ROBOT_CAM_SEND_MS = 100; // keep-alive
   const ROBOT_CAM_TICK_MS = 40; // steps while the camera moves
-  const ROBOT_CAM_PAN_RATE = 180; // deg/s (the robot's panMaxSpeedDegPerSec default)
-  const ROBOT_CAM_TILT_RATE = 120; // deg/s (tiltMaxSpeedDegPerSec)
+  // deg/s: the robot's panMaxSpeedDegPerSec / tiltMaxSpeedDegPerSec (cam.js passes them in once loaded)
+  const camRates = { pan: 300, tilt: 300 };
   const DRIVE_MODE_KEY = "camDriveMode";
   let robotModeOn = false;
   try {
@@ -184,8 +184,10 @@ window.Lynx = window.Lynx || {};
     const axis = (v, full) => (Math.abs(v) < ROBOT_CAM_DEADZONE ? 0 : Math.max(-1, Math.min(1, v / full)));
     return { pan: Math.round(axis(rot, ROBOT_CAM_FULL_ROT) * ROBOT_CAM_PAN_DEG), tilt: Math.round(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
   }
-  // Each tick: the commanded angles step toward the stick's at the rates
-  // above; sent when they moved, else every ROBOT_CAM_SEND_MS to keep the mode.
+  // Each tick: the robot gets the stick's angles (sent when they change,
+  // else every ROBOT_CAM_SEND_MS to keep the mode) and eases the servos
+  // there itself, every 20 ms at the same rates as here -- camCmd follows
+  // along for the view.
   function sendRobotCam() {
     const now = performance.now();
     const want = robotCam();
@@ -193,10 +195,10 @@ window.Lynx = window.Lynx || {};
     const dt = Math.min(0.2, (now - camCmd.at) / 1000);
     camCmd.at = now;
     const toward = (v, w, rate) => v + Math.max(-rate * dt, Math.min(rate * dt, w - v));
-    camCmd.pan = toward(camCmd.pan, want.pan, ROBOT_CAM_PAN_RATE);
-    camCmd.tilt = toward(camCmd.tilt, want.tilt, ROBOT_CAM_TILT_RATE);
+    camCmd.pan = toward(camCmd.pan, want.pan, camRates.pan);
+    camCmd.tilt = toward(camCmd.tilt, want.tilt, camRates.tilt);
     if (!ws || ws.readyState !== WebSocket.OPEN || document.hidden) return;
-    const c = { pan: Math.round(camCmd.pan * 10) / 10, tilt: Math.round(camCmd.tilt * 10) / 10 };
+    const c = want;
     if (lastCam && c.pan === lastCam.pan && c.tilt === lastCam.tilt && now - lastCam.at < ROBOT_CAM_SEND_MS) return;
     lastCam = { ...c, at: now };
     ws.send(JSON.stringify({ type: "camera_relative", pan: c.pan, tilt: c.tilt }));
@@ -309,6 +311,10 @@ window.Lynx = window.Lynx || {};
       applyDriveMode();
     },
     onDriveModeChange: (cb) => modeListeners.push(cb),
+    setRobotCamRates(panDegPerSec, tiltDegPerSec) {
+      if (panDegPerSec > 0) camRates.pan = panDegPerSec;
+      if (tiltDegPerSec > 0) camRates.tilt = tiltDegPerSec;
+    },
     // In the robot mode: the camera's angle to the chassis (rad, positive = left); else null.
     robotCamPanRad: () => (robotMode() && camCmd ? (camCmd.pan * Math.PI) / 180 : null),
     robotCamTiltDeg: () => (robotMode() && camCmd ? camCmd.tilt : null),

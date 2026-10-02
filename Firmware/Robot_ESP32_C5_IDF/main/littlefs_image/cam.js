@@ -408,6 +408,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   Promise.all([calibPromise, Lynx.loadAppSettings()]).then(([calib, app]) => {
     aimParams = calib.aim && calib.aim.servoFollows ? calib.aim : null;
+    if (calib.aim) Lynx.control.setRobotCamRates(calib.aim.panRateDeg, calib.aim.tiltRateDeg);
     // The overlays and games point where the page aims (see withAim()),
     // unless "Smooth aim" is off -- then the servos' measured angles.
     aimView = app.general.smoothAim !== false;

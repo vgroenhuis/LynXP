@@ -55,6 +55,14 @@ unsigned long lastDriveCommandMs = 0;
 // "control_frame_rotate" message (including the value=0 release itself).
 unsigned long lastControlFrameRotateMsgMs = 0;
 
+// "camera_relative" targets (deg) and the easing toward them, see the
+// message handler and the servo-follow tick in ws_poll_task.
+volatile float cameraRelativePanTargetDeg = 0.0f;
+volatile float cameraRelativeTiltTargetDeg = 0.0f;
+volatile bool cameraRelativeHasTilt = false;
+bool cameraRelativeStepping = false;
+unsigned long lastCameraRelativeStepMs = 0;
+
 // Same rate-control pattern as controlFrameRotateInput above, but for the
 // tilt axis of the camera control joystick -- a signed deflection fraction
 // in [-1,1], integrated into currentTiltAngleDeg server-side (see
@@ -215,24 +223,22 @@ void handle_ws_message(int fd, const char *body) {
         // Robot-relative camera (see cameraRelativePanRad's doc comment):
         // pan = the angle to the chassis heading (deg, positive = left),
         // clamped to the servo's range; tilt (deg, optional) the tilt angle.
-        // Replaces any rate input.
-        float panDeg = std::clamp((float) getNum("pan"), std::max(settings.servoMinAngleDeg, -90.0f), std::min(settings.servoMaxAngleDeg, 90.0f));
-        cameraRelativePanRad = panDeg * (float) M_PI / 180.0f;
+        // Replaces any rate input. These are targets: the poll loop moves
+        // the servos there every servo tick at panMaxSpeedDegPerSec /
+        // tiltMaxSpeedDegPerSec -- smooth whatever the WiFi timing, and no
+        // full-speed jumps of both servos at once (those dipped the supply
+        // enough to make the flash drop out).
+        cameraRelativePanTargetDeg = std::clamp((float) getNum("pan"), std::max(settings.servoMinAngleDeg, -90.0f), std::min(settings.servoMaxAngleDeg, 90.0f));
         unsigned long nowMs = millis_now();
         lastCameraRelativeMsgMs = nowMs;
         controlFrameRotateInput = 0.0f;
         lastControlFrameRotateMsgMs = nowMs;
         cJSON *tiltItem = cJSON_GetObjectItemCaseSensitive(root, "tilt");
-        if (cJSON_IsNumber(tiltItem)) {
+        cameraRelativeHasTilt = cJSON_IsNumber(tiltItem);
+        if (cameraRelativeHasTilt) {
             tiltRateInput = 0.0f;
             lastTiltRateMsgMs = nowMs;
-            float tilt = std::clamp((float) tiltItem->valuedouble, settings.tiltMinAngleDeg, settings.tiltMaxAngleDeg);
-            if (tilt != currentTiltAngleDeg) {
-                currentTiltAngleDeg = tilt;
-                lastTiltActiveMs = nowMs;
-                tiltServoIdle = false;
-                writeTiltServoPulse();
-            }
+            cameraRelativeTiltTargetDeg = std::clamp((float) tiltItem->valuedouble, settings.tiltMinAngleDeg, settings.tiltMaxAngleDeg);
         }
     } else if (std::strcmp(type, "calibrate_deadzone") == 0) {
         switchModeIfNeeded(DEADZONE_CALIBRATION);
@@ -642,11 +648,33 @@ void ws_poll_task(void *arg) {
             }
             float headingDiffRad = wrapToPi(controlFrameThetaRad - predictedThetaRad);
             if (cameraRelativeActive()) {
-                // Robot-relative camera: a fixed angle to the chassis, turning
-                // with it (no counter-rotation, no lead); the control frame
-                // just tags along for telemetry.
+                // Robot-relative camera: an angle to the chassis, turning with
+                // it (no counter-rotation, no lead); the control frame just
+                // tags along for telemetry. Both servos ease toward the
+                // targets at their rates, from where they are when it starts.
+                float dt = std::clamp((nowMs - lastCameraRelativeStepMs) / 1000.0f, 0.0f, 0.1f);
+                if (!cameraRelativeStepping) {
+                    cameraRelativeStepping = true;
+                    cameraRelativePanRad = currentServoAngleDeg * (float) M_PI / 180.0f;
+                    dt = 0.0f;
+                }
+                lastCameraRelativeStepMs = nowMs;
+                auto toward = [](float v, float target, float maxStep) { return v + std::clamp(target - v, -maxStep, maxStep); };
+                float panDeg = toward(cameraRelativePanRad * 180.0f / (float) M_PI, cameraRelativePanTargetDeg, settings.panMaxSpeedDegPerSec * dt);
+                cameraRelativePanRad = panDeg * (float) M_PI / 180.0f;
                 headingDiffRad = cameraRelativePanRad;
                 controlFrameThetaRad = wrapToPi(poseThetaRad + cameraRelativePanRad);
+                if (cameraRelativeHasTilt) {
+                    float tilt = toward(currentTiltAngleDeg, cameraRelativeTiltTargetDeg, settings.tiltMaxSpeedDegPerSec * dt);
+                    if (tilt != currentTiltAngleDeg) {
+                        currentTiltAngleDeg = tilt;
+                        lastTiltActiveMs = nowMs;
+                        tiltServoIdle = false;
+                        writeTiltServoPulse();
+                    }
+                }
+            } else {
+                cameraRelativeStepping = false;
             }
             float newAngle = std::clamp(headingDiffRad * 180.0f / (float) M_PI, -90.0f, 90.0f);
             // Only counts as "active" (and only re-writes the pulse) if the
