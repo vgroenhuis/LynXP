@@ -285,6 +285,36 @@ window.addEventListener("DOMContentLoaded", () => {
     setAimOverride(fn) {
       aimOverride = fn;
     },
+    // A game's own entries in the panels (it removes them when it ends, e.g.
+    // el.remove() in ar.onDestroy): a button in the Menu panel, and an
+    // on/off switch in the Overlays panel.
+    addMenuButton(text, onClick) {
+      const b = document.createElement("button");
+      b.className = "cam-overlay-btn";
+      b.textContent = text;
+      b.addEventListener("click", () => {
+        b.blur();
+        onClick();
+      });
+      document.querySelector("#camMenuPanel .cam-menu-panel-body").insertBefore(b, document.getElementById("gamepadStatus"));
+      return b;
+    },
+    addOverlayToggle(text, checked, onChange) {
+      const label = document.createElement("label");
+      label.className = "cam-toggle-switch";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = !!checked;
+      input.addEventListener("change", () => {
+        input.blur();
+        onChange(input.checked);
+      });
+      const slider = document.createElement("span");
+      slider.className = "cam-toggle-slider";
+      label.append(input, slider, document.createTextNode(` ${text}`));
+      document.querySelector("#camOverlaysPanel .cam-menu-panel-body").insertBefore(label, document.getElementById("camSetHomeBtn"));
+      return label;
+    },
     enableCors() {
       if (img.crossOrigin === "anonymous") return;
       img.crossOrigin = "anonymous";

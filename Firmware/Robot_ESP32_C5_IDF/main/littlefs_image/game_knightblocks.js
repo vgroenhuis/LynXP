@@ -1,5 +1,6 @@
 // Knight on Blocks -- the Pocket Knight (game_knight.js) on real blocks:
-// 40 mm cubes with AprilTags, found by tagblocks.js. The knight walks
+// cubes of any size with AprilTags (each tag ID on cubes of one size,
+// measured to the cm), found by tagblocks.js. The knight walks
 // around them, jumps or vaults onto them, catches the edge of a stack and
 // climbs it -- and walks behind them: a real block nearer than the knight
 // hides it (its silhouette is cut out of the overlay, so the video shows
@@ -75,7 +76,8 @@ Lynx.games = Lynx.games || {};
     const doScan = cfg.scan === true;
     const w = Lynx.world3d(ar, { textures: false });
     const family = cfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
-    const tb = Lynx.tagBlocks(ar, { family, tagMm: +cfg.tagMm || 30, blockMm: +cfg.blockMm || 40 });
+    const tagRatio = clamp((+cfg.tagPercent || 75) / 100, 0.3, 0.95);
+    const tb = Lynx.tagBlocks(ar, { family, tagRatio });
     tb.start();
 
     let state = "title"; // title | scan | playing
@@ -742,18 +744,15 @@ Lynx.games = Lynx.games || {};
     touch.add("\u{1F3A5} Behind", () => Lynx.cameraAction());
     touch.add("\u2795 Zoom in", () => zoom(1));
     touch.add("\u2796 Zoom out", () => zoom(-1));
-    touch.add("\u{1F50D} Rescan", () => state !== "title" && rescan());
-    const toggle = (label, get, set, key) => {
-      const text = () => `${label}: ${get() ? "on" : "off"}`;
-      const btn = touch.add(text(), () => {
-        set(!get());
-        btn.textContent = text();
-        remember(key, get());
-      });
-    };
-    toggle("\u{1F9F1} Blocks", () => showBlocks, (v) => (showBlocks = v), "knightblocksShowBlocks");
-    toggle("\u{1F3F7}\uFE0F Tags", () => showTags, (v) => (showTags = v), "knightblocksShowTags");
+    // Rescan in the Menu panel, the outline switches with the other overlays
+    const panelItems = [];
+    if (Lynx.cam && Lynx.cam.addMenuButton) {
+      panelItems.push(Lynx.cam.addMenuButton("\u{1F50D} Rescan blocks", () => state !== "title" && rescan()));
+      panelItems.push(Lynx.cam.addOverlayToggle("Blocks", showBlocks, (on) => remember("knightblocksShowBlocks", (showBlocks = on))));
+      panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
+    }
     ar.onDestroy(() => {
+      panelItems.forEach((el) => el.remove());
       window.removeEventListener("keydown", onKey);
       alive = false;
       tb.stop();
@@ -857,10 +856,8 @@ Lynx.games = Lynx.games || {};
         if (p) w.fillPoly(p, `rgba(0,0,0,${(0.35 * k).toFixed(3)})`, null);
       }, w.extent(h.f - rad, h.f + rad, h.r - rad, h.r + rad, g.h, g.h + 0.0008));
     }
-    let heroPrims = null; // the knight's last drawn primitives (for its silhouette behind blocks)
     function queueHero() {
       const h = hero;
-      heroPrims = null;
       queueShadow();
       const m = w.project(h.f, h.r, h.z + 0.035 * S);
       if (!m) return;
@@ -873,21 +870,10 @@ Lynx.games = Lynx.games || {};
         });
         const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw, S), K.KNIGHT_LOOK, { speed: h.speed / S, time });
         prims.forEach((p) => p.rad && (p.rad *= S)); // limbs as thick as the knight is small
-        heroPrims = prims;
         const c = w.camLocal();
         const near = clamp((Math.hypot(c.f - h.f, c.r - h.r) - 0.05) / 0.04, 0.35, 1);
         K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near);
       }, w.extent(h.f - 0.014 * S, h.f + 0.014 * S, h.r - 0.014 * S, h.r + 0.014 * S, h.z, h.z + C.BODY_H));
-    }
-    // Behind a block (hanging on its far side, say) the knight would be lost
-    // from view: a faint silhouette shows where it is, over the block.
-    function drawHeroSilhouette() {
-      if (!heroPrims) return;
-      const h = hero;
-      const c = w.camLocal();
-      const pts = [0.1, 0.5, 0.9].map((k) => [h.f, h.r, h.z + k * C.BODY_H]);
-      if (!pts.some((p) => hidden(c, p))) return;
-      K.drawPrims(w, heroPrims, ar, "rgba(255,255,255,0.9)", 0.55);
     }
     // the tags found in the last picture, outlined where they were
     function drawTags() {
@@ -913,17 +899,23 @@ Lynx.games = Lynx.games || {};
       const v = ar.view;
       const s = tb.state;
       const real = solids.filter((b) => !b.inferred).length;
-      const status = s.error ? s.error : !s.ready ? "Loading the tag detector..." : `${real} block${real === 1 ? "" : "s"} · ${s.tags} tag${s.tags === 1 ? "" : "s"} in view · ${s.fps.toFixed(1)}/s`;
+      // per tag ID: its block size (? = not yet measured on the floor) and how many cubes carry it
+      const sizes = s.ids.map((i) => `#${i.id} ${i.cm}${i.sure ? "" : "?"} cm${i.count > 1 ? ` \u00d7${i.count}` : ""}`).join(", ");
+      const status = s.error
+        ? s.error
+        : !s.ready
+          ? "Loading the tag detector..."
+          : `${real} block${real === 1 ? "" : "s"}${sizes ? ` (${sizes})` : ""} · ${s.tags} tag${s.tags === 1 ? "" : "s"} in view · ${s.fps.toFixed(1)}/s${s.stable ? "" : " · moving"}`;
       ar.text(status, v.x + 12, v.y + 24, { size: 13, color: s.error ? "#ff8080" : "#c0f0ff" });
       if (state === "title") {
         ar.banner("KNIGHT ON BLOCKS", doScan ? "Fire to start -- the robot looks around for the tagged blocks first" : "Fire to start -- with the tagged blocks in view");
-        ar.text(`Blocks: ${+cfg.blockMm || 40} mm cubes with ${+cfg.tagMm || 30} mm ${family} AprilTags`, v.cx, v.cy + 70, { size: 14, align: "center" });
+        ar.text(`Blocks: cubes of any size with ${family} AprilTags filling ${Math.round(tagRatio * 100)}% of a face`, v.cx, v.cy + 70, { size: 14, align: "center" });
         ar.text(`Tags to print: ${location.host}/tags.html`, v.cx, v.cy + 92, { size: 13, align: "center", color: "#c0f0ff" });
         return;
       }
       if (state === "scan") ar.text(`Looking around... ${Math.min(100, Math.round((SCAN_RATE * stateTime * 100) / (2 * Math.PI)))}%  (Fire: start now)`, v.cx, v.y + v.h - 20, { size: 14, align: "center" });
       if (state === "playing") {
-        ar.text("Run: stick / WASD · Jump: A / Space · Behind: Y / C · Zoom: + / \u2212, RB / LB · Rescan: R", v.cx, v.y + v.h - 20, { size: 13, align: "center" });
+        ar.text("Run: stick / WASD · Jump: A / Space · Behind: Y / C · Zoom: + / \u2212, RB / LB · Rescan: R (or the Menu)", v.cx, v.y + v.h - 20, { size: 13, align: "center" });
         if (cam.why) ar.text(`Robot: ${cam.why}`, v.x + 12, v.y + 42, { size: 12, color: "#ffd080" });
         const k = w.toWorld(hero.f, hero.r);
         ar.edgeArrow(k.x, k.y, hero.z + 0.035 * S, "#80d0ff");
@@ -937,7 +929,6 @@ Lynx.games = Lynx.games || {};
         solids.forEach(queueBlock);
         if (state === "playing") queueHero();
         ar.flush();
-        if (state === "playing") drawHeroSilhouette();
       }
       if (showTags) drawTags();
       hud();
