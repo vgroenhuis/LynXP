@@ -491,7 +491,10 @@ window.Lynx = window.Lynx || {};
   // -- gamepad ------------------------------------------------------------------
   const PAD_POLL_MS = 50;
   const DEADZONE = 0.15; // the left (drive) stick
-  const LOOK_DEADZONE = 0.03; // the right (look) stick: just its noise at rest -- it aims the camera precisely
+  // the right (look) stick: just its noise at rest, so a rate doesn't creep
+  // -- none in the robot drive mode, where it sets an angle (noise there is
+  // a fraction of a degree, not a drift)
+  const LOOK_DEADZONE = 0.03;
   // Standard-layout button indices (https://w3c.github.io/gamepad/#remapping).
   const BTN = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, BACK: 8, START: 9, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
   const FIRE_BUTTONS = [BTN.RT, BTN.X, BTN.START];
@@ -567,7 +570,8 @@ window.Lynx = window.Lynx || {};
     if (pressed.some((p, i) => p && !prevPressed[i])) Lynx.sfx.unlock();
 
     Lynx.gamepad.rawAxes = Array.from(g.axes);
-    const ax = (i) => deadzone(g.axes[i] || 0, i >= 2 ? LOOK_DEADZONE : DEADZONE);
+    const lookDz = robotMode() ? 0 : LOOK_DEADZONE;
+    const ax = (i) => deadzone(g.axes[i] || 0, i >= 2 ? lookDz : DEADZONE);
     const dpad = (neg, pos) => (down(pos) ? 1 : 0) - (down(neg) ? 1 : 0);
     pad.j1 = ax(0) * DRIVE_SPEED;
     pad.j2 = -ax(1) * DRIVE_SPEED;
