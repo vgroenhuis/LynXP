@@ -490,7 +490,7 @@ window.Lynx = window.Lynx || {};
 
   // -- gamepad ------------------------------------------------------------------
   const PAD_POLL_MS = 50;
-  const DEADZONE = 0.15; // the left (drive) stick
+  const DEADZONE = 0.02; // the left (drive) stick: just its noise at rest (Hall-effect sticks like the G8's are steady)
   // the right (look) stick: just its noise at rest, so a rate doesn't creep
   // -- none in the robot drive mode, where it sets an angle (noise there is
   // a fraction of a degree, not a drift)
