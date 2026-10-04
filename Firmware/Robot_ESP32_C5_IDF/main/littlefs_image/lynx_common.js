@@ -71,6 +71,29 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "david", title: "David", better: "higher", format: "points" }],
     },
     {
+      id: "poop",
+      kind: "game",
+      name: "Poop Shooter",
+      icon: "\u{1F4A9}",
+      blurb:
+        "Shoot the poops that crawl toward you. Ten levels, every one with long stone walls: the poops have to walk around them, " +
+        "they stop your shots -- and they stop the robot too, so you have to drive around them to find a clear line of fire. " +
+        "Two weapons: a water gun and a bow -- arrows fall with gravity, so aim a bit above the poop. " +
+        "A giant poop waits in levels 5 and 10; golden poops are worth a lot.",
+      settings: [
+        { key: "startLevel", label: "Start at level", type: "number", def: 1, min: 1, max: 10, step: 1 },
+        { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
+          options: [["easy", "Easy"], ["normal", "Normal"], ["hard", "Hard"]] },
+        { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
+        { key: "areaM", label: "Play area (radius)", type: "number", unit: "m", def: 2, min: 1, max: 5, step: 0.25 },
+        { key: "aimAssist", label: "Aim assist", type: "checkbox", def: true },
+        { key: "jump", label: "Virtual jumping (Space / gamepad A)", type: "checkbox", def: false },
+        { key: "radar", label: "Radar", type: "checkbox", def: true },
+        { key: "arrows", label: "Arrows to poops", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "poop", title: "Poop Shooter", better: "higher", format: "points" }],
+    },
+    {
       id: "coins",
       kind: "game",
       name: "Pacman",

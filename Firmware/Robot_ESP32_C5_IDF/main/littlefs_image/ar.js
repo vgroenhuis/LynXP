@@ -879,10 +879,28 @@ window.Lynx = window.Lynx || {};
         const b = document.createElement("button");
         b.className = "cam-overlay-btn";
         b.textContent = label;
-        b.addEventListener("click", (e) => {
+        // Fire on pointerdown: while another finger holds the drive stick,
+        // phones often don't synthesize a click for a second touch. The click
+        // that follows a pointerdown is swallowed; a click with no preceding
+        // pointerdown (keyboard activation) still works.
+        let handledByPointer = false;
+        const fire = (e) => {
           e.stopPropagation();
           Lynx.sfx.unlock();
           onClick();
+        };
+        b.addEventListener("pointerdown", (e) => {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          handledByPointer = true;
+          fire(e);
+        });
+        b.addEventListener("click", (e) => {
+          if (handledByPointer) {
+            handledByPointer = false;
+            e.stopPropagation();
+            return;
+          }
+          fire(e);
         });
         bar.appendChild(b);
         return b;
