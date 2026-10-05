@@ -193,8 +193,6 @@ window.Lynx = window.Lynx || {};
         "if that's set (turning in place); moved blocks are noticed when the camera is still, and Rescan (in the Menu) starts over. Needs internet once (the tag detector). " +
         "Printable tags: open /tags.html on the robot.",
       settings: [
-        { key: "tagPercent", label: "Tag size (black square) as a share of the block face", type: "number", unit: "%", def: 75, min: 30, max: 95, step: 1 },
-        { key: "tagFamily", label: "Tag family", type: "select", def: "tag16h5", options: [["tag16h5", "tag16h5 (30 ids, big cells: far)"], ["tag36h11", "tag36h11 (587 ids)"]] },
         { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
         { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
         { key: "knightCm", label: "Knight's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
@@ -290,6 +288,10 @@ window.Lynx = window.Lynx || {};
     // delayed to match the video (smooth, steady aim); off: they follow the
     // camera servos' measured angles, which arrive only 10x a second
     { key: "smoothAim", label: "Smooth aim (overlays and games turn with your controls)", type: "checkbox", def: true },
+    // AprilTag cubes (Free drive's cube detection, Knight on Blocks; see tagblocks.js)
+    { key: "tagFamily", label: "AprilTag family on the cubes", type: "select", def: "tag16h5", options: [["tag16h5", "tag16h5 (30 ids, big cells: far)"], ["tag36h11", "tag36h11 (587 ids)"]] },
+    { key: "tagPercent", label: "Tag size (black square) as a share of a cube face", type: "number", unit: "%", def: 75, min: 30, max: 95, step: 1 },
+    { key: "frameCubeMm", label: "World-frame cube size (tags 24-29)", type: "number", unit: "mm", def: 40, min: 10, max: 200, step: 1 },
   ];
 
   Lynx.findEntry = (id) => Lynx.CATALOG.find((e) => e.id === id) || Lynx.CATALOG[0];

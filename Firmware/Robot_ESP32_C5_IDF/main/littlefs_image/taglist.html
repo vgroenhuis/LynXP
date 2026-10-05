@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LynXP tags</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .tags-card { max-width: 820px; margin: 16px auto; }
+    .tags-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .tags-table th, .tags-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(128, 128, 128, 0.3); vertical-align: top; }
+    .tags-table td.num, .tags-table th.num { text-align: right; }
+    .tags-dim { opacity: 0.7; font-size: 0.9em; }
+    .tags-frame { color: #c08000; font-weight: bold; }
+    .tags-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  </style>
+</head>
+<body class="wifi-page">
+  <nav class="top-nav">
+    <a href="/" class="nav-link">Main</a>
+    <a href="/cam" class="nav-link">First-person view</a>
+    <a href="/games" class="nav-link">Games &amp; apps</a>
+    <a href="/wifi" class="nav-link">Wi-Fi</a>
+    <a href="/tags" class="nav-link active">Tags</a>
+  </nav>
+  <div class="panel tags-card">
+    <div class="panel-body">
+      <h3>AprilTag cubes</h3>
+      <p class="tags-dim">Every tag the robot has seen on a cube (Free drive's cube detection, Knight on Blocks):
+        its cube size -- all cubes with one tag are the same size, measured to the cm once one stands on the
+        floor, then remembered -- how many cubes carry it, and where they were last seen (world coordinates, cm,
+        the center of each cube). Tags 24-29 are the world-frame cube.</p>
+      <div id="tagsBody">Loading...</div>
+      <div class="tags-actions">
+        <button id="tagsForget" class="wifi-btn wifi-btn-danger">Forget all tags</button>
+        <a href="/tags.html" class="wifi-btn">Print tags</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    const FRAME = { 24: "+X", 25: "+Y", 26: "+Z", 27: "−X", 28: "−Y", 29: "−Z" };
+    const body = document.getElementById("tagsBody");
+    const ago = (ms) => {
+      const s = Math.max(0, (Date.now() - ms) / 1000);
+      if (s < 90) return `${Math.round(s)} s ago`;
+      if (s < 5400) return `${Math.round(s / 60)} min ago`;
+      if (s < 129600) return `${Math.round(s / 3600)} h ago`;
+      return new Date(ms).toLocaleDateString();
+    };
+    const cm = (m) => (m * 100).toFixed(1);
+    let last = "";
+    function render(doc) {
+      const json = JSON.stringify(doc);
+      if (json === last) return;
+      last = json;
+      const ids = Object.keys(doc.tags || {}).map(Number).sort((a, b) => a - b);
+      if (!ids.length) {
+        body.textContent = "No tags seen yet. Turn on Cube detection in Free drive (Overlays), or play Knight on Blocks.";
+        return;
+      }
+      const rows = ids.map((id) => {
+        const t = doc.tags[id];
+        const where = (t.blocks || []).map((b) => `(${cm(b[0])}, ${cm(b[1])}, ${cm(b[2])})`).join("<br>") || "<span class='tags-dim'>not placed</span>";
+        const name = FRAME[id] ? `${id} <span class="tags-frame">frame ${FRAME[id]}</span>` : `${id}`;
+        return `<tr><td>${name}</td><td class="num">${t.count || (t.blocks || []).length}</td><td class="num">${t.cm} cm</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
+      });
+      body.innerHTML = `<table class="tags-table"><thead><tr><th>Tag</th><th class="num">Cubes</th><th class="num">Size</th><th>Where (x, y, z cm)</th><th>Last seen</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+    }
+    function load() {
+      fetch("/appdata/tags", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : { tags: {} }))
+        .then((d) => render(d && d.tags ? d : { tags: {} }))
+        .catch(() => (body.textContent = "Can't reach the robot -- retrying..."));
+    }
+    load();
+    setInterval(load, 3000);
+    const forget = document.getElementById("tagsForget");
+    forget.addEventListener("click", () => {
+      if (!confirm("Forget all tags (sizes and places)? Pages that are detecting cubes right now remember what they see again.")) return;
+      fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ v: 1, tags: {} }) }).then(load);
+    });
+  </script>
+</body>
+</html>

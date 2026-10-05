@@ -400,8 +400,9 @@ window.addEventListener("DOMContentLoaded", () => {
   // without another tap.
   function startActive(calib, app) {
     stopActive();
-    // the robot drive mode is a Free-drive thing (games drive and aim themselves)
+    // the robot drive mode and the cube detection are Free-drive things (games drive and aim themselves)
     Lynx.control.setRobotModeAllowed(app.active === "none");
+    Lynx.freeDriveTags.setActive(app.active === "none");
     if (!calib || app.active === "none") return;
 
     // Declutter: a game wants the view, not the menus (still one tap away).
@@ -448,6 +449,7 @@ window.addEventListener("DOMContentLoaded", () => {
     Lynx.sfx.volume = app.general.volume;
     setupModeSelect(calib, app);
     setupDriveModeButton();
+    Lynx.freeDriveTags.setup(calib, app);
     startActive(calib, app);
   });
 

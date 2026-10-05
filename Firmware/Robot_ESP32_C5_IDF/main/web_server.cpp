@@ -73,6 +73,7 @@ constexpr StaticFile STATIC_FILES[] = {
     {"/cam.js", "/littlefs/cam.js", "application/javascript", 60},
     {"/wifi", "/littlefs/wifi.html", "text/html", 0},
     {"/games", "/littlefs/games.html", "text/html", 0},
+    {"/tags", "/littlefs/taglist.html", "text/html", 0}, // (/tags.html is the printable tags)
 };
 
 // Any other file in littlefs_image/ is served by its own name with a type
@@ -460,6 +461,22 @@ esp_err_t handle_set(httpd_req_t *req) {
         resetPoseX_m = poseX_m;
         resetPoseY_m = poseY_m;
         resetPoseTheta_rad = wrapToPi(poseThetaRad + shift);
+        resetPoseFlag = true;
+        controlFrameThetaRad = wrapToPi(controlFrameThetaRad + shift);
+        stopAllMotion();
+    }
+    if (get_query_str(req, "set_pose", buf, sizeof(buf))) {
+        // A given pose (x, y in m, theta in rad) for the robot -- the camera
+        // page's world frame from the frame cube: the world moves, the robot
+        // and the camera don't (the control frame turns with the heading).
+        float x = poseX_m, y = poseY_m, th = poseThetaRad;
+        get_query_float(req, "x", &x);
+        get_query_float(req, "y", &y);
+        get_query_float(req, "theta", &th);
+        float shift = wrapToPi(th - poseThetaRad);
+        resetPoseX_m = x;
+        resetPoseY_m = y;
+        resetPoseTheta_rad = wrapToPi(th);
         resetPoseFlag = true;
         controlFrameThetaRad = wrapToPi(controlFrameThetaRad + shift);
         stopAllMotion();
@@ -1108,7 +1125,7 @@ void web_server_init() {
     httpd_register_uri_handler(g_server, &poseResetUri);
     httpd_register_uri_handler(g_server, &waypointsGetUri);
     httpd_register_uri_handler(g_server, &waypointsPostUri);
-    static const char *APP_DATA_DOCS[] = {"settings", "scores", "camcal"};
+    static const char *APP_DATA_DOCS[] = {"settings", "scores", "camcal", "tags"}; // "tags": the AprilTag blocks seen (tagblocks.js)
     constexpr int APP_DATA_DOC_COUNT = sizeof(APP_DATA_DOCS) / sizeof(APP_DATA_DOCS[0]);
     static char appDataUris[APP_DATA_DOC_COUNT][32];
     for (int i = 0; i < APP_DATA_DOC_COUNT; i++) {

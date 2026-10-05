@@ -12,7 +12,7 @@ const char *TAG = "app_data";
 constexpr const char *NVS_NAMESPACE = "appdata";
 // camcal: per-resolution camera calibration (field of view etc.), written by
 // the calibration tooling and read by the camera page's overlays.
-constexpr const char *VALID_NAMES[] = {"settings", "scores", "camcal"};
+constexpr const char *VALID_NAMES[] = {"settings", "scores", "camcal", "tags"};
 
 } // namespace
 

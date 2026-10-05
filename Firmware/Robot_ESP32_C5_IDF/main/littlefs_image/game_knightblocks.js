@@ -34,7 +34,7 @@ Lynx.games = Lynx.games || {};
   const AIM_EASE = 2.5; // 1/s: the camera eases toward the knight (time constant 0.4 s)
   const AIM_MAX_RAD_S = 0.5; // and pans no faster than this (the tag finder skips blurred pictures above 0.6)
 
-  Lynx.games.knightblocks = (ar, cfg) => {
+  Lynx.games.knightblocks = (ar, cfg, app) => {
     const K = Lynx.knightKit;
     const { clamp, lerp, ease, wrap } = K.util;
     // The knight at its size here (3 cm by default; the Pocket Knight is 7):
@@ -75,9 +75,11 @@ Lynx.games = Lynx.games || {};
     let showTags = Boolean(remembered("knightblocksShowTags", cfg.showTags !== false)); // (older versions stored 0 / 1)
     const doScan = cfg.scan === true;
     const w = Lynx.world3d(ar, { textures: false });
-    const family = cfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
-    const tagRatio = clamp((+cfg.tagPercent || 75) / 100, 0.3, 0.95);
-    const tb = Lynx.tagBlocks(ar, { family, tagRatio });
+    // the AprilTag cube settings are general (shared with Free drive's cube detection)
+    const tagCfg = (app && app.general) || {};
+    const family = tagCfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
+    const tagRatio = clamp((+tagCfg.tagPercent || 75) / 100, 0.3, 0.95);
+    const tb = Lynx.tagBlocks(ar, { family, tagRatio, persist: true, fixedSizes: Lynx.frameCubeSizes(tagCfg) });
     tb.start();
 
     let state = "title"; // title | scan | playing

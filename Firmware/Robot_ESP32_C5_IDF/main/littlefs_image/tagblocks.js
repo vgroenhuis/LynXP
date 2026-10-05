@@ -45,9 +45,20 @@
 // level stands on blocks below, which are inferred if not seen themselves.
 // clear() (a rescan) starts over.
 //
-// Lynx.tagBlocks(ar, {family, tagRatio}) -> {start(), stop(), clear(), blocks()
-//   -> [{id, tag, x, y, yaw, level, h0, h1, half, inferred, n, seen}], state
-//   {ready, error, fps, detectMs, tags, stable, lastDetections, ids: [{id, cm, sure, count}]}}
+// Remembered (opts.persist): each tag's size, how many cubes carry it and
+// where they were last seen go to the robot's "tags" document (/appdata/tags,
+// shown on the Tags page) -- sizes as soon as they're known, places at most
+// every SAVE_EVERY_MS. A remembered size counts at once: such a tag's block
+// is placed from any one face. opts.fixedSizes ({tag id: cm}) are sizes
+// known in advance (the frame cube's tags).
+//
+// Lynx.tagBlocks(ar, {family, tagRatio, persist, fixedSizes, onStill}) ->
+//   {start(), stop(), clear(), blocks() -> [{id, tag, x, y, yaw, level, h0,
+//   h1, half, inferred, n, seen}], transform(cx, cy, alpha), pause(ms),
+//   state {ready, error, fps, detectMs, tags, stable, lastDetections,
+//   ids: [{id, cm, sure, count}]}}
+// onStill(observations, snap): every still picture's sightings (world;
+// side faces with their outward heading, normalYaw), e.g. for the frame cube.
 
 window.Lynx = window.Lynx || {};
 
@@ -67,6 +78,18 @@ window.Lynx = window.Lynx || {};
   const MAX_CM = 20;
   const MAX_VOTES = 40; // size votes per tag ID (enough to settle it)
   const FORGET_UNCONFIRMED_MS = 10000;
+  const SAVE_EVERY_MS = 10000;
+
+  // The robot's "tags" document: {v: 1, tags: {id: {cm, count, at (ms since
+  // 1970), blocks: [[x, y, z] (m, world, block centers)]}}}.
+  Lynx.tagStore = {
+    load: () =>
+      fetch("/appdata/tags", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => (d && d.tags ? d : { v: 1, tags: {} }))
+        .catch(() => ({ v: 1, tags: {} })),
+    save: (doc) => fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }),
+  };
 
   // 4-point homography (model X, Y -> image x, y), h33 = 1: 8 x 8 linear solve.
   function homography(model, img) {
@@ -164,6 +187,49 @@ window.Lynx = window.Lynx || {};
     const g = canvas.getContext("2d", { willReadFrequently: true });
     const img = document.getElementById("camStream");
 
+    // remembered sizes (and fixed ones) count from the start
+    let doc = null;
+    let savedAt = 0;
+    let dirtySizes = false;
+    let pausedUntil = 0;
+    const fixed = opts.fixedSizes || {};
+    Object.keys(fixed).forEach((id) => Object.assign(info(+id), { cm: fixed[id], fixed: true }));
+    if (opts.persist) {
+      Lynx.tagStore.load().then((d) => {
+        doc = d;
+        Object.entries(d.tags).forEach(([id, t]) => {
+          const I = info(+id);
+          if (!I.fixed && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
+        });
+      });
+    }
+    function persist(now) {
+      if (!opts.persist || !doc) return;
+      if (!dirtySizes && now - savedAt < SAVE_EVERY_MS) return;
+      const out = { v: 1, tags: { ...doc.tags } };
+      let changed = dirtySizes;
+      for (const I of ids.values()) {
+        const cm = I.cm;
+        if (!cm) continue;
+        const here = I.blocks.filter((b) => b.present && b.ok);
+        const old = out.tags[I.id];
+        if (!here.length && !old && !I.count) continue; // (never seen: only a size known in advance)
+        const blocks = here.length ? here.map((b) => [+b.x.toFixed(3), +b.y.toFixed(3), +b.h.toFixed(3)]) : old ? old.blocks : [];
+        const t = { cm, count: Math.max(I.count, old ? old.count : 0), at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
+        if (!old || old.cm !== t.cm || old.count !== t.count || JSON.stringify(old.blocks) !== JSON.stringify(t.blocks)) {
+          // (places count as changed only beyond a cm)
+          const moved = !old || old.blocks.length !== blocks.length || blocks.some((b, i) => Math.hypot(b[0] - old.blocks[i][0], b[1] - old.blocks[i][1], b[2] - old.blocks[i][2]) > 0.01);
+          if (moved || !old || old.cm !== t.cm || old.count !== t.count) changed = true;
+          out.tags[I.id] = moved || !old ? t : { ...t, blocks: old.blocks, at: old.at };
+        }
+      }
+      savedAt = now;
+      dirtySizes = false;
+      if (!changed) return;
+      doc = out;
+      Lynx.tagStore.save(out).catch(() => {});
+    }
+
     function start() {
       if (worker) return;
       if (Lynx.cam && Lynx.cam.enableCors) Lynx.cam.enableCors();
@@ -242,7 +308,8 @@ window.Lynx = window.Lynx || {};
       state.tags = m.detections.length;
       state.lastDetections = m.detections.map((d) => ({ id: d.id, corners: d.corners, w: pending.snap.w, h: pending.snap.hgt, at: now }));
       // the map only learns from pictures taken with the camera still (no blur, no lag)
-      if (pending.snap.still) integrate(m.detections, pending.snap, now);
+      if (pending.snap.still && now >= pausedUntil) integrate(m.detections, pending.snap, now);
+      persist(now);
       // faint one-offs that never got a second look
       for (const info of ids.values()) info.blocks = info.blocks.filter((b) => b.ok || now - b.seen < FORGET_UNCONFIRMED_MS);
       state.ids = [...ids.values()].filter((i) => i.cm || i.guess).map((i) => ({ id: i.id, cm: i.cm || i.guess, sure: !!i.cm, count: i.count }));
@@ -331,7 +398,7 @@ window.Lynx = window.Lynx || {};
       if (level < 0 || level > 5 || Math.abs(ch - (half + level * B)) > 0.45 * B) return null;
       // a vote for this ID's size: only from blocks on the floor (that's what the estimate assumes)
       const vote = cm0 >= MIN_CM && cm0 <= MAX_CM && level === 0 ? cm0 : 0;
-      return { id: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN };
+      return { id: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN };
     }
 
     const near = (b, o, B, k = 0.75) => Math.hypot(b.x - o.x, b.y - o.y) < k * B && Math.abs(b.h - o.h) < 0.5 * B;
@@ -339,10 +406,12 @@ window.Lynx = window.Lynx || {};
     // One still picture's sightings into the map.
     function integrate(dets, snap, now) {
       const obs = dets.map((d) => observe(d, snap)).filter(Boolean);
+      if (opts.onStill) opts.onStill(obs, snap);
       // size votes first (a size change restarts that ID's averages)
       obs.forEach((o) => {
         if (!o.vote) return;
         const I = info(o.id);
+        if (I.fixed) return; // (known already)
         if (I.votesN >= MAX_VOTES) return;
         I.votesN = (I.votesN || 0) + 1;
         I.votes.set(o.vote, (I.votes.get(o.vote) || 0) + 1);
@@ -351,6 +420,7 @@ window.Lynx = window.Lynx || {};
         if (best !== I.cm) {
           if (I.cm) I.blocks.forEach((b) => (b.n = 0)); // positions were scaled for the old size
           I.cm = best;
+          dirtySizes = true;
         }
       });
       const seen = new Set(); // blocks sighted in this picture
@@ -548,12 +618,36 @@ window.Lynx = window.Lynx || {};
       return out;
     }
 
+    // The world frame changed: new = rotate(-alpha) of (old - (cx, cy)).
+    function transform(cx, cy, alpha) {
+      const c = Math.cos(alpha);
+      const s = Math.sin(alpha);
+      for (const I of ids.values()) {
+        I.blocks.forEach((b) => {
+          const dx = b.x - cx;
+          const dy = b.y - cy;
+          b.x = dx * c + dy * s;
+          b.y = -dx * s + dy * c;
+          b.yaw = modQuarter(b.yaw - alpha);
+          b.move = null;
+        });
+      }
+      history.length = 0; // (the camera "moved")
+    }
+    // No learning for a while (e.g. until the video catches up with a new frame).
+    const pause = (ms) => (pausedUntil = performance.now() + ms);
+
+    // Forget the blocks (a rescan); remembered and fixed sizes stay.
     function clear() {
-      ids.clear();
+      for (const I of ids.values()) {
+        I.blocks = [];
+        I.count = 0;
+        if (!I.fixed) Object.assign(I, { cm: 0, guess: 0, votes: new Map(), votesN: 0 });
+      }
       state.ids = [];
     }
 
-    return { start, stop, clear, blocks: list, state, RATIO, observeForTest: observe, tagPose };
+    return { start, stop, clear, blocks: list, transform, pause, state, RATIO, observeForTest: observe, tagPose };
   };
   Lynx.tagMath = { homography, tagPose };
 })(window.Lynx);
