@@ -70,7 +70,7 @@
         // every cube with this tag; [x, y, z, 0] = since found gone from there
         const where = (t.blocks || []).map((b, i, all) => `${all.length > 1 ? `${i + 1}: ` : ""}(${cm(b[0])}, ${cm(b[1])}, ${cm(b[2])})${b[3] === 0 ? " <span class='tags-dim'>(not there any more)</span>" : ""}`).join("<br>") || "<span class='tags-dim'>not placed</span>";
         const name = id === 24 ? `24–29 <span class="tags-frame">frame cube</span>` : FRAME[id] ? `${id} <span class="tags-frame">frame ${FRAME[id]}</span>` : `${id}`;
-        return `<tr><td>${name}</td><td class="num">${t.count || (t.blocks || []).length}</td><td class="num">${t.cm} cm</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
+        return `<tr><td>${name}</td><td class="num">${(t.blocks || []).length || t.count || 0}</td><td class="num">${t.cm} cm</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
       });
       body.innerHTML = `<table class="tags-table"><thead><tr><th>Tag</th><th class="num">Cubes</th><th class="num">Size</th><th>Where (x, y, z cm)</th><th>Last seen</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
     }

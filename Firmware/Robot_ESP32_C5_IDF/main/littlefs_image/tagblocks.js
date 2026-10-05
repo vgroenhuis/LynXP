@@ -220,7 +220,7 @@ window.Lynx = window.Lynx || {};
             uid: nextUid++, id: +id, x: b[0], y: b[1], h: b[2], level: Math.max(0, Math.round((b[2] - B / 2) / B)), yaw: 0,
             n: 1, ok: true, present: false, miss: 0, seen: 0,
           }));
-          I.count = single.has(+id) ? 1 : Math.max(I.count, I.blocks.length, t.count || 0);
+          I.count = single.has(+id) ? 1 : I.blocks.length; // (a saved count beyond the places known meant nothing)
         });
       });
     }
@@ -241,7 +241,8 @@ window.Lynx = window.Lynx || {};
         const old = out.tags[I.id];
         if (!known.length && !old && !I.count) continue; // (never seen: only a size known in advance)
         const blocks = known.length ? known.map((b) => [+b.x.toFixed(3), +b.y.toFixed(3), +b.h.toFixed(3), ...(b.present ? [] : [0])]) : old ? old.blocks : [];
-        const t = { cm, count: single.has(I.id) ? 1 : Math.max(I.count, old ? old.count : 0), at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
+        // (the count is the cubes with a known place -- each one listed)
+        const t = { cm, count: single.has(I.id) ? 1 : Math.max(1, blocks.length), at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
         if (!old || old.cm !== t.cm || old.count !== t.count || JSON.stringify(old.blocks) !== JSON.stringify(t.blocks)) {
           // (places count as changed only beyond a cm)
           const moved = !old || old.blocks.length !== blocks.length || blocks.some((b, i) => b.length !== old.blocks[i].length || Math.hypot(b[0] - old.blocks[i][0], b[1] - old.blocks[i][1], b[2] - old.blocks[i][2]) > 0.01);
