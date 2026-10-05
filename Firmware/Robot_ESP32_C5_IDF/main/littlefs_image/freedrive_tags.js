@@ -35,6 +35,7 @@ window.Lynx = window.Lynx || {};
   const FRAME_COOLDOWN_MS = 5000;
   const KEYS = { on: "freeDriveTags", blocks: "freeDriveShowBlocks", tags: "freeDriveShowTags", frame: "freeDriveAutoFrame" };
 
+  Lynx.FRAME_CUBE_TAGS = FRAME_ALL;
   Lynx.frameCubeSizes = (general) => {
     const cm = Math.max(1, Math.round((+(general && general.frameCubeMm) || 40) / 10));
     const out = {};
@@ -110,6 +111,7 @@ window.Lynx = window.Lynx || {};
       tagRatio: Math.min(0.95, Math.max(0.3, (+general.tagPercent || 75) / 100)),
       persist: true,
       fixedSizes: Lynx.frameCubeSizes(general),
+      cubes: [FRAME_ALL], // its six faces are one block
       onStill: (obs, snap) => opt.frame && frameCube(obs, snap),
     });
     run = { ar, w, tb, frame };
@@ -118,8 +120,8 @@ window.Lynx = window.Lynx || {};
     function frameCube(obs, snap) {
       const now = snap.t;
       obs.forEach((o) => {
-        if (!(o.id in FRAME_IDS) || o.normalYaw === null) return;
-        frame.samples.push({ t: now, x: o.x, y: o.y, a: o.normalYaw - FRAME_IDS[o.id] });
+        if (!(o.tag in FRAME_IDS) || o.normalYaw === null) return;
+        frame.samples.push({ t: now, x: o.x, y: o.y, a: o.normalYaw - FRAME_IDS[o.tag] });
       });
       frame.samples = frame.samples.filter((s) => now - s.t < FRAME_WINDOW_MS);
       if (now - frame.appliedAt < FRAME_COOLDOWN_MS) return;

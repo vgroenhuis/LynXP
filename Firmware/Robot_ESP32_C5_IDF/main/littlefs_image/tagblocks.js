@@ -193,6 +193,11 @@ window.Lynx = window.Lynx || {};
     let dirtySizes = false;
     let pausedUntil = 0;
     const fixed = opts.fixedSizes || {};
+    // opts.cubes: groups of tags on the faces of one cube (the frame cube's
+    // 24-29) -- any of them is a sighting of that one block, filed under the
+    // group's first tag
+    const alias = new Map();
+    (opts.cubes || []).forEach((g) => g.forEach((t) => alias.set(t, g[0])));
     Object.keys(fixed).forEach((id) => Object.assign(info(+id), { cm: fixed[id], fixed: true }));
     if (opts.persist) {
       Lynx.tagStore.load().then((d) => {
@@ -366,7 +371,8 @@ window.Lynx = window.Lynx || {};
       const up = face === "top" ? 1 : 0.5;
       const scale0 = snap.h / (up / RATIO - tu[2]);
       const cm0 = Math.round((scale0 / RATIO) * 100);
-      const I = info(d.id);
+      const id = alias.has(d.id) ? alias.get(d.id) : d.id;
+      const I = info(id);
       if (!I.cm && cm0 >= MIN_CM && cm0 <= MAX_CM) I.guess = cm0; // (until a block on the floor settles it)
       const cm = I.cm || cm0;
       if (!(cm >= MIN_CM && cm <= MAX_CM)) return null;
@@ -398,7 +404,7 @@ window.Lynx = window.Lynx || {};
       if (level < 0 || level > 5 || Math.abs(ch - (half + level * B)) > 0.45 * B) return null;
       // a vote for this ID's size: only from blocks on the floor (that's what the estimate assumes)
       const vote = cm0 >= MIN_CM && cm0 <= MAX_CM && level === 0 ? cm0 : 0;
-      return { id: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN };
+      return { id, tag: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN };
     }
 
     const near = (b, o, B, k = 0.75) => Math.hypot(b.x - o.x, b.y - o.y) < k * B && Math.abs(b.h - o.h) < 0.5 * B;
@@ -510,7 +516,8 @@ window.Lynx = window.Lynx || {};
           if (a === b || !a.present || !b.present || a.level !== b.level) return;
           const B = Math.min(a.B, b.B);
           if (Math.hypot(a.x - b.x, a.y - b.y) > 0.7 * B) return;
-          (a.n >= b.n ? b : a).present = false;
+          // the one seen last is where a cube is now (a cube moved onto another's old place)
+          (a.seen > b.seen || (a.seen === b.seen && a.n >= b.n) ? b : a).present = false;
         }),
       );
     }

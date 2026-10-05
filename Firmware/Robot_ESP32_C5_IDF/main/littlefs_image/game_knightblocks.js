@@ -79,7 +79,7 @@ Lynx.games = Lynx.games || {};
     const tagCfg = (app && app.general) || {};
     const family = tagCfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
     const tagRatio = clamp((+tagCfg.tagPercent || 75) / 100, 0.3, 0.95);
-    const tb = Lynx.tagBlocks(ar, { family, tagRatio, persist: true, fixedSizes: Lynx.frameCubeSizes(tagCfg) });
+    const tb = Lynx.tagBlocks(ar, { family, tagRatio, persist: true, fixedSizes: Lynx.frameCubeSizes(tagCfg), cubes: [Lynx.FRAME_CUBE_TAGS] });
     tb.start();
 
     let state = "title"; // title | scan | playing
