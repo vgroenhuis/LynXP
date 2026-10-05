@@ -208,8 +208,19 @@ window.Lynx = window.Lynx || {};
       Lynx.tagStore.load().then((d) => {
         doc = d;
         Object.entries(d.tags).forEach(([id, t]) => {
+          if (alias.has(+id) && alias.get(+id) !== +id) return; // (another one's face: filed under the first)
           const I = info(+id);
           if (!I.fixed && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
+          // its cubes where they were last seen -- not shown until seen again, but
+          // a sighting overlapping one of them is that cube (same instance, same count)
+          const cm = I.cm;
+          if (!cm || I.blocks.length || !Array.isArray(t.blocks)) return;
+          const B = cm / 100;
+          I.blocks = t.blocks.slice(0, single.has(+id) ? 1 : 20).map((b) => ({
+            uid: nextUid++, id: +id, x: b[0], y: b[1], h: b[2], level: Math.max(0, Math.round((b[2] - B / 2) / B)), yaw: 0,
+            n: 1, ok: true, present: false, miss: 0, seen: 0,
+          }));
+          I.count = single.has(+id) ? 1 : Math.max(I.count, I.blocks.length, t.count || 0);
         });
       });
     }
@@ -418,6 +429,9 @@ window.Lynx = window.Lynx || {};
     }
 
     const near = (b, o, B, k = 0.75) => Math.hypot(b.x - o.x, b.y - o.y) < k * B && Math.abs(b.h - o.h) < 0.5 * B;
+    // Two real cubes can't overlap: sightings (or a sighting and a block) of the
+    // same tag this close are one and the same cube.
+    const OVERLAP = 0.9;
 
     // One still picture's sightings into the map.
     function integrate(dets, snap, now) {
@@ -453,7 +467,7 @@ window.Lynx = window.Lynx || {};
           if (I.blocks.length > 1) I.blocks = [I.blocks.reduce((a, b) => (b.seen > a.seen ? b : a))];
         } else {
           list.forEach((o) => {
-            const c = clusters.find((k) => near(k[0], o, B, 0.6));
+            const c = clusters.find((k) => near(k[0], o, B, OVERLAP));
             if (c) c.push(o);
             else clusters.push([o]);
           });
@@ -472,7 +486,8 @@ window.Lynx = window.Lynx || {};
           let bestD = Infinity;
           free.forEach((b) => {
             const dd = Math.hypot(b.x - c.rep.x, b.y - c.rep.y);
-            if (b.present && near(b, c.rep, B) && dd < bestD) {
+            // (also one not seen where it was lately: overlapping it, it's back)
+            if (near(b, c.rep, B, OVERLAP) && dd < bestD) {
               best = b;
               bestD = dd;
             }
@@ -482,6 +497,7 @@ window.Lynx = window.Lynx || {};
             return;
           }
           free.splice(free.indexOf(best), 1);
+          if (!best.present) best.n = 0; // (back: where it's seen now, not averaged with where it was)
           c.forEach((o) => update(best, o, now));
           seen.add(best);
         });
