@@ -1,8 +1,9 @@
 // Free drive's AprilTag cube detection (cam.js starts it with Free drive):
 // switches in the Overlays panel turn the detection on (tagblocks.js, the
 // same block map as Knight on Blocks, remembered on the robot -- see the
-// Tags page), show the blocks' outlines (cyan; grey for ones inferred
-// underneath a stack) and the tags found in the picture (green), and let
+// Tags page), show the blocks' outlines (cyan, the frame cube yellow; grey
+// for ones inferred underneath a stack; thin magenta for remembered ones not
+// seen where they were lately) and the tags found in the picture (green), and let
 // the frame cube set the world frame.
 //
 // The frame cube: one cube with a different tag on each face, numbered like
@@ -193,16 +194,19 @@ window.Lynx = window.Lynx || {};
 
     function drawBlocks() {
       const a = w.anchor();
-      tb.blocks().forEach((b) => {
+      // remembered cubes not seen there lately: dim magenta, thin -- under the ones seen
+      const gone = tb.remembered().map((b) => ({ ...b, gone: true }));
+      [...gone, ...tb.blocks()].forEach((b) => {
         const l = w.toLocal(b.x, b.y);
         const yaw = a.th - b.yaw;
         const c = Math.cos(yaw);
         const s = Math.sin(yaw);
         const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [l.f + (u * c - v * s) * b.half, l.r + (u * s + v * c) * b.half]);
-        const col = b.inferred ? "rgba(200,200,200,0.55)" : FRAME_ALL.includes(b.tag) ? "rgba(255,210,80,0.9)" : "rgba(80,230,255,0.85)";
+        const col = b.gone ? "rgba(255,90,220,0.6)" : b.inferred ? "rgba(200,200,200,0.55)" : FRAME_ALL.includes(b.tag) ? "rgba(255,210,80,0.9)" : "rgba(80,230,255,0.85)";
+        const wide = b.gone ? 1 : 1.5;
         const top = cs.map(([f, r]) => [f, r, b.h1]);
         const bottom = cs.map(([f, r]) => [f, r, b.h0]);
-        w.line3([...top, top[0]], col, 1.5, 0.01);
+        w.line3([...top, top[0]], col, wide, 0.01);
         w.line3([...bottom, bottom[0]], col, 1, 0.01);
         cs.forEach(([f, r]) => w.line3([[f, r, b.h0], [f, r, b.h1]], col, 1, 0.01));
       });

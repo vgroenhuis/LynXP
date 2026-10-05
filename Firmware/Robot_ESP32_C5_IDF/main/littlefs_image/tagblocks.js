@@ -692,7 +692,22 @@ window.Lynx = window.Lynx || {};
       state.ids = [];
     }
 
-    return { start, stop, clear, blocks: list, transform, pause, state, RATIO, observeForTest: observe, tagPose };
+    // The cubes known but not seen where they were lately (remembered, or found
+    // gone from there): [{id, tag, x, y, yaw, h0, h1, half}].
+    function remembered() {
+      const out = [];
+      for (const I of ids.values()) {
+        const cm = I.cm || I.guess;
+        if (!cm) continue;
+        const B = cm / 100;
+        I.blocks.forEach((b) => {
+          if (b.ok && !b.present) out.push({ id: b.uid, tag: b.id, x: b.x, y: b.y, yaw: b.yaw, h0: b.h - B / 2, h1: b.h + B / 2, half: B / 2 });
+        });
+      }
+      return out;
+    }
+
+    return { start, stop, clear, blocks: list, remembered, transform, pause, state, RATIO, observeForTest: observe, tagPose };
   };
   Lynx.tagMath = { homography, tagPose };
 })(window.Lynx);
