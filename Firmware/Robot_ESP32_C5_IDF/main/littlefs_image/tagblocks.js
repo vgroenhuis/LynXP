@@ -204,6 +204,17 @@ window.Lynx = window.Lynx || {};
       single.add(g[0]);
     });
     Object.keys(fixed).forEach((id) => Object.assign(info(+id), { cm: fixed[id], fixed: true }));
+    // (ms since 1970 <-> this page's performance.now())
+    const toEpoch = (t) => Math.round(Date.now() - (performance.now() - t));
+    const fromEpoch = (ms) => performance.now() - (Date.now() - ms);
+    // The user's limit (Tags page): no more cubes with a tag than that -- the
+    // ones seen longest ago go first.
+    function applyLimit(I) {
+      const max = single.has(I.id) ? 1 : I.max;
+      if (!max || I.blocks.length <= max) return;
+      I.blocks = I.blocks.slice().sort((a, b) => b.seen - a.seen).slice(0, max);
+      I.count = Math.min(I.count, max);
+    }
     if (opts.persist) {
       Lynx.tagStore.load().then((d) => {
         doc = d;
@@ -211,50 +222,66 @@ window.Lynx = window.Lynx || {};
           if (alias.has(+id) && alias.get(+id) !== +id) return; // (another one's face: filed under the first)
           const I = info(+id);
           if (!I.fixed && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
+          I.max = t.max > 0 ? t.max : 0;
           // its cubes where they were last seen -- not shown until seen again, but
           // a sighting overlapping one of them is that cube (same instance, same count)
           const cm = I.cm;
           if (!cm || I.blocks.length || !Array.isArray(t.blocks)) return;
           const B = cm / 100;
-          I.blocks = t.blocks.slice(0, single.has(+id) ? 1 : 20).map((b) => ({
+          I.blocks = t.blocks.slice(0, 20).map((b) => ({
             uid: nextUid++, id: +id, x: b[0], y: b[1], h: b[2], level: Math.max(0, Math.round((b[2] - B / 2) / B)), yaw: 0,
-            n: 1, ok: true, present: false, miss: 0, seen: 0,
+            n: 1, ok: true, present: false, miss: 0, seen: b[4] ? fromEpoch(b[4]) : fromEpoch(t.at || 0),
           }));
           I.count = single.has(+id) ? 1 : I.blocks.length; // (a saved count beyond the places known meant nothing)
+          applyLimit(I);
         });
       });
     }
+    let saving = false;
     function persist(now) {
-      if (!opts.persist || !doc) return;
+      if (!opts.persist || !doc || saving) return;
       if (!dirtySizes && now - savedAt < SAVE_EVERY_MS) return;
-      const out = { v: 1, tags: { ...doc.tags } };
-      // tags that are another one's faces (the frame cube's) are filed under the first one only
-      alias.forEach((first, t) => t !== first && delete out.tags[t]);
-      let changed = dirtySizes;
-      for (const I of ids.values()) {
-        const cm = I.cm;
-        if (!cm) continue;
-        // every cube with this tag, where it was last seen; [x, y, z, 0] for one
-        // since found gone from there (moved, out of view since)
-        const known = I.blocks.filter((b) => b.ok);
-        const here = known.filter((b) => b.present);
-        const old = out.tags[I.id];
-        if (!known.length && !old && !I.count) continue; // (never seen: only a size known in advance)
-        const blocks = known.length ? known.map((b) => [+b.x.toFixed(3), +b.y.toFixed(3), +b.h.toFixed(3), ...(b.present ? [] : [0])]) : old ? old.blocks : [];
-        // (the count is the cubes with a known place -- each one listed)
-        const t = { cm, count: single.has(I.id) ? 1 : Math.max(1, blocks.length), at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
-        if (!old || old.cm !== t.cm || old.count !== t.count || JSON.stringify(old.blocks) !== JSON.stringify(t.blocks)) {
-          // (places count as changed only beyond a cm)
-          const moved = !old || old.blocks.length !== blocks.length || blocks.some((b, i) => b.length !== old.blocks[i].length || Math.hypot(b[0] - old.blocks[i][0], b[1] - old.blocks[i][1], b[2] - old.blocks[i][2]) > 0.01);
-          if (moved || !old || old.cm !== t.cm || old.count !== t.count) changed = true;
-          out.tags[I.id] = moved || !old ? t : { ...t, blocks: old.blocks, at: old.at };
-        }
-      }
       savedAt = now;
+      const sizesChanged = dirtySizes;
       dirtySizes = false;
-      if (!changed) return;
-      doc = out;
-      Lynx.tagStore.save(out).catch(() => {});
+      saving = true;
+      // the robot's copy first: the Tags page may have set limits, or forgotten tags
+      Lynx.tagStore
+        .load()
+        .then((fresh) => {
+          const out = { v: 1, tags: { ...fresh.tags } };
+          // tags that are another one's faces (the frame cube's) are filed under the first one only
+          alias.forEach((first, t) => t !== first && delete out.tags[t]);
+          let changed = sizesChanged;
+          for (const I of ids.values()) {
+            const cm = I.cm;
+            if (!cm) continue;
+            const old = out.tags[I.id];
+            I.max = old && old.max > 0 ? old.max : 0;
+            applyLimit(I);
+            // every cube with this tag, where it was last seen: [x, y, z, here (1) or
+            // since found gone from there (0), when (ms since 1970)]
+            const known = I.blocks.filter((b) => b.ok);
+            const here = known.filter((b) => b.present);
+            if (!known.length && !old && !I.count) continue; // (never seen: only a size known in advance)
+            const blocks = known.map((b) => [+b.x.toFixed(3), +b.y.toFixed(3), +b.h.toFixed(3), b.present ? 1 : 0, toEpoch(b.seen)]);
+            // (the count is the cubes with a known place -- each one listed)
+            const t = { cm, count: single.has(I.id) ? 1 : blocks.length, at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
+            if (I.max) t.max = I.max;
+            const ob = (old && old.blocks) || [];
+            // (places count as changed only beyond a cm)
+            const moved = ob.length !== blocks.length || blocks.some((b, k) => b[3] !== ob[k][3] || Math.hypot(b[0] - ob[k][0], b[1] - ob[k][1], b[2] - ob[k][2]) > 0.01);
+            if (!old || moved || old.cm !== t.cm || old.count !== t.count) {
+              changed = true;
+              out.tags[I.id] = t;
+            }
+          }
+          doc = out;
+          if (changed) return Lynx.tagStore.save(out);
+          return null;
+        })
+        .catch(() => {})
+        .then(() => (saving = false));
     }
 
     function start() {
@@ -502,8 +529,9 @@ window.Lynx = window.Lynx || {};
           c.forEach((o) => update(best, o, now));
           seen.add(best);
         });
+        const limit = single.has(id) ? 1 : I.max || Infinity;
         later.forEach((c) => {
-          if (I.blocks.length < I.count) {
+          if (I.blocks.length < I.count && I.blocks.length < limit) {
             // another cube with this tag
             const b = { uid: nextUid++, id, x: c.rep.x, y: c.rep.y, h: c.rep.h, level: c.rep.level, yaw: c.rep.yaw, n: 0, ok: false, present: true, miss: 0, seen: now };
             I.blocks.push(b);
@@ -512,8 +540,10 @@ window.Lynx = window.Lynx || {};
             return;
           }
           // one of this tag's blocks moved here: one that's gone from where it
-          // was first, else one not seen in this picture (once confirmed)
-          const cand = free.find((b) => !b.present) || free[0];
+          // was first (the one seen longest ago), else one not seen in this
+          // picture (once confirmed)
+          const byAge = free.slice().sort((a, b) => a.seen - b.seen);
+          const cand = byAge.find((b) => !b.present) || byAge[0];
           if (!cand) return;
           free.splice(free.indexOf(cand), 1);
           const o = c.rep;
@@ -537,15 +567,23 @@ window.Lynx = window.Lynx || {};
             b.miss = 0;
             return;
           }
-          if (!b.present || !b.ok || !B) return;
+          if (!b.ok || !B) return;
           if (expectVisible(b, B, snap)) {
             b.miss++;
             if (b.miss >= MISS_N) {
-              b.present = false;
-              b.move = null;
+              if (b.present) {
+                // gone from where it was: remembered there (thin magenta) for now
+                b.present = false;
+                b.move = null;
+                b.miss = 0;
+              } else b.forget = true; // remembered, in plain view, still not there: forgotten
             }
           }
         });
+        if (I.blocks.some((b) => b.forget)) {
+          I.blocks = I.blocks.filter((b) => !b.forget);
+          if (!single.has(I.id)) I.count = Math.min(I.count, I.blocks.length);
+        }
       }
       // two blocks where there's room for one (different tags): the better-known one stays
       const all = present();

@@ -13,6 +13,7 @@
     .tags-dim { opacity: 0.7; font-size: 0.9em; }
     .tags-frame { color: #c08000; font-weight: bold; }
     .tags-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .tags-max { width: 4em; text-align: right; }
   </style>
 </head>
 <body class="wifi-page">
@@ -29,7 +30,8 @@
       <p class="tags-dim">Every tag the robot has seen on a cube (Free drive's cube detection, Knight on Blocks):
         its cube size -- all cubes with one tag are the same size, measured to the cm once one stands on the
         floor, then remembered -- how many cubes carry it, and where they were last seen (world coordinates, cm,
-        the center of each cube). Tags 24-29 are the world-frame cube.</p>
+        the center of each cube). Tags 24-29 are the world-frame cube. "Exist": how many cubes with that tag
+        really exist -- no more are tracked; a cube seen elsewhere then moves the one seen longest ago.</p>
       <div id="tagsBody">Loading...</div>
       <div class="tags-actions">
         <button id="tagsForget" class="wifi-btn wifi-btn-danger">Forget all tags</button>
@@ -52,6 +54,7 @@
     function render(doc) {
       const json = JSON.stringify(doc);
       if (json === last) return;
+      if (document.activeElement && document.activeElement.classList.contains("tags-max")) return; // (typing in a limit)
       last = json;
       // the frame cube (24-29) is one row, under 24: its most recently seen entry
       // (older saves listed its faces separately)
@@ -67,12 +70,39 @@
       }
       const rows = ids.map((id) => {
         const t = doc.tags[id];
-        // every cube with this tag; [x, y, z, 0] = since found gone from there
+        // every cube with this tag; [x, y, z, 0, ...] = since found gone from there
         const where = (t.blocks || []).map((b, i, all) => `${all.length > 1 ? `${i + 1}: ` : ""}(${cm(b[0])}, ${cm(b[1])}, ${cm(b[2])})${b[3] === 0 ? " <span class='tags-dim'>(not there any more)</span>" : ""}`).join("<br>") || "<span class='tags-dim'>not placed</span>";
         const name = id === 24 ? `24–29 <span class="tags-frame">frame cube</span>` : FRAME[id] ? `${id} <span class="tags-frame">frame ${FRAME[id]}</span>` : `${id}`;
-        return `<tr><td>${name}</td><td class="num">${(t.blocks || []).length || t.count || 0}</td><td class="num">${t.cm} cm</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
+        // how many cubes with this tag really exist (empty: no limit) -- the frame cube is one
+        const exist = id === 24 ? "1" : `<input class="tags-max" type="number" min="1" max="20" step="1" data-id="${id}" value="${t.max || ""}" placeholder="any" title="How many cubes with this tag really exist: no more are tracked (the ones seen longest ago go)">`;
+        return `<tr><td>${name}</td><td class="num">${(t.blocks || []).length || t.count || 0}</td><td class="num">${exist}</td><td class="num">${t.cm} cm</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
       });
-      body.innerHTML = `<table class="tags-table"><thead><tr><th>Tag</th><th class="num">Cubes</th><th class="num">Size</th><th>Where (x, y, z cm)</th><th>Last seen</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+      body.innerHTML = `<table class="tags-table"><thead><tr><th>Tag</th><th class="num">Cubes</th><th class="num">Exist</th><th class="num">Size</th><th>Where (x, y, z cm)</th><th>Last seen</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+      body.querySelectorAll(".tags-max").forEach((el) => el.addEventListener("change", () => setMax(+el.dataset.id, Math.round(+el.value) || 0)));
+    }
+    // A tag's limit: saved on the robot (detecting pages pick it up at their next
+    // save); here and now, its cubes beyond it go -- the ones seen longest ago.
+    function setMax(id, max) {
+      fetch("/appdata/tags", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          const t = d && d.tags && d.tags[id];
+          if (!t) return null;
+          if (max > 0) {
+            t.max = Math.min(20, max);
+            if ((t.blocks || []).length > t.max) {
+              const when = (b) => b[4] || t.at || 0;
+              t.blocks = t.blocks.slice().sort((a, b) => when(b) - when(a)).slice(0, t.max);
+              t.count = t.blocks.length;
+            }
+          } else delete t.max;
+          return fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+        })
+        .then(() => {
+          last = "";
+          if (document.activeElement) document.activeElement.blur();
+          load();
+        });
     }
     function load() {
       fetch("/appdata/tags", { cache: "no-store" })
