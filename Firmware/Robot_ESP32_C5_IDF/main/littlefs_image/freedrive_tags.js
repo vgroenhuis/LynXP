@@ -156,12 +156,10 @@ window.Lynx = window.Lynx || {};
       w.beginFrame();
       if (opt.blocks) drawBlocks();
       if (opt.tags) drawTags();
+      // (no status line -- the Tags page lists the cubes; only a failure shows here)
       const s = tb.state;
       const v = ar.view;
-      const real = tb.blocks().filter((b) => !b.inferred).length;
-      const sizes = s.ids.map((i) => `#${i.id} ${i.cm}${i.sure ? "" : "?"} cm${i.count > 1 ? ` ×${i.count}` : ""}`).join(", ");
-      const status = s.error ? s.error : !s.ready ? "Loading the tag detector..." : `Cubes: ${real}${sizes ? ` (${sizes})` : ""}${s.stable ? "" : " · moving"}`;
-      ar.text(status, v.x + 12, v.y + v.h - 14, { size: 12, color: s.error ? "#ff8080" : "#c0f0ff" });
+      if (s.error) ar.text(s.error, v.x + 12, v.y + v.h - 14, { size: 12, color: "#ff8080" });
       if (frame.note && performance.now() - frame.noteAt < 3000) ar.text(frame.note, v.cx, v.y + 70, { size: 16, align: "center", color: "#ffe080" });
     });
 

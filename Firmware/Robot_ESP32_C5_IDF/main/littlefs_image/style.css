@@ -226,6 +226,41 @@ body.cam-body {
   transform: translateX(16px);
 }
 
+/* The Overlays panel's switches, compact: there are more of them than a phone
+   held sideways has room for at full size (Free drive adds four). Still too
+   tall, the panel scrolls. */
+#camOverlaysPanel .cam-menu-panel-body {
+  gap: 0;
+  max-height: calc(100vh - 70px);
+  max-height: calc(100dvh - 70px);
+  overflow-y: auto;
+}
+
+#camOverlaysPanel .cam-toggle-switch {
+  padding: 3px 8px;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+#camOverlaysPanel .cam-toggle-slider {
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+}
+
+#camOverlaysPanel .cam-toggle-slider::before {
+  width: 12px;
+  height: 12px;
+}
+
+#camOverlaysPanel .cam-toggle-switch input:checked + .cam-toggle-slider::before {
+  transform: translateX(12px);
+}
+
+#camOverlaysPanel .cam-overlay-btn {
+  margin-top: 4px;
+}
+
 .cam-toggle-switch input:focus-visible + .cam-toggle-slider {
   outline: 2px solid #fff;
   outline-offset: 2px;
