@@ -196,8 +196,13 @@ window.Lynx = window.Lynx || {};
     // opts.cubes: groups of tags on the faces of one cube (the frame cube's
     // 24-29) -- any of them is a sighting of that one block, filed under the
     // group's first tag
+    // (such a cube is the only one: never two blocks for it)
     const alias = new Map();
-    (opts.cubes || []).forEach((g) => g.forEach((t) => alias.set(t, g[0])));
+    const single = new Set();
+    (opts.cubes || []).forEach((g) => {
+      g.forEach((t) => alias.set(t, g[0]));
+      single.add(g[0]);
+    });
     Object.keys(fixed).forEach((id) => Object.assign(info(+id), { cm: fixed[id], fixed: true }));
     if (opts.persist) {
       Lynx.tagStore.load().then((d) => {
@@ -220,7 +225,7 @@ window.Lynx = window.Lynx || {};
         const old = out.tags[I.id];
         if (!here.length && !old && !I.count) continue; // (never seen: only a size known in advance)
         const blocks = here.length ? here.map((b) => [+b.x.toFixed(3), +b.y.toFixed(3), +b.h.toFixed(3)]) : old ? old.blocks : [];
-        const t = { cm, count: Math.max(I.count, old ? old.count : 0), at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
+        const t = { cm, count: single.has(I.id) ? 1 : Math.max(I.count, old ? old.count : 0), at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
         if (!old || old.cm !== t.cm || old.count !== t.count || JSON.stringify(old.blocks) !== JSON.stringify(t.blocks)) {
           // (places count as changed only beyond a cm)
           const moved = !old || old.blocks.length !== blocks.length || blocks.some((b, i) => Math.hypot(b[0] - old.blocks[i][0], b[1] - old.blocks[i][1], b[2] - old.blocks[i][2]) > 0.01);
@@ -437,12 +442,23 @@ window.Lynx = window.Lynx || {};
         const B = (I.cm || Math.round(list[0].B * 100)) / 100;
         // the faces seen of one cube agree on its center: one cluster per cube
         const clusters = [];
-        list.forEach((o) => {
-          const c = clusters.find((k) => near(k[0], o, B, 0.6));
-          if (c) c.push(o);
-          else clusters.push([o]);
-        });
+        if (single.has(id)) {
+          // the one and only cube with these tags: all its faces in this picture are it
+          clusters.push(list);
+          if (I.blocks.length > 1) I.blocks = [I.blocks.reduce((a, b) => (b.seen > a.seen ? b : a))];
+        } else {
+          list.forEach((o) => {
+            const c = clusters.find((k) => near(k[0], o, B, 0.6));
+            if (c) c.push(o);
+            else clusters.push([o]);
+          });
+        }
         I.count = Math.max(I.count, clusters.length); // cubes with this tag seen at once
+        // each cluster's representative: its first sighting, at the cluster's mean position
+        clusters.forEach((c) => {
+          const n = c.length;
+          c.rep = { ...c[0], x: c.reduce((m, o) => m + o.x, 0) / n, y: c.reduce((m, o) => m + o.y, 0) / n, h: c.reduce((m, o) => m + o.h, 0) / n };
+        });
         const free = I.blocks.slice();
         const later = [];
         clusters.forEach((c) => {
@@ -450,8 +466,8 @@ window.Lynx = window.Lynx || {};
           let best = null;
           let bestD = Infinity;
           free.forEach((b) => {
-            const dd = Math.hypot(b.x - c[0].x, b.y - c[0].y);
-            if (b.present && near(b, c[0], B) && dd < bestD) {
+            const dd = Math.hypot(b.x - c.rep.x, b.y - c.rep.y);
+            if (b.present && near(b, c.rep, B) && dd < bestD) {
               best = b;
               bestD = dd;
             }
@@ -467,7 +483,7 @@ window.Lynx = window.Lynx || {};
         later.forEach((c) => {
           if (I.blocks.length < I.count) {
             // another cube with this tag
-            const b = { uid: nextUid++, id, x: c[0].x, y: c[0].y, h: c[0].h, level: c[0].level, yaw: c[0].yaw, n: 0, ok: false, present: true, miss: 0, seen: now };
+            const b = { uid: nextUid++, id, x: c.rep.x, y: c.rep.y, h: c.rep.h, level: c.rep.level, yaw: c.rep.yaw, n: 0, ok: false, present: true, miss: 0, seen: now };
             I.blocks.push(b);
             c.forEach((o) => update(b, o, now));
             seen.add(b);
@@ -478,7 +494,7 @@ window.Lynx = window.Lynx || {};
           const cand = free.find((b) => !b.present) || free[0];
           if (!cand) return;
           free.splice(free.indexOf(cand), 1);
-          const o = c[0];
+          const o = c.rep;
           const mv = cand.move;
           if (mv && mv.level === o.level && Math.hypot(mv.x - o.x, mv.y - o.y) < 0.4 * B) mv.n++;
           else cand.move = { x: o.x, y: o.y, level: o.level, n: 1 };
