@@ -5,9 +5,9 @@
 // underneath a stack) and the tags found in the picture (green), and let
 // the frame cube set the world frame.
 //
-// The frame cube: one cube with a different tag on each face -- 24 facing
-// +X, 25 +Y, 26 +Z (up), 27 -X, 28 -Y, 29 -Z (frameCubeMm, 40 mm by
-// default). With "World frame from cube" on, once its side tags are seen
+// The frame cube: one cube with a different tag on each face, numbered like
+// a die (opposite faces add up to 24 + 29) -- 24 facing +X, 25 +Y, 26 +Z
+// (up), 27 -Z (down), 28 -Y, 29 -X (frameCubeMm, 40 mm by default). With "World frame from cube" on, once its side tags are seen
 // steadily (a still camera, FRAME_SAMPLES pictures agreeing) the world's
 // origin goes to the cube's center on the floor and +X along tag 24's
 // facing: the robot's pose is set to match (/set?set_pose -- the robot
@@ -22,7 +22,7 @@
 window.Lynx = window.Lynx || {};
 
 (function (Lynx) {
-  const FRAME_IDS = { 24: 0, 25: Math.PI / 2, 27: Math.PI, 28: -Math.PI / 2 }; // side tags: their facing, from +X
+  const FRAME_IDS = { 24: 0, 25: Math.PI / 2, 28: -Math.PI / 2, 29: Math.PI }; // side tags: their facing, from +X (26 top, 27 bottom)
   const FRAME_ALL = [24, 25, 26, 27, 28, 29];
   const FRAME_SAMPLES = 5; // still pictures agreeing...
   const FRAME_WINDOW_MS = 4000; // ...within this long

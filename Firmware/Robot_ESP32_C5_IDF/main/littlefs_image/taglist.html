@@ -38,7 +38,7 @@
     </div>
   </div>
   <script>
-    const FRAME = { 24: "+X", 25: "+Y", 26: "+Z", 27: "−X", 28: "−Y", 29: "−Z" };
+    const FRAME = { 24: "+X", 25: "+Y", 26: "+Z", 27: "−Z", 28: "−Y", 29: "−X" }; // (like a die: opposite faces add up)
     const body = document.getElementById("tagsBody");
     const ago = (ms) => {
       const s = Math.max(0, (Date.now() - ms) / 1000);
