@@ -217,18 +217,23 @@ window.Lynx = window.Lynx || {};
       if (!opts.persist || !doc) return;
       if (!dirtySizes && now - savedAt < SAVE_EVERY_MS) return;
       const out = { v: 1, tags: { ...doc.tags } };
+      // tags that are another one's faces (the frame cube's) are filed under the first one only
+      alias.forEach((first, t) => t !== first && delete out.tags[t]);
       let changed = dirtySizes;
       for (const I of ids.values()) {
         const cm = I.cm;
         if (!cm) continue;
-        const here = I.blocks.filter((b) => b.present && b.ok);
+        // every cube with this tag, where it was last seen; [x, y, z, 0] for one
+        // since found gone from there (moved, out of view since)
+        const known = I.blocks.filter((b) => b.ok);
+        const here = known.filter((b) => b.present);
         const old = out.tags[I.id];
-        if (!here.length && !old && !I.count) continue; // (never seen: only a size known in advance)
-        const blocks = here.length ? here.map((b) => [+b.x.toFixed(3), +b.y.toFixed(3), +b.h.toFixed(3)]) : old ? old.blocks : [];
+        if (!known.length && !old && !I.count) continue; // (never seen: only a size known in advance)
+        const blocks = known.length ? known.map((b) => [+b.x.toFixed(3), +b.y.toFixed(3), +b.h.toFixed(3), ...(b.present ? [] : [0])]) : old ? old.blocks : [];
         const t = { cm, count: single.has(I.id) ? 1 : Math.max(I.count, old ? old.count : 0), at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
         if (!old || old.cm !== t.cm || old.count !== t.count || JSON.stringify(old.blocks) !== JSON.stringify(t.blocks)) {
           // (places count as changed only beyond a cm)
-          const moved = !old || old.blocks.length !== blocks.length || blocks.some((b, i) => Math.hypot(b[0] - old.blocks[i][0], b[1] - old.blocks[i][1], b[2] - old.blocks[i][2]) > 0.01);
+          const moved = !old || old.blocks.length !== blocks.length || blocks.some((b, i) => b.length !== old.blocks[i].length || Math.hypot(b[0] - old.blocks[i][0], b[1] - old.blocks[i][1], b[2] - old.blocks[i][2]) > 0.01);
           if (moved || !old || old.cm !== t.cm || old.count !== t.count) changed = true;
           out.tags[I.id] = moved || !old ? t : { ...t, blocks: old.blocks, at: old.at };
         }

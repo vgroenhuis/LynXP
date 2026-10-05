@@ -53,14 +53,22 @@
       const json = JSON.stringify(doc);
       if (json === last) return;
       last = json;
-      const ids = Object.keys(doc.tags || {}).map(Number).sort((a, b) => a - b);
+      // the frame cube (24-29) is one row, under 24: its most recently seen entry
+      // (older saves listed its faces separately)
+      const tags = { ...(doc.tags || {}) };
+      const faces = Object.keys(FRAME).filter((k) => tags[k]).map((k) => tags[k]);
+      Object.keys(FRAME).forEach((k) => delete tags[k]);
+      if (faces.length) tags[24] = { ...faces.reduce((a, b) => ((b.at || 0) > (a.at || 0) ? b : a)), count: 1 };
+      doc = { ...doc, tags };
+      const ids = Object.keys(tags).map(Number).sort((a, b) => a - b);
       if (!ids.length) {
         body.textContent = "No tags seen yet. Turn on Cube detection in Free drive (Overlays), or play Knight on Blocks.";
         return;
       }
       const rows = ids.map((id) => {
         const t = doc.tags[id];
-        const where = (t.blocks || []).map((b) => `(${cm(b[0])}, ${cm(b[1])}, ${cm(b[2])})`).join("<br>") || "<span class='tags-dim'>not placed</span>";
+        // every cube with this tag; [x, y, z, 0] = since found gone from there
+        const where = (t.blocks || []).map((b, i, all) => `${all.length > 1 ? `${i + 1}: ` : ""}(${cm(b[0])}, ${cm(b[1])}, ${cm(b[2])})${b[3] === 0 ? " <span class='tags-dim'>(not there any more)</span>" : ""}`).join("<br>") || "<span class='tags-dim'>not placed</span>";
         const name = id === 24 ? `24–29 <span class="tags-frame">frame cube</span>` : FRAME[id] ? `${id} <span class="tags-frame">frame ${FRAME[id]}</span>` : `${id}`;
         return `<tr><td>${name}</td><td class="num">${t.count || (t.blocks || []).length}</td><td class="num">${t.cm} cm</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
       });
