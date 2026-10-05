@@ -24,10 +24,12 @@ window.Lynx = window.Lynx || {};
 (function (Lynx) {
   const FRAME_IDS = { 24: 0, 25: Math.PI / 2, 28: -Math.PI / 2, 29: Math.PI }; // side tags: their facing, from +X (26 top, 27 bottom)
   const FRAME_ALL = [24, 25, 26, 27, 28, 29];
-  const FRAME_SAMPLES = 5; // still pictures agreeing...
-  const FRAME_WINDOW_MS = 4000; // ...within this long
-  const FRAME_SPREAD_M = 0.01; // ...to within this
-  const FRAME_SPREAD_RAD = 0.035; // (2 deg)
+  const FRAME_SAMPLES = 5; // still pictures of the cube...
+  const FRAME_WINDOW_MS = 4000; // ...within this long; their average counts once the
+  const FRAME_SPREAD_M = 0.015; // ...typical (RMS) scatter is within this
+  const FRAME_SPREAD_RAD = 0.052; // (3 deg) -- sightings much further off than that are dropped first
+  const FRAME_OUTLIER_M = 0.03;
+  const FRAME_OUTLIER_RAD = 0.14; // (8 deg)
   const FRAME_TOL_M = 0.01; // re-set the frame when the cube is this far off the origin...
   const FRAME_TOL_RAD = 0.02; // ...or its X axis this far off (1.1 deg)
   const FRAME_COOLDOWN_MS = 5000;
@@ -102,7 +104,7 @@ window.Lynx = window.Lynx || {};
     const ar = Lynx.createAr(calib);
     const w = Lynx.world3d(ar, { textures: false });
     w.setAnchor({ x: 0, y: 0, th: 0 });
-    const frame = { samples: [], appliedAt: -1e9, note: null, noteAt: -1e9 };
+    const frame = { samples: [], appliedAt: -1e9, note: null, noteAt: -1e9, seenAt: -1e9, progress: 0 };
     const tb = Lynx.tagBlocks(ar, {
       family: general.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5",
       tagRatio: Math.min(0.95, Math.max(0.3, (+general.tagPercent || 75) / 100)),
@@ -120,18 +122,35 @@ window.Lynx = window.Lynx || {};
         frame.samples.push({ t: now, x: o.x, y: o.y, a: o.normalYaw - FRAME_IDS[o.id] });
       });
       frame.samples = frame.samples.filter((s) => now - s.t < FRAME_WINDOW_MS);
-      const pics = new Set(frame.samples.map((s) => s.t)).size;
-      if (pics < FRAME_SAMPLES || now - frame.appliedAt < FRAME_COOLDOWN_MS) return;
-      const n = frame.samples.length;
-      const cx = frame.samples.reduce((m, s) => m + s.x, 0) / n;
-      const cy = frame.samples.reduce((m, s) => m + s.y, 0) / n;
-      const ca = frame.samples.reduce((m, s) => m + Math.cos(s.a), 0);
-      const sa = frame.samples.reduce((m, s) => m + Math.sin(s.a), 0);
-      const alpha = Math.atan2(sa, ca);
+      if (now - frame.appliedAt < FRAME_COOLDOWN_MS) return;
+      if (frame.samples.length) frame.seenAt = performance.now();
       const wrap = (v) => Math.atan2(Math.sin(v), Math.cos(v));
-      const steady = frame.samples.every((s) => Math.hypot(s.x - cx, s.y - cy) < FRAME_SPREAD_M && Math.abs(wrap(s.a - alpha)) < FRAME_SPREAD_RAD);
-      if (!steady) return;
-      if (Math.hypot(cx, cy) < FRAME_TOL_M && Math.abs(alpha) < FRAME_TOL_RAD) return; // (already the world frame)
+      // the average, from the median sighting's neighbourhood (outliers out)
+      const med = (vals) => vals.slice().sort((a, b) => a - b)[vals.length >> 1];
+      const all = frame.samples;
+      if (!all.length) return;
+      const mx = med(all.map((q) => q.x));
+      const my = med(all.map((q) => q.y));
+      const a0 = all[0].a;
+      const ma = a0 + med(all.map((q) => wrap(q.a - a0)));
+      const good = all.filter((q) => Math.hypot(q.x - mx, q.y - my) < FRAME_OUTLIER_M && Math.abs(wrap(q.a - ma)) < FRAME_OUTLIER_RAD);
+      const pics = new Set(good.map((q) => q.t)).size;
+      frame.progress = Math.min(pics, FRAME_SAMPLES);
+      if (pics < FRAME_SAMPLES) return;
+      const n = good.length;
+      const cx = good.reduce((m, q) => m + q.x, 0) / n;
+      const cy = good.reduce((m, q) => m + q.y, 0) / n;
+      const alpha = ma + good.reduce((m, q) => m + wrap(q.a - ma), 0) / n;
+      const rmsM = Math.sqrt(good.reduce((m, q) => m + (q.x - cx) ** 2 + (q.y - cy) ** 2, 0) / n);
+      const rmsA = Math.sqrt(good.reduce((m, q) => m + wrap(q.a - alpha) ** 2, 0) / n);
+      if (rmsM > FRAME_SPREAD_M || rmsA > FRAME_SPREAD_RAD) {
+        frame.progress = -1; // (seen, but too unsteady -- closer, or a straighter view, helps)
+        return;
+      }
+      if (Math.hypot(cx, cy) < FRAME_TOL_M && Math.abs(wrap(alpha)) < FRAME_TOL_RAD) {
+        frame.progress = FRAME_SAMPLES + 1; // (already the world frame)
+        return;
+      }
       // the robot's pose now (its telemetry; else the view's, the same with the camera still)
       const fresh = performance.now() - chassis.at < 1000;
       const rp = fresh ? chassis : { x: ar.pose.x, y: ar.pose.y, th: ar.pose.theta };
@@ -148,8 +167,9 @@ window.Lynx = window.Lynx || {};
       tb.pause(1500); // until the video's poses are in the new frame
       frame.samples = [];
       frame.appliedAt = now;
-      frame.note = "World frame set from the frame cube";
+      frame.note = `World frame set from the frame cube (moved ${(Math.hypot(cx, cy) * 100).toFixed(1)} cm, turned ${((wrap(alpha) * 180) / Math.PI).toFixed(1)}\u00b0)`;
       frame.noteAt = performance.now();
+      frame.progress = 0;
     }
 
     ar.onFrame(() => {
@@ -160,7 +180,13 @@ window.Lynx = window.Lynx || {};
       const s = tb.state;
       const v = ar.view;
       if (s.error) ar.text(s.error, v.x + 12, v.y + v.h - 14, { size: 12, color: "#ff8080" });
-      if (frame.note && performance.now() - frame.noteAt < 3000) ar.text(frame.note, v.cx, v.y + 70, { size: 16, align: "center", color: "#ffe080" });
+      const nowMs = performance.now();
+      if (frame.note && nowMs - frame.noteAt < 3000) ar.text(frame.note, v.cx, v.y + 70, { size: 16, align: "center", color: "#ffe080" });
+      else if (opt.frame && nowMs - frame.seenAt < 1500) {
+        const p = frame.progress;
+        const msg = p > FRAME_SAMPLES ? "Frame cube: world frame aligned" : p < 0 ? "Frame cube: too unsteady -- get closer or look more squarely" : `Frame cube: measuring ${p}/${FRAME_SAMPLES} (keep the camera still)`;
+        ar.text(msg, v.cx, v.y + 70, { size: 14, align: "center", color: "#ffe080" });
+      }
     });
 
     function drawBlocks() {
