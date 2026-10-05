@@ -209,6 +209,11 @@ window.Lynx = window.Lynx || {};
         w.line3([...top, top[0]], col, wide, 0.01);
         w.line3([...bottom, bottom[0]], col, 1, 0.01);
         cs.forEach(([f, r]) => w.line3([[f, r, b.h0], [f, r, b.h1]], col, 1, 0.01));
+        if (b.gone) {
+          // its tag, just above it
+          const m = w.project(l.f, l.r, b.h1 + 0.01);
+          if (m) ar.text(String(b.tag), m.x, m.y, { size: 12, align: "center", color: "rgba(255,120,230,0.9)" });
+        }
       });
     }
     function drawTags() {
