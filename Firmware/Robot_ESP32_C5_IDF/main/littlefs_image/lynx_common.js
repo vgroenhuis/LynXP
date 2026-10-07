@@ -260,6 +260,17 @@ window.Lynx = window.Lynx || {};
       boards: [],
     },
     {
+      id: "focus",
+      kind: "app",
+      name: "Focus check",
+      icon: "\u{1F50E}",
+      blurb:
+        "Shows how sharp the camera's picture is, live, for turning the lens to its best focus: a sharpness number " +
+        "with the best so far and a graph, the sharpness of 3 x 3 regions (is it even over the picture?), and a " +
+        "magnified center. Keep the camera still with a fixed, detailed target in view (the calibration board is ideal).",
+      settings: [],
+    },
+    {
       id: "camcal",
       kind: "app",
       name: "Camera calibration",
