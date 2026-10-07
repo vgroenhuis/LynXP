@@ -383,5 +383,133 @@ window.Lynx = window.Lynx || {};
     return { ...res.K, rms: res.rms, perView, views: used.length, points: used.reduce((a, v) => a + v.points.length, 0), dropped, iterations: res.iterations };
   }
 
-  Lynx.camcalSolver = { prepareView, solve, project, unproject, rodrigues, gridInfo };
+  // -- the picture: finding the tags, and their corners to sub-pixel precision ----------------------
+  // Kalibr's AprilGrid prints small black squares between the tags, touching
+  // their corners diagonally: to the AprilTag detector a tag's outline then
+  // runs on into them and isn't a square. Black thinned by a pixel (each
+  // pixel the brightest of its 3x3) they come apart and every tag is found --
+  // but its edges a pixel inward, so the corners are then refined on the
+  // picture itself (refineCorners).
+  function thinBlack(rgba, w, h) {
+    const g = grayOf(rgba, w, h);
+    const tmp = new Float32Array(w * h);
+    const out = new Uint8ClampedArray(4 * w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        tmp[i] = Math.max(g[i], x > 0 ? g[i - 1] : 0, x < w - 1 ? g[i + 1] : 0);
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const m = Math.max(tmp[i], y > 0 ? tmp[i - w] : 0, y < h - 1 ? tmp[i + w] : 0);
+        out[4 * i] = out[4 * i + 1] = out[4 * i + 2] = m;
+        out[4 * i + 3] = 255;
+      }
+    }
+    return out;
+  }
+  function grayOf(rgba, w, h) {
+    const g = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) g[i] = 0.299 * rgba[4 * i] + 0.587 * rgba[4 * i + 1] + 0.114 * rgba[4 * i + 2];
+    return g;
+  }
+  // A tag's four corners, refined: along each edge (its middle, away from the
+  // corner squares) the strongest dark-to-light step across it, to a
+  // fraction of a pixel; a line through those -- with K (the lens), through
+  // them straightened out (the lens bends a tag's edges a little), and the
+  // corner put back through the lens; corners where the lines meet. The
+  // corners as given if an edge can't be found. (Coordinates as the
+  // detector's: pixel i spans i..i+1.)
+  function refineCorners(gray, w, h, corners, K) {
+    const at = (x0_, y0_) => {
+      const x = x0_ - 0.5; // (pixel centers at i + 0.5)
+      const y = y0_ - 0.5;
+      if (x < 0 || y < 0 || x >= w - 1 || y >= h - 1) return NaN;
+      const x0 = Math.floor(x);
+      const y0 = Math.floor(y);
+      const fx = x - x0;
+      const fy = y - y0;
+      const i = y0 * w + x0;
+      return (gray[i] * (1 - fx) + gray[i + 1] * fx) * (1 - fy) + (gray[i + w] * (1 - fx) + gray[i + w + 1] * fx) * fy;
+    };
+    const cx = corners.reduce((a, p) => a + p.x, 0) / 4;
+    const cy = corners.reduce((a, p) => a + p.y, 0) / 4;
+    const lines = [];
+    for (let e = 0; e < 4; e++) {
+      const a = corners[e];
+      const b = corners[(e + 1) % 4];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      if (len < 8) return corners;
+      const tx = (b.x - a.x) / len;
+      const ty = (b.y - a.y) / len;
+      // the normal pointing out of the tag
+      let nx = -ty;
+      let ny = tx;
+      if (nx * ((a.x + b.x) / 2 - cx) + ny * ((a.y + b.y) / 2 - cy) < 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const pts = [];
+      const N = Math.max(6, Math.round(len / 3));
+      for (let k = 0; k <= N; k++) {
+        const t = 0.2 + (0.6 * k) / N;
+        const px = a.x + (b.x - a.x) * t;
+        const py = a.y + (b.y - a.y) * t;
+        // the step's strength along the normal, -3.5..+3.5 px, every 0.25 px
+        let best = -1;
+        let bestG = 0;
+        const gs = [];
+        for (let s = -14; s <= 14; s++) {
+          const d = s * 0.25;
+          const g = at(px + nx * (d + 0.5), py + ny * (d + 0.5)) - at(px + nx * (d - 0.5), py + ny * (d - 0.5)); // (light outside)
+          gs.push(g);
+          if (g > bestG) {
+            bestG = g;
+            best = gs.length - 1;
+          }
+        }
+        if (best <= 0 || best >= gs.length - 1 || !(bestG > 8)) continue;
+        const den = gs[best - 1] - 2 * gs[best] + gs[best + 1];
+        const off = den < 0 ? (0.5 * (gs[best - 1] - gs[best + 1])) / den : 0;
+        const d = (best - 14 + off) * 0.25;
+        const q = [px + nx * d, py + ny * d];
+        pts.push(K ? unproject(K, q[0], q[1]) : q);
+      }
+      if (pts.length < 4) return corners;
+      // the line through them (principal direction)
+      const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+      const my = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+      let sxx = 0;
+      let syy = 0;
+      let sxy = 0;
+      pts.forEach(([x, y]) => {
+        sxx += (x - mx) ** 2;
+        syy += (y - my) ** 2;
+        sxy += (x - mx) * (y - my);
+      });
+      const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+      lines.push({ p: [mx, my], d: [Math.cos(th), Math.sin(th)] });
+    }
+    // corner e is where edges e-1 and e meet
+    const out = [];
+    for (let e = 0; e < 4; e++) {
+      const L1 = lines[(e + 3) % 4];
+      const L2 = lines[e];
+      const det = L1.d[0] * -L2.d[1] - L1.d[1] * -L2.d[0];
+      if (Math.abs(det) < 1e-6) return corners;
+      const rx = L2.p[0] - L1.p[0];
+      const ry = L2.p[1] - L1.p[1];
+      const s = (rx * -L2.d[1] - ry * -L2.d[0]) / det;
+      const qq = [L1.p[0] + L1.d[0] * s, L1.p[1] + L1.d[1] * s];
+      const qp = K ? project(K, qq[0], qq[1], 1) : qq;
+      const q = { x: qp[0], y: qp[1] };
+      if (Math.hypot(q.x - corners[e].x, q.y - corners[e].y) > 3) return corners; // (implausible: keep the detector's)
+      out.push(q);
+    }
+    return out;
+  }
+
+  Lynx.camcalSolver = { prepareView, solve, project, unproject, rodrigues, gridInfo, thinBlack, grayOf, refineCorners };
 })(window.Lynx);

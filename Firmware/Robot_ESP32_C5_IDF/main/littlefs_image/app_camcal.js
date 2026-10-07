@@ -61,19 +61,29 @@ Lynx.games = Lynx.games || {};
     const worker = new Worker("tag_worker.js");
     let ready = false;
     let busy = false;
-    let pending = null; // {kind: "live" | "shot", cb}
+    let pending = null; // {cb} -- the detection under way
     worker.onmessage = (ev) => {
       const m = ev.data;
       if (m.type === "ready") ready = true;
       else if (m.type === "error") say(m.message, "#ff8080");
       else if (m.type === "detections") {
-        busy = false;
         const p = pending;
         pending = null;
-        if (p) p.cb(m.detections.filter((d) => d.id < G.n));
+        if (p) p.cb(m.detections);
       }
     };
     worker.postMessage({ type: "family", family });
+    // Each picture is searched twice: as it is, and with black thinned a pixel
+    // (camcal_solver.js thinBlack: Kalibr's corner squares touch the tags'
+    // corners, so the detector misses them otherwise). A tag found as is keeps
+    // the detector's corners; one found only thinned gets them refined on the
+    // picture itself.
+    function detectOnce(rgba, w, h) {
+      return new Promise((resolve) => {
+        pending = { cb: resolve };
+        worker.postMessage({ type: "frame", id: Date.now(), width: w, height: h, rgba: rgba.buffer }, [rgba.buffer]);
+      });
+    }
     function grab(kind, cb) {
       if (!ready || busy || !img || !img.naturalWidth) return false;
       const w = img.naturalWidth;
@@ -85,13 +95,23 @@ Lynx.games = Lynx.games || {};
       let data;
       try {
         g2.drawImage(img, 0, 0);
-        data = g2.getImageData(0, 0, w, h);
+        data = g2.getImageData(0, 0, w, h).data;
       } catch (e) {
         return false; // (CORS: the stream is reconnecting)
       }
       busy = true;
-      pending = { kind, cb: (dets) => cb(dets, w, h) };
-      worker.postMessage({ type: "frame", id: Date.now(), width: w, height: h, rgba: data.data.buffer }, [data.data.buffer]);
+      const gray = S.grayOf(data, w, h);
+      const thin = S.thinBlack(data, w, h);
+      const lens = Lynx.lens.params(w, h);
+      const K = { f: lens.f, cx: lens.cx, cy: lens.cy, k1: lens.k1 || 0, k2: lens.k2 || 0 };
+      detectOnce(data, w, h)
+        .then((plain) => detectOnce(thin, w, h).then((thinned) => [plain, thinned]))
+        .then(([plain, thinned]) => {
+          busy = false;
+          const ids = new Set(plain.map((d) => d.id));
+          const extra = thinned.filter((d) => !ids.has(d.id)).map((d) => ({ ...d, corners: S.refineCorners(gray, w, h, d.corners, K), refined: true }));
+          cb(plain.concat(extra).filter((d) => d.id < G.n), w, h);
+        });
       return true;
     }
 
@@ -241,8 +261,9 @@ Lynx.games = Lynx.games || {};
     }
 
     function step(now) {
+      if (wantShot && !busy && !tour && capture(true)) wantShot = false;
       // live detections (for the outlines, and to find the target)
-      if (!busy && now - live.at > LIVE_EVERY_MS && state !== "shoot") {
+      if (!busy && !wantShot && now - live.at > LIVE_EVERY_MS && state !== "shoot") {
         grab("live", (dets, w, h) => {
           live = { dets, w, h, at: performance.now() };
           if (state === "locate" && tour) {
@@ -359,9 +380,14 @@ Lynx.games = Lynx.games || {};
 
     // -- controls -------------------------------------------------------------------------------------
     Lynx.onAction("fire", () => (tour ? stopTour() : startTour()));
-    Lynx.onAction("camera", () => !tour && capture(true));
+    // (a capture asked for while a detection is under way waits for it)
+    let wantShot = false;
+    const manualCapture = () => {
+      if (!tour && !capture(true)) wantShot = true;
+    };
+    Lynx.onAction("camera", manualCapture);
     const touch = Lynx.touchButtons();
-    touch.add("\u{1F4F7} Capture", () => !tour && capture(true));
+    touch.add("\u{1F4F7} Capture", manualCapture);
     touch.add("\u{1F9EE} Solve", () => !tour && solveNow());
     touch.add("\u{1F4BE} Save", () => save());
     const panel = [];
