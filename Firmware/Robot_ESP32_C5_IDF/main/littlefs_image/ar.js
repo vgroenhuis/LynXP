@@ -328,11 +328,12 @@ window.Lynx = window.Lynx || {};
       const h = imgH * scale;
       const x = (cw - w) / 2;
       const y = (ch - h) / 2;
+      const lens = Lynx.lens.params(imgW, imgH);
       ar.view = {
         cw, ch, imgW, imgH, scale, offX: x, offY: y, x, y, w, h,
-        f: Lynx.lens.params(imgW, imgH).f, // near the image center; see Lynx.lens
-        cx: x + w / 2,
-        cy: y + h / 2,
+        f: lens.f, // near the image center; see Lynx.lens
+        cx: x + lens.cx * scale, // the optical center (the image center unless calibrated)
+        cy: y + lens.cy * scale,
       };
     }
 

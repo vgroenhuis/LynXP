@@ -260,6 +260,24 @@ window.Lynx = window.Lynx || {};
       boards: [],
     },
     {
+      id: "camcal",
+      kind: "app",
+      name: "Camera calibration",
+      icon: "\u{1F4D0}",
+      blurb:
+        "Calibrates the camera's lens (focal length, optical center, distortion) from photos of an AprilGrid " +
+        "target (Kalibr layout). Put the target upright, e.g. on a wall near the floor, with the robot in front of it: " +
+        "the robot drives a tour around it and photographs it so it lands all over the picture, then fits the lens. " +
+        "Save stores it for the current camera resolution. Needs internet once (the tag detector).",
+      settings: [
+        { key: "tagFamily", label: "Tag family", type: "select", def: "tag36h11", options: [["tag36h11", "tag36h11 (Kalibr's AprilGrid)"], ["tag16h5", "tag16h5"]] },
+        { key: "tagCols", label: "Tags across (tagCols)", type: "number", def: 6, min: 2, max: 20, step: 1 },
+        { key: "tagRows", label: "Tags down (tagRows)", type: "number", def: 6, min: 2, max: 20, step: 1 },
+        { key: "tagSizeMm", label: "Tag size (black square, tagSize)", type: "number", unit: "mm", def: 34, min: 5, max: 300, step: 0.1 },
+        { key: "tagSpacing", label: "Gap between tags, as a share of the tag size (tagSpacing)", type: "number", def: 0.3, min: 0, max: 2, step: 0.01 },
+      ],
+    },
+    {
       id: "detect",
       kind: "app",
       name: "Object detection",
@@ -527,13 +545,15 @@ window.Lynx = window.Lynx || {};
   // -- camera lens model ---------------------------------------------------------
   // Shared by every camera-page overlay (floor grid, axes, waypoints,
   // fireballs, AR games). The camera has a wide, strongly barrel-distorted
-  // lens, calibrated per resolution by tools/calibrate.py into the robot's
+  // lens, calibrated per resolution (tools/calibrate.py, or the Camera
+  // calibration app with an AprilGrid: app_camcal.js) into the robot's
   // /appdata/camcal document: a direction at angle theta off the optical axis
-  // lands fPx * (theta + k1 theta^3) pixels from the image center (k1 = 0 is
-  // an equidistant fisheye; a pinhole is roughly k1 = 1/3). Resolutions
-  // without a calibration fall back to a pinhole with the robot's
+  // lands fPx * (theta + k1 theta^3 + k2 theta^5) pixels from the optical
+  // center (cx, cy; the image center unless calibrated) (k1 = 0 is an
+  // equidistant fisheye; a pinhole is roughly k1 = 1/3). Resolutions without
+  // a calibration fall back to a pinhole with the robot's
   // cameraVerticalFovDeg setting.
-  const lensModes = {}; // "640x480" -> {fPx, k1}
+  const lensModes = {}; // "640x480" -> {fPx, k1, k2?, cx?, cy?}
   let fallbackVfovRad = (65 * Math.PI) / 180;
 
   Lynx.lens = {
@@ -541,11 +561,12 @@ window.Lynx = window.Lynx || {};
       if (camcal && camcal.version >= 2 && camcal.modes) Object.assign(lensModes, camcal.modes);
       if (Number.isFinite(vfovDeg)) fallbackVfovRad = (vfovDeg * Math.PI) / 180;
     },
-    // {f, k1} for this frame size; k1 null = plain pinhole.
+    // {f, k1, k2, cx, cy} for this frame size; k1 null = plain pinhole.
     params(imgW, imgH) {
       const m = lensModes[`${imgW}x${imgH}`];
-      if (m && m.fPx > 0) return { f: m.fPx, k1: m.k1 };
-      return { f: imgH / 2 / Math.tan(fallbackVfovRad / 2), k1: null };
+      const c = { cx: imgW / 2, cy: imgH / 2, k2: 0 };
+      if (m && m.fPx > 0) return { ...c, f: m.fPx, k1: m.k1, k2: m.k2 || 0, cx: Number.isFinite(m.cx) ? m.cx : c.cx, cy: Number.isFinite(m.cy) ? m.cy : c.cy };
+      return { ...c, f: imgH / 2 / Math.tan(fallbackVfovRad / 2), k1: null };
     },
     calibrated(imgW, imgH) {
       return !!lensModes[`${imgW}x${imgH}`];
@@ -555,7 +576,7 @@ window.Lynx = window.Lynx || {};
     // scale = local pixels per unit of x/z (for sizing things at that depth).
     project(x, y, z, imgW, imgH) {
       if (!(z > 1e-6)) return null;
-      const { f, k1 } = Lynx.lens.params(imgW, imgH);
+      const { f, k1, k2, cx, cy } = Lynx.lens.params(imgW, imgH);
       const xn = x / z;
       const yn = y / z;
       let s = 1;
@@ -563,20 +584,35 @@ window.Lynx = window.Lynx || {};
         const r = Math.hypot(xn, yn);
         if (r > 1e-9) {
           const th = Math.atan(r);
-          s = (th + k1 * th * th * th) / r;
+          const th2 = th * th;
+          s = (th * (1 + k1 * th2 + k2 * th2 * th2)) / r;
         }
       }
-      return { u: imgW / 2 + f * xn * s, v: imgH / 2 + f * yn * s, scale: f * s };
+      return { u: cx + f * xn * s, v: cy + f * yn * s, scale: f * s };
     },
-    // Angle off the optical axis (rad) of a point `px` pixels from the image
+    // Image pixel -> the direction it sees, as pinhole coordinates at z = 1
+    // ([x right, y down]).
+    normalize(u, v, imgW, imgH) {
+      const { cx, cy } = Lynx.lens.params(imgW, imgH);
+      const dx = u - cx;
+      const dy = v - cy;
+      const rp = Math.hypot(dx, dy);
+      if (rp < 1e-9) return [0, 0];
+      const rn = Math.tan(Lynx.lens.angleAt(rp, imgW, imgH));
+      return [(dx / rp) * rn, (dy / rp) * rn];
+    },
+    // Angle off the optical axis (rad) of a point `px` pixels from the optical
     // center -- e.g. the half field of view at an image edge.
     angleAt(px, imgW, imgH) {
-      const { f, k1 } = Lynx.lens.params(imgW, imgH);
+      const { f, k1, k2 } = Lynx.lens.params(imgW, imgH);
       const rd = Math.abs(px) / f;
       if (k1 === null) return Math.atan(rd);
       let th = rd;
-      for (let i = 0; i < 20; i++) th -= (th + k1 * th * th * th - rd) / (1 + 3 * k1 * th * th);
-      return th;
+      for (let i = 0; i < 20; i++) {
+        const th2 = th * th;
+        th -= (th * (1 + k1 * th2 + k2 * th2 * th2) - rd) / (1 + 3 * k1 * th2 + 5 * k2 * th2 * th2);
+      }
+      return Math.min(th, 1.5);
     },
   };
 })(window.Lynx);

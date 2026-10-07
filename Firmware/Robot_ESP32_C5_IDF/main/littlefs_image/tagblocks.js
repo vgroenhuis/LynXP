@@ -138,15 +138,7 @@ window.Lynx = window.Lynx || {};
   // image corners: {t (center), r1, r2 (its edges' directions), n (normal,
   // toward the camera)}; null if implausible.
   function tagPose(corners, w, h, tagM) {
-    const { f } = Lynx.lens.params(w, h);
-    const undistort = (p) => {
-      const dx = p.x - w / 2;
-      const dy = p.y - h / 2;
-      const rp = Math.hypot(dx, dy);
-      if (rp < 1e-9) return [0, 0];
-      const rn = Math.tan(Lynx.lens.angleAt(rp, w, h)); // radius on the pinhole image plane at z = 1
-      return [(dx / rp) * rn, (dy / rp) * rn];
-    };
+    const undistort = (p) => Lynx.lens.normalize(p.x, p.y, w, h); // (on the pinhole image plane at z = 1)
     const s = tagM / 2;
     const model = [[-s, s], [s, s], [s, -s], [-s, -s]];
     const H = homography(model, corners.map(undistort));
