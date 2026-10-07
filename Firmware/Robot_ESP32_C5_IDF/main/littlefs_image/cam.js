@@ -1190,11 +1190,28 @@ function subscribeToPose(callback) {
   // angles only arrive 10x a second (a grid drawn from those jumped when a
   // turn started and stopped). As a camera heading: chassis heading =
   // camera heading, pan 0. Position still comes from odometry.
+  // Only while this page aims the camera (or did so just now, while the view
+  // eases out): when the robot moves it by itself (a calibration run's servo
+  // commands, a goto turning the chassis), the aim only hears of it from the
+  // telemetry and fades that in over AIM_TAU_S -- the view lagged a second
+  // behind. Then the measured angles (interpolated, delayed with the video).
+  const AIM_VIEW_AFTER_MS = 1500;
   function withAim(pose) {
     if (!aimParams || aim.yaw === null) return pose;
     const now = performance.now();
     stepAim(now, aimParams);
     if (!aimView) return pose;
+    if (now - aim.activeAt > AIM_VIEW_AFTER_MS && Lynx.control.robotCamPanRad() === null) {
+      // (and the aim takes the robot's at once: right when this page aims again)
+      aim.yaw += aim.errYaw;
+      aim.tiltDeg += aim.errTilt;
+      aim.hist.forEach((h) => {
+        h.yaw += aim.errYaw;
+        h.tiltDeg += aim.errTilt;
+      });
+      aim.errYaw = aim.errTilt = 0;
+      return pose;
+    }
     const seen = aimAveraged(now, AIM_SERVO_LAG_MS + overlayDelayMs());
     return { ...pose, theta: wrapToPi(seen.yaw), servoAngleDeg: 0, tiltAngleDeg: seen.tiltDeg };
   }
