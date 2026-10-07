@@ -146,7 +146,7 @@ window.Lynx = window.Lynx || {};
   // enough to upset the flash (CPU lockup, then "SPI flash busy" boot loops
   // until a power cycle; it happened three times with only the servos moving).
   const ROBOT_TURN_GAIN = 0.4; // full left/right = 40% of the wheels' top speed, opposite ways (~100 deg/s)
-  const ROBOT_CAM_TILT_DEG = 60;
+  const ROBOT_CAM_TILT_DEG = 90;
   // Full left/right pan. Not the servo's whole +-90: at full left it went past
   // 90 (calibration) and the robot froze twice there -- a stalled servo's
   // current dipping the supply is the suspect.
