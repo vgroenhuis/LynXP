@@ -37,6 +37,7 @@ float goalX_m = 0.0f;
 float goalY_m = 0.0f;
 float goalHeadingRad = 0.0f;
 bool goalHasHeading = false;
+bool goalForceHeading = false; // (this goto turns to its heading whatever settings.gotoPreserveHeading says)
 bool goalMaintainSpeed = false;
 
 float wheelPosRev[2] = {0, 0};
@@ -364,7 +365,7 @@ void computeGotoTargetWheelVelocities(float targetVelRevPerSec[2], float *target
     float distance = std::sqrt(dx * dx + dy * dy);
 
     if (distance < GOTO_ARRIVAL_TOLERANCE_M) {
-        if (settings.gotoPreserveHeading && goalHasHeading) {
+        if ((settings.gotoPreserveHeading || goalForceHeading) && goalHasHeading) {
             float headingError = wrapToPi(goalHeadingRad - poseThetaRad);
             if (std::fabs(headingError) > GOTO_HEADING_ARRIVAL_TOLERANCE_RAD) {
                 // Same wheel-sign convention as the !gotoAllowReverse

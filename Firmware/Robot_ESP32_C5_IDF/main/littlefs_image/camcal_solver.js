@@ -579,5 +579,13 @@ window.Lynx = window.Lynx || {};
     return out;
   }
 
-  Lynx.camcalSolver = { viewFromPoints, prepareView, solve, project, unproject, rodrigues, gridInfo, thinBlack, grayOf, refineCorners, unthinCorners };
+  // One picture's pose (board -> camera) with the lens as it is: {r, t, rms}
+  function refinePose(points, K) {
+    const v = viewFromPoints(points, 0, 0, K);
+    if (!v) return null;
+    const res = lm([v], K, { fix: { f: true, cx: true, cy: true, k1: true, k2: true }, maxIter: 30 });
+    return { ...res.poses[0], rms: res.rms };
+  }
+
+  Lynx.camcalSolver = { refinePose, viewFromPoints, prepareView, solve, project, unproject, rodrigues, gridInfo, thinBlack, grayOf, refineCorners, unthinCorners };
 })(window.Lynx);

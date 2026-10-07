@@ -60,6 +60,7 @@ extern float goalX_m;
 extern float goalY_m;
 extern float goalHeadingRad; // only meaningful when goalHasHeading is true
 extern bool goalHasHeading; // set by waypoint goto; plain map-click goto leaves this false
+extern bool goalForceHeading; // goto message "forceHeading": turn to the heading even without settings.gotoPreserveHeading
 extern bool goalMaintainSpeed; // set by waypoint auto-advance: skip the distance-proportional slowdown, since the client will re-target before precise stopping matters
 
 // -- Actual wheel telemetry, live regardless of mode --

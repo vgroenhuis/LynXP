@@ -180,6 +180,7 @@ void handle_ws_message(int fd, const char *body) {
         goalHasHeading = cJSON_IsNumber(headingItem);
         goalHeadingRad = goalHasHeading ? (float) headingItem->valuedouble : 0.0f;
         goalMaintainSpeed = getBool("maintainSpeed");
+        goalForceHeading = getBool("forceHeading");
     } else if (std::strcmp(type, "control_frame_rotate") == 0) {
         // Purely adjusts the reference arrow, doesn't drive the motors --
         // no mode switch here, unlike the drive commands above. `value` is

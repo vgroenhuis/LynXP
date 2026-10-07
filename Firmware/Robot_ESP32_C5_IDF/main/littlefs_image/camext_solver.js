@@ -31,7 +31,7 @@
 //     views: [{K (intrinsics), pan, tilt (commanded, deg), odo: {x, y, th},
 //              corners: [{col, row, u, v}] (absolute board indices),
 //              tags: [{id, u, v}] (cube tag centers, pixels)}]
-//     opts: {square, cube (m), prior: {...}}
+//     opts: {square, cube (m), prior: {...}, fixed: [names held at their prior]}
 //   Lynx.camextSolver.labelView(points [{i, j, u, v}], cols, rows) ->
 //     points with absolute {col, row} when the whole board is in view, else
 //     {rel: true, ...} (oriented, but offset unknown -- placed by
@@ -153,7 +153,7 @@ window.Lynx = window.Lynx || {};
         out.push(q ? (q[0] - t.u) / (2 * PIX_SIGMA) : 100, q ? (q[1] - t.v) / (2 * PIX_SIGMA) : 100);
       });
     });
-    CHAIN.forEach(([n, , sig]) => out.push((P[n] - prior[n]) / sig));
+    CHAIN.forEach(([n, , sig]) => out.push((P[n] - prior[n]) / (opts.fixed && opts.fixed.includes(n) ? 1e-4 : sig)));
     P.spots.forEach((s) => out.push(s[0] / (0.5 * D2R), s[1] / 0.01, s[2] / 0.01));
     return out;
   }

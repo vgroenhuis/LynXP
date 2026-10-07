@@ -21,14 +21,15 @@
 // already captured are dots (yellow), to see which parts of the picture are
 // covered.
 //
-// Extrinsics (the "Calibrate" setting): where the camera sits on the robot
-// and how the servos really turn it (camext_solver.js) -- with the lens
-// already calibrated, the same tour of the checkerboard, and the world-frame
-// cube (tags 24-29) on the floor next to it (it fixes the floor's level).
-// Each picture also keeps the commanded pan / tilt and the odometry. Save
-// writes the camera height and tilt settings and the servos' pulse
-// calibration; the camera's roll and its offset in front of the tilt axis go
-// into camcal ("extrinsics") for the record.
+// The "Calibrate" setting picks the step: 1. the lens (this), 2. the servos
+// (app_camservo.js), 3. the camera's mount ("extrinsics"): where the camera
+// sits on the robot (camext_solver.js) -- the lens and servos calibrated
+// first (the servo terms are held at nominal here), the same tour of the
+// checkerboard, and the world-frame cube (tags 24-29) on the floor next to it
+// (it fixes the floor's level). Each picture also keeps the commanded pan /
+// tilt and the odometry. Save writes the camera height and tilt settings; the
+// camera's roll and its offset in front of the tilt axis go into camcal
+// ("extrinsics") for the record.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -47,6 +48,7 @@ Lynx.games = Lynx.games || {};
   const MIN_CORNERS = 12;
 
   Lynx.games.camcal = (ar, cfg, app) => {
+    if (cfg.calibrate === "servos") return Lynx.games.camservo(ar, cfg, app); // (step 2: app_camservo.js)
     const S = Lynx.camcalSolver;
     const extr = cfg.calibrate === "extrinsics";
     const general = (app && app.general) || {};
@@ -471,7 +473,7 @@ Lynx.games = Lynx.games || {};
       }
       const res = E.solve(
         views.filter((v) => v.w === w && v.h === h).map((v) => ({ K, pan: v.pan, tilt: v.tilt, odo: v.odo, points: v.raw, tags: v.tags })),
-        { square: chk.sq, cube: cubeM, cols: chk.cols, rows: chk.rows, prior },
+        { square: chk.sq, cube: cubeM, cols: chk.cols, rows: chk.rows, prior, fixed: ["panOffset", "panGainL", "panGainR", "tiltGainUp", "tiltGainDown"] },
       );
       state = "done";
       if (res.error) {
@@ -482,25 +484,6 @@ Lynx.games = Lynx.games || {};
       result = { extr: true, ...res, w, h };
       say(`Solved: ${res.rms.toFixed(2)} px RMS over ${res.views} pictures (${res.spots} spots, ${res.tags} cube tags) -- Save to keep it`, "#a0ffa0");
     }
-    // the servo's pulse for a commanded angle, as the robot computes it (piecewise
-    // linear through min / center / max) -- and beyond, extended
-    function pulseOf(a, minA, maxA, minP, cenP, maxP) {
-      return a <= 0 ? cenP + (a / minA) * (minP - cenP) : cenP + (a / maxA) * (maxP - cenP);
-    }
-    // New pulses so that a commanded angle A comes out as A: today command c
-    // turns the servo to offset + c * gain (gain by side); so for A, command
-    // c = (A - offset) / gain, whose pulse becomes A's.
-    function newPulses(off, gainPos, gainNeg, minA, maxA, minP, cenP, maxP) {
-      const c = (A) => {
-        const g = A - off >= 0 ? gainPos : gainNeg;
-        return (A - off) / g;
-      };
-      return {
-        min: Math.round(pulseOf(c(minA), minA, maxA, minP, cenP, maxP) * 10) / 10,
-        center: Math.round(pulseOf(c(0), minA, maxA, minP, cenP, maxP) * 10) / 10,
-        max: Math.round(pulseOf(c(maxA), minA, maxA, minP, cenP, maxP) * 10) / 10,
-      };
-    }
     function saveExtrinsics() {
       const r = result;
       if (!params) {
@@ -508,16 +491,7 @@ Lynx.games = Lynx.games || {};
         return;
       }
       const P = r.params;
-      const p = params;
-      const pan = newPulses(P.panOffset / D2R, P.panGainL, P.panGainR, p.servoMinAngleDeg, p.servoMaxAngleDeg, p.servoMinPulseUs, p.servoCenterPulseUs, p.servoMaxPulseUs);
-      // (tilt > 0 looks up: the gain up for positive commands; its offset is in the mount tilt)
-      const tilt = newPulses(0, P.tiltGainUp, P.tiltGainDown, p.tiltMinAngleDeg, p.tiltMaxAngleDeg, p.tiltMinPulseUs, p.tiltCenterPulseUs, p.tiltMaxPulseUs);
-      const q = new URLSearchParams({
-        cameraHeightMm: (P.h * 1000).toFixed(1),
-        cameraTiltDeg: (P.mountTilt / D2R).toFixed(2),
-        servoMinPulseUs: pan.min, servoCenterPulseUs: pan.center, servoMaxPulseUs: pan.max,
-        tiltMinPulseUs: tilt.min, tiltCenterPulseUs: tilt.center, tiltMaxPulseUs: tilt.max,
-      });
+      const q = new URLSearchParams({ cameraHeightMm: (P.h * 1000).toFixed(1), cameraTiltDeg: (P.mountTilt / D2R).toFixed(2) });
       fetch(`/set?${q}`)
         .then((x) => {
           if (!x.ok) throw new Error(x.status);
@@ -528,15 +502,14 @@ Lynx.games = Lynx.games || {};
             version: 2, ...doc,
             extrinsics: {
               heightMm: +(P.h * 1000).toFixed(2), offsetMm: +(P.offset * 1000).toFixed(2), mountTiltDeg: +(P.mountTilt / D2R).toFixed(3),
-              axisRollDeg: +(P.axisRoll / D2R).toFixed(3), camRollDeg: +(P.camRoll / D2R).toFixed(3), panOffsetDeg: +(P.panOffset / D2R).toFixed(3),
-              panGainL: +P.panGainL.toFixed(4), panGainR: +P.panGainR.toFixed(4), tiltGainUp: +P.tiltGainUp.toFixed(4), tiltGainDown: +P.tiltGainDown.toFixed(4),
+              axisRollDeg: +(P.axisRoll / D2R).toFixed(3), camRollDeg: +(P.camRoll / D2R).toFixed(3),
               rmsPx: +r.rms.toFixed(3), views: r.views, at: new Date().toISOString().slice(0, 19),
             },
           };
           return fetch("/appdata/camcal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
         })
         .then(() => {
-          say("Saved: camera height and tilt, servo pulses -- reload the page to use them", "#a0ffa0");
+          say("Saved: camera height and tilt -- reload the page to use them", "#a0ffa0");
           return fetch("/params", { cache: "no-store" }).then((x) => x.json()).then((x) => (params = x));
         })
         .catch(() => say("Couldn't save -- is the robot reachable?", "#ff9090"));
@@ -661,9 +634,8 @@ Lynx.games = Lynx.games || {};
         const mm = (x) => (x * 1000).toFixed(1);
         const dg = (x) => (x / D2R).toFixed(2);
         lines.push(`height ${mm(P.h)} \u00b1 ${mm(sg.h)} mm (was ${mm(pr.h)}) \u00b7 lens ${mm(P.offset)} \u00b1 ${mm(sg.offset)} mm in front of the tilt axis`);
-        lines.push(`mount tilt ${dg(P.mountTilt)} \u00b1 ${dg(sg.mountTilt)}\u00b0 (was ${dg(pr.mountTilt)}) \u00b7 pan offset ${dg(P.panOffset)} \u00b1 ${dg(sg.panOffset)}\u00b0`);
+        lines.push(`mount tilt ${dg(P.mountTilt)} \u00b1 ${dg(sg.mountTilt)}\u00b0 (was ${dg(pr.mountTilt)})`);
         lines.push(`tilt axis roll ${dg(P.axisRoll)} \u00b1 ${dg(sg.axisRoll)}\u00b0 \u00b7 camera roll ${dg(P.camRoll)} \u00b1 ${dg(sg.camRoll)}\u00b0`);
-        lines.push(`servo gains: pan L ${P.panGainL.toFixed(3)} R ${P.panGainR.toFixed(3)} \u00b7 tilt up ${P.tiltGainUp.toFixed(3)} down ${P.tiltGainDown.toFixed(3)}`);
         lines.push(`RMS ${r.rms.toFixed(2)} px \u00b7 ${r.views} pictures (${r.full} whole board), ${r.spots} spots, ${r.corners} corners, ${r.tags} cube tags`);
       } else if (result) {
         const r = result;
@@ -674,7 +646,7 @@ Lynx.games = Lynx.games || {};
       }
       lines.forEach((s, i) => ar.text(s, v.x + 12, v.y + 24 + i * 18, { size: 13, color: i ? "#ffe080" : "#c0f0ff" }));
       if (state === "idle" && !views.length && !result) {
-        ar.banner(extr ? "CAMERA EXTRINSICS" : "CAMERA CALIBRATION", `Point the camera at the ${checker ? "checkerboard" : "AprilGrid"}${extr ? " (with the cube on the floor next to it)" : ""} target · Fire: robot tour · C: one picture`, { color: "#80d0ff" });
+        ar.banner(extr ? "CAMERA MOUNT" : "CAMERA CALIBRATION", `Point the camera at the ${checker ? "checkerboard" : "AprilGrid"}${extr ? " (with the cube on the floor next to it)" : ""} target · Fire: robot tour · C: one picture`, { color: "#80d0ff" });
       }
       if (note && now - note.at < 4000) ar.text(note.text, v.cx, v.y + v.h - 40, { size: 15, align: "center", color: note.color });
     });
