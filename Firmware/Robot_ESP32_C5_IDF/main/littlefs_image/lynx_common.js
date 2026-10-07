@@ -281,6 +281,7 @@ window.Lynx = window.Lynx || {};
         "the robot drives a tour around it and photographs it so it lands all over the picture, then fits the lens. " +
         "Save stores it for the current camera resolution. Needs internet once (the tag detector).",
       settings: [
+        { key: "calibrate", label: "Calibrate", type: "select", def: "intrinsics", options: [["intrinsics", "The lens (intrinsics)"], ["extrinsics", "Camera on the robot (extrinsics: checkerboard + the frame cube on the floor)"]] },
         { key: "target", label: "Calibration target", type: "select", def: "aprilgrid", options: [["aprilgrid", "AprilGrid (Kalibr)"], ["checkerboard", "Checkerboard"]] },
         { key: "checkerCols", label: "Checkerboard: inner corners across (targetCols)", type: "number", def: 13, min: 2, max: 40, step: 1 },
         { key: "checkerRows", label: "Checkerboard: inner corners down (targetRows)", type: "number", def: 14, min: 2, max: 40, step: 1 },

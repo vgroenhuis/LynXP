@@ -20,6 +20,15 @@
 // What's found is drawn live (green: tag outlines / corners); the corners
 // already captured are dots (yellow), to see which parts of the picture are
 // covered.
+//
+// Extrinsics (the "Calibrate" setting): where the camera sits on the robot
+// and how the servos really turn it (camext_solver.js) -- with the lens
+// already calibrated, the same tour of the checkerboard, and the world-frame
+// cube (tags 24-29) on the floor next to it (it fixes the floor's level).
+// Each picture also keeps the commanded pan / tilt and the odometry. Save
+// writes the camera height and tilt settings and the servos' pulse
+// calibration; the camera's roll and its offset in front of the tilt axis go
+// into camcal ("extrinsics") for the record.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -37,8 +46,11 @@ Lynx.games = Lynx.games || {};
   const MIN_TAGS = 4;
   const MIN_CORNERS = 12;
 
-  Lynx.games.camcal = (ar, cfg) => {
+  Lynx.games.camcal = (ar, cfg, app) => {
     const S = Lynx.camcalSolver;
+    const extr = cfg.calibrate === "extrinsics";
+    const general = (app && app.general) || {};
+    const cubeM = (+general.frameCubeMm || 40) / 1000;
     const grid = {
       tagCols: Math.max(2, Math.round(+cfg.tagCols || 6)),
       tagRows: Math.max(2, Math.round(+cfg.tagRows || 6)),
@@ -46,7 +58,7 @@ Lynx.games = Lynx.games || {};
       tagSpacing: Number.isFinite(+cfg.tagSpacing) ? +cfg.tagSpacing : 0.3,
     };
     const G = S.gridInfo(grid);
-    const checker = cfg.target === "checkerboard";
+    const checker = extr || cfg.target === "checkerboard"; // (the extrinsics use the checkerboard)
     const chk = {
       cols: Math.max(2, Math.round(+cfg.checkerCols || 13)), // inner corners
       rows: Math.max(2, Math.round(+cfg.checkerRows || 14)),
@@ -87,6 +99,36 @@ Lynx.games = Lynx.games || {};
       }
     };
     if (!checker) worker.postMessage({ type: "family", family });
+    // extrinsics: the frame cube's tags too
+    let cubeWorker = null;
+    let cubePending = null;
+    let cubeReady = false; // (the worker drops frames until its detector has loaded)
+    if (extr) {
+      cubeWorker = new Worker("tag_worker.js");
+      cubeWorker.onmessage = (ev) => {
+        if (ev.data.type === "ready") cubeReady = true;
+        else if (ev.data.type === "error") say(ev.data.message, "#ff9090");
+        else if (ev.data.type === "detections" && cubePending) {
+          const p = cubePending;
+          cubePending = null;
+          p(ev.data.detections);
+        }
+      };
+      cubeWorker.postMessage({ type: "family", family: general.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5" });
+    }
+    // a tag's center in the picture: its diagonals' crossing, straightened through the lens
+    function tagCenter(corners, w, h) {
+      const K = lensInit(w, h);
+      const q = corners.map((c) => S.unproject(K, c.x, c.y));
+      const [a, b, c, d] = q;
+      const d1 = [c[0] - a[0], c[1] - a[1]];
+      const d2 = [d[0] - b[0], d[1] - b[1]];
+      const den = d1[0] * d2[1] - d1[1] * d2[0];
+      if (Math.abs(den) < 1e-12) return null;
+      const t = ((b[0] - a[0]) * d2[1] - (b[1] - a[1]) * d2[0]) / den;
+      const uv = S.project(K, a[0] + d1[0] * t, a[1] + d1[1] * t, 1);
+      return { u: uv[0], v: uv[1] };
+    }
     // Each picture is searched twice: as it is, and with black thinned a pixel
     // (camcal_solver.js thinBlack: Kalibr's corner squares touch the tags'
     // corners, so the detector misses them otherwise). A tag found as is keeps
@@ -120,11 +162,24 @@ Lynx.games = Lynx.games || {};
         new Promise((resolve) => {
           pending = { cb: resolve };
           worker.postMessage({ type: "frame", id: Date.now(), width: w, height: h, gray: gray.buffer, opts: { maxCols: chk.cols, maxRows: chk.rows } }, [gray.buffer]);
-        }).then((res) => {
-          busy = false;
-          const points = res ? res.points.map((p) => ({ X: p.i * chk.sq, Y: p.j * chk.sq, u: p.u, v: p.v })) : [];
-          cb({ points, n: points.length }, w, h);
-        });
+        })
+          .then((res) => {
+            if (!extr || !cubeReady) return [res, []];
+            return new Promise((resolve) => {
+              cubePending = resolve;
+              cubeWorker.postMessage({ type: "frame", id: Date.now(), width: w, height: h, rgba: data.buffer }, [data.buffer]);
+            }).then((dets) => [res, dets]);
+          })
+          .then(([res, cubeDets]) => {
+            busy = false;
+            const raw = res ? res.points : [];
+            const points = raw.map((p) => ({ X: p.i * chk.sq, Y: p.j * chk.sq, u: p.u, v: p.v }));
+            const tags = cubeDets
+              .filter((d) => d.id >= 24 && d.id <= 29)
+              .map((d) => ({ id: d.id, corners: d.corners, ...tagCenter(d.corners, w, h) }))
+              .filter((t) => Number.isFinite(t.u));
+            cb({ points, raw, tags, n: points.length }, w, h);
+          });
         return true;
       }
       const thin = S.thinBlack(data, w, h);
@@ -150,7 +205,7 @@ Lynx.games = Lynx.games || {};
     // -- the camera and the robot ---------------------------------------------------------------
     const chassis = { x: 0, y: 0, th: 0, at: -1e9 };
     Lynx.control.onMessage("pose", (m) => {
-      if (alive && typeof m.theta === "number") Object.assign(chassis, { x: m.x, y: m.y, th: m.theta, at: performance.now() });
+      if (alive && typeof m.theta === "number") Object.assign(chassis, { x: m.x, y: m.y, th: m.theta, pan: m.servoAngleDeg, tilt: m.tiltAngleDeg, at: performance.now() });
     });
     const robotXY = () => (performance.now() - chassis.at < 1000 ? chassis : ar.pose);
     let aim = null; // {yaw (world), tiltDeg}
@@ -265,8 +320,14 @@ Lynx.games = Lynx.games || {};
         const v = prepare(finds, w, h, lensInit(w, h));
         live = { dets: [], points: [], ...finds, w, h, at: performance.now() };
         if (enough(finds) && v) {
-          views.push({ ...finds, w, h });
-          if (manual) say(`Picture ${views.length}: ${finds.n} ${what}`, "#a0ffa0");
+          // (extrinsics: the robot as it was -- the camera has been still a while)
+          const robot = extr && performance.now() - chassis.at < 1000 ? { pan: chassis.pan, tilt: chassis.tilt, odo: { x: chassis.x, y: chassis.y, th: chassis.th } } : {};
+          if (extr && !robot.odo) {
+            say("No telemetry from the robot -- picture not used", "#ff9090");
+          } else {
+            views.push({ ...finds, ...robot, w, h });
+            if (manual) say(`Picture ${views.length}: ${finds.n} ${what}${extr ? `, ${finds.tags.length} cube tags` : ""}`, "#a0ffa0");
+          }
         } else if (manual) say(`Not enough of the target in view (${finds.n} ${what})`, "#ff9090");
         if (tour && state === "shoot") nextShot();
       });
@@ -357,6 +418,10 @@ Lynx.games = Lynx.games || {};
         return;
       }
       state = "solving";
+      if (extr) {
+        setTimeout(solveExtrinsics, 30);
+        return;
+      }
       setTimeout(() => {
         const { w, h } = views[0];
         const same = views.filter((v) => v.w === w && v.h === h);
@@ -390,7 +455,98 @@ Lynx.games = Lynx.games || {};
       }, 30);
     }
 
+    // -- extrinsics ------------------------------------------------------------------------------------
+    let params = null; // the robot's /params (settings), for the priors and the servo pulses
+    fetch("/params", { cache: "no-store" }).then((r) => r.json()).then((p) => (params = p)).catch(() => {});
+    const D2R = Math.PI / 180;
+    function solveExtrinsics() {
+      const E = Lynx.camextSolver;
+      const w = views[0].w;
+      const h = views[0].h;
+      const K = lensInit(w, h);
+      const prior = {};
+      if (params) {
+        prior.h = params.cameraHeightMm / 1000;
+        prior.mountTilt = params.cameraTiltDeg * D2R;
+      }
+      const res = E.solve(
+        views.filter((v) => v.w === w && v.h === h).map((v) => ({ K, pan: v.pan, tilt: v.tilt, odo: v.odo, points: v.raw, tags: v.tags })),
+        { square: chk.sq, cube: cubeM, cols: chk.cols, rows: chk.rows, prior },
+      );
+      state = "done";
+      if (res.error) {
+        say(res.error, "#ff9090");
+        result = null;
+        return;
+      }
+      result = { extr: true, ...res, w, h };
+      say(`Solved: ${res.rms.toFixed(2)} px RMS over ${res.views} pictures (${res.spots} spots, ${res.tags} cube tags) -- Save to keep it`, "#a0ffa0");
+    }
+    // the servo's pulse for a commanded angle, as the robot computes it (piecewise
+    // linear through min / center / max) -- and beyond, extended
+    function pulseOf(a, minA, maxA, minP, cenP, maxP) {
+      return a <= 0 ? cenP + (a / minA) * (minP - cenP) : cenP + (a / maxA) * (maxP - cenP);
+    }
+    // New pulses so that a commanded angle A comes out as A: today command c
+    // turns the servo to offset + c * gain (gain by side); so for A, command
+    // c = (A - offset) / gain, whose pulse becomes A's.
+    function newPulses(off, gainPos, gainNeg, minA, maxA, minP, cenP, maxP) {
+      const c = (A) => {
+        const g = A - off >= 0 ? gainPos : gainNeg;
+        return (A - off) / g;
+      };
+      return {
+        min: Math.round(pulseOf(c(minA), minA, maxA, minP, cenP, maxP) * 10) / 10,
+        center: Math.round(pulseOf(c(0), minA, maxA, minP, cenP, maxP) * 10) / 10,
+        max: Math.round(pulseOf(c(maxA), minA, maxA, minP, cenP, maxP) * 10) / 10,
+      };
+    }
+    function saveExtrinsics() {
+      const r = result;
+      if (!params) {
+        say("The robot's settings didn't load -- is it reachable?", "#ff9090");
+        return;
+      }
+      const P = r.params;
+      const p = params;
+      const pan = newPulses(P.panOffset / D2R, P.panGainL, P.panGainR, p.servoMinAngleDeg, p.servoMaxAngleDeg, p.servoMinPulseUs, p.servoCenterPulseUs, p.servoMaxPulseUs);
+      // (tilt > 0 looks up: the gain up for positive commands; its offset is in the mount tilt)
+      const tilt = newPulses(0, P.tiltGainUp, P.tiltGainDown, p.tiltMinAngleDeg, p.tiltMaxAngleDeg, p.tiltMinPulseUs, p.tiltCenterPulseUs, p.tiltMaxPulseUs);
+      const q = new URLSearchParams({
+        cameraHeightMm: (P.h * 1000).toFixed(1),
+        cameraTiltDeg: (P.mountTilt / D2R).toFixed(2),
+        servoMinPulseUs: pan.min, servoCenterPulseUs: pan.center, servoMaxPulseUs: pan.max,
+        tiltMinPulseUs: tilt.min, tiltCenterPulseUs: tilt.center, tiltMaxPulseUs: tilt.max,
+      });
+      fetch(`/set?${q}`)
+        .then((x) => {
+          if (!x.ok) throw new Error(x.status);
+          return fetch("/appdata/camcal", { cache: "no-store" }).then((y) => (y.ok ? y.json() : {})).catch(() => ({}));
+        })
+        .then((doc) => {
+          const out = {
+            version: 2, ...doc,
+            extrinsics: {
+              heightMm: +(P.h * 1000).toFixed(2), offsetMm: +(P.offset * 1000).toFixed(2), mountTiltDeg: +(P.mountTilt / D2R).toFixed(3),
+              axisRollDeg: +(P.axisRoll / D2R).toFixed(3), camRollDeg: +(P.camRoll / D2R).toFixed(3), panOffsetDeg: +(P.panOffset / D2R).toFixed(3),
+              panGainL: +P.panGainL.toFixed(4), panGainR: +P.panGainR.toFixed(4), tiltGainUp: +P.tiltGainUp.toFixed(4), tiltGainDown: +P.tiltGainDown.toFixed(4),
+              rmsPx: +r.rms.toFixed(3), views: r.views, at: new Date().toISOString().slice(0, 19),
+            },
+          };
+          return fetch("/appdata/camcal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
+        })
+        .then(() => {
+          say("Saved: camera height and tilt, servo pulses -- reload the page to use them", "#a0ffa0");
+          return fetch("/params", { cache: "no-store" }).then((x) => x.json()).then((x) => (params = x));
+        })
+        .catch(() => say("Couldn't save -- is the robot reachable?", "#ff9090"));
+    }
+
     function save() {
+      if (result && result.extr) {
+        saveExtrinsics();
+        return;
+      }
       if (!result) {
         say("Nothing to save yet -- Solve first", "#ff9090");
         return;
@@ -443,6 +599,7 @@ Lynx.games = Lynx.games || {};
     ar.onDestroy(() => {
       alive = false;
       worker.terminate();
+      if (cubeWorker) cubeWorker.terminate();
       panel.forEach((el) => el.remove());
       if (tour) holdRobot();
       takeControl(false);
@@ -475,6 +632,7 @@ Lynx.games = Lynx.games || {};
       });
       if (now - live.at < 1000) {
         live.dets.forEach((d) => drawPoly(d.corners, live.w, live.h, "rgba(60,255,120,0.9)", 2));
+        (live.tags || []).forEach((t) => drawPoly(t.corners, live.w, live.h, "rgba(255,180,60,0.95)", 2));
         // checkerboard corners: small green crosses
         const sx = v.w / live.w;
         const sy = v.h / live.h;
@@ -495,7 +653,19 @@ Lynx.games = Lynx.games || {};
       const lines = [];
       const st = { idle: "", locate: "Finding the target...", drive: "Driving to the next spot", aim: "Aiming", shoot: "Taking a picture", solving: "Solving...", done: "" }[state];
       lines.push(`${ready ? `${live.n} ${what} in view` : "Loading the tag detector..."} · ${views.length} pictures${tour && tour.stops ? ` · spot ${tour.i + 1}/${tour.stops.length}, shot ${tour.j + 1}/${tour.stops[tour.i].offsets.length}` : ""}${st ? ` · ${st}` : ""}`);
-      if (result) {
+      if (result && result.extr) {
+        const r = result;
+        const P = r.params;
+        const sg = r.sigma;
+        const pr = r.prior;
+        const mm = (x) => (x * 1000).toFixed(1);
+        const dg = (x) => (x / D2R).toFixed(2);
+        lines.push(`height ${mm(P.h)} \u00b1 ${mm(sg.h)} mm (was ${mm(pr.h)}) \u00b7 lens ${mm(P.offset)} \u00b1 ${mm(sg.offset)} mm in front of the tilt axis`);
+        lines.push(`mount tilt ${dg(P.mountTilt)} \u00b1 ${dg(sg.mountTilt)}\u00b0 (was ${dg(pr.mountTilt)}) \u00b7 pan offset ${dg(P.panOffset)} \u00b1 ${dg(sg.panOffset)}\u00b0`);
+        lines.push(`tilt axis roll ${dg(P.axisRoll)} \u00b1 ${dg(sg.axisRoll)}\u00b0 \u00b7 camera roll ${dg(P.camRoll)} \u00b1 ${dg(sg.camRoll)}\u00b0`);
+        lines.push(`servo gains: pan L ${P.panGainL.toFixed(3)} R ${P.panGainR.toFixed(3)} \u00b7 tilt up ${P.tiltGainUp.toFixed(3)} down ${P.tiltGainDown.toFixed(3)}`);
+        lines.push(`RMS ${r.rms.toFixed(2)} px \u00b7 ${r.views} pictures (${r.full} whole board), ${r.spots} spots, ${r.corners} corners, ${r.tags} cube tags`);
+      } else if (result) {
         const r = result;
         const o = r.old;
         lines.push(`f ${r.f.toFixed(1)} px (was ${o.f.toFixed(1)}) · center ${r.cx.toFixed(1)}, ${r.cy.toFixed(1)} (was ${o.cx.toFixed(1)}, ${o.cy.toFixed(1)})`);
@@ -504,7 +674,7 @@ Lynx.games = Lynx.games || {};
       }
       lines.forEach((s, i) => ar.text(s, v.x + 12, v.y + 24 + i * 18, { size: 13, color: i ? "#ffe080" : "#c0f0ff" }));
       if (state === "idle" && !views.length && !result) {
-        ar.banner("CAMERA CALIBRATION", `Point the camera at the ${checker ? "checkerboard" : "AprilGrid"} target · Fire: robot tour · C: one picture`, { color: "#80d0ff" });
+        ar.banner(extr ? "CAMERA EXTRINSICS" : "CAMERA CALIBRATION", `Point the camera at the ${checker ? "checkerboard" : "AprilGrid"}${extr ? " (with the cube on the floor next to it)" : ""} target · Fire: robot tour · C: one picture`, { color: "#80d0ff" });
       }
       if (note && now - note.at < 4000) ar.text(note.text, v.cx, v.y + v.h - 40, { size: 15, align: "center", color: note.color });
     });
