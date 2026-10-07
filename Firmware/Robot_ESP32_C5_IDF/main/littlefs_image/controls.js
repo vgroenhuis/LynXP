@@ -147,10 +147,10 @@ window.Lynx = window.Lynx || {};
   // until a power cycle; it happened three times with only the servos moving).
   const ROBOT_TURN_GAIN = 0.4; // full left/right = 40% of the wheels' top speed, opposite ways (~100 deg/s)
   const ROBOT_CAM_TILT_DEG = 90;
-  // Full left/right pan. Not the servo's whole +-90: at full left it went past
-  // 90 (calibration) and the robot froze twice there -- a stalled servo's
-  // current dipping the supply is the suspect.
-  const ROBOT_CAM_PAN_DEG = 80;
+  // Full left/right pan: the servo's whole +-90. (It was 80 with the old pan
+  // servo, which stalled past 90 and froze the robot twice; the new one draws
+  // less current and has room past 90 before its hard stop.)
+  const ROBOT_CAM_PAN_DEG = 90;
   // full deflection: keyboard / gamepad send the look axes scaled by TURN_SPEED / TILT_SPEED (below), touch up to 1
   const ROBOT_CAM_FULL_ROT = 0.7;
   const ROBOT_CAM_FULL_TILT = 0.8;
