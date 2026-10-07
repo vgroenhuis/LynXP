@@ -2,13 +2,17 @@
 // "Calibrate: servos"; the math is camservo.js).
 //
 // Put the robot about half a metre in front of the checkerboard, facing it,
-// with the whole board in view, and press Fire. The robot then, by itself:
+// with the whole board in view, and press ▶ Start. The robot then, by itself:
 //   - drives 25 cm straight back and returns (pan 0): where "straight ahead"
 //     really is;
 //   - turns on the spot by -30, -60, -90, +30, +60, +90 deg while the pan
 //     servo is told the opposite, so the board stays in view: what the servo
 //     really turns;
-//   - tilts up and down (pan 0): what the tilt servo really turns.
+//   - tilts up and down (pan 0): what the tilt servo really turns -- from
+//     where it starts and then closer and closer to the board (down to
+//     CLOSEST_M), so the camera can tilt further and still see part of it.
+//     Which angles show enough of the board at each distance is worked out
+//     from the first picture.
 // Then it shows commanded -> measured angles and the new servo pulses; Save
 // writes those (the pan's min / center / max, the tilt's min / max -- its
 // center offset is the camera's mount tilt, the next step's).
@@ -18,7 +22,11 @@ Lynx.games = Lynx.games || {};
 
 (function (Lynx) {
   const PANS = [30, 60, 90, -30, -60, -90]; // deg
-  const TILTS = [12, 24, -12, -24]; // deg (the board must stay partly in view)
+  const TILT_STEP = 6; // deg: tilt angles tried, -90..90 in these steps
+  const DISTANCES = [0.35, 0.25, 0.17]; // m, camera to board: the tilt sweeps after the one where it starts
+  const CLOSEST_M = 0.17; // (the robot's front stays clear of the board)
+  const TILT_MIN_CORNERS = 30; // a tilt picture needs this many (part of the board)
+  const PREDICT_MARGIN_PX = 12;
   const BACK_M = 0.25;
   const SETTLE_MS = 1200; // arrived and still: servos settle, the video catches up
   const STOPPED_MS = 800;
@@ -115,7 +123,53 @@ Lynx.games = Lynx.games || {};
       const K = { f: lens.f, cx: lens.cx, cy: lens.cy, k1: lens.k1 || 0, k2: lens.k2 || 0 };
       const pose = S.refinePose(finds.points.map((c) => ({ X: c.col * chk.sq, Y: c.row * chk.sq, u: c.u, v: c.v })), K);
       if (!pose || !(pose.rms < 2)) return null;
-      return { att: CS.attitude(S.rodrigues(pose.r), pose.t, finds.full ? mid : null), rms: pose.rms };
+      const R = S.rodrigues(pose.r);
+      return { att: CS.attitude(R, pose.t, finds.full ? mid : null), rms: pose.rms, R, t: pose.t, K };
+    }
+
+    // -- the tilt plan ------------------------------------------------------------------------------
+    // From the first picture (the whole board, pan 0, tilt 0): the board's
+    // corners in the camera's frame. Moved ahead by s and tilted up by t, how
+    // many of them would be in the picture?
+    function tiltPlan(m, w, h) {
+      const corners = [];
+      for (let c = 0; c < chk.cols; c++) {
+        for (let r = 0; r < chk.rows; r++) {
+          const X = c * chk.sq;
+          const Y = r * chk.sq;
+          corners.push([0, 1, 2].map((k) => m.R[k][0] * X + m.R[k][1] * Y + m.t[k]));
+        }
+      }
+      const d0 = m.att.mid[2]; // the board's middle, straight ahead
+      const seen = (s, tDeg) => {
+        const t = tDeg * D2R;
+        let n = 0;
+        corners.forEach(([x, y, z0]) => {
+          const z = z0 - s;
+          const zz = -y * Math.sin(t) + z * Math.cos(t);
+          const yy = y * Math.cos(t) + z * Math.sin(t);
+          if (zz < 0.05) return;
+          const [u, v] = S.project(m.K, x, yy, zz);
+          if (u > PREDICT_MARGIN_PX && v > PREDICT_MARGIN_PX && u < w - PREDICT_MARGIN_PX && v < h - PREDICT_MARGIN_PX) n++;
+        });
+        return n;
+      };
+      const stops = [d0, ...DISTANCES.filter((d) => d < d0 - 0.05 && d >= CLOSEST_M)];
+      // each angle once, from the farthest stop that sees enough of the board
+      const done = new Set();
+      const plan = [];
+      stops.forEach((d) => {
+        const tilts = [];
+        for (let t = -90 + TILT_STEP; t < 90; t += TILT_STEP) {
+          if (t !== 0 && !done.has(t) && seen(d0 - d, t) >= TILT_MIN_CORNERS + 10) {
+            tilts.push(t);
+            done.add(t);
+          }
+        }
+        // (each stop: a tilt-0 picture first -- the reference -- then up, then down)
+        if (tilts.length) plan.push({ ahead: d0 - d, d, tilts: [0, ...tilts.filter((t) => t > 0), ...tilts.filter((t) => t < 0).reverse()] });
+      });
+      return plan;
     }
 
     // -- the run ------------------------------------------------------------------------------------
@@ -133,11 +187,18 @@ Lynx.games = Lynx.games || {};
         say("No telemetry from the robot", "#ff9090");
         return;
       }
-      if (!live.full || performance.now() - live.at > 1500) {
+      const m0 = live.full && performance.now() - live.at < 1500 && measure(live, live.w, live.h);
+      if (!m0) {
         say("Point the camera at the checkerboard: the whole board in view", "#ff9090");
         return;
       }
       const { x, y, th } = robot;
+      const tilts = tiltPlan(m0, live.w, live.h);
+      const tiltSteps = [];
+      tilts.forEach((stop) => {
+        const at = { x: x + stop.ahead * Math.cos(th), y: y + stop.ahead * Math.sin(th) };
+        stop.tilts.forEach((t) => tiltSteps.push({ kind: "tilt", ...at, heading: th, pan: 0, tilt: t, what: `${(stop.d * 100).toFixed(0)} cm from the board: tilt ${t > 0 ? "up " : t < 0 ? "down " : ""}${Math.abs(t)}\u00b0` }));
+      });
       const back = { x: x - BACK_M * Math.cos(th), y: y - BACK_M * Math.sin(th) };
       const steps = [
         { kind: "zero", x, y, heading: th, pan: 0, tilt: 0, what: "straight ahead" },
@@ -145,7 +206,8 @@ Lynx.games = Lynx.games || {};
         { kind: "zero", x, y, heading: th, pan: 0, tilt: 0, what: "and forward" },
         ...PANS.map((c) => ({ kind: "pan", x, y, heading: wrap(th - c * D2R), pan: c, tilt: 0, what: `pan ${c > 0 ? "left" : "right"} ${Math.abs(c)}°` })),
         { kind: "pan", x, y, heading: th, pan: 0, tilt: 0, what: "pan 0" },
-        ...TILTS.map((t) => ({ kind: "tilt", x, y, heading: th, pan: 0, tilt: t, what: `tilt ${t > 0 ? "up" : "down"} ${Math.abs(t)}°` })),
+        ...tiltSteps,
+        { kind: "back", x, y, heading: th, pan: 0, tilt: 0, what: "back to the start" },
       ];
       samples = [];
       result = null;
@@ -192,6 +254,8 @@ Lynx.games = Lynx.games || {};
           run.phase = "settle";
           run.t = now;
         }
+      } else if (run.phase === "settle" && s.kind === "back") {
+        next(); // (no picture: just out of the board's way)
       } else if (run.phase === "settle") {
         if (now - run.t > SETTLE_MS) {
           run.phase = "shoot";
@@ -202,10 +266,10 @@ Lynx.games = Lynx.games || {};
         grab((finds, w, h) => {
           if (!run) return;
           live = { ...finds, w, h, at: performance.now() };
-          const ok = finds.n >= MIN_CORNERS && (s.kind !== "zero" || finds.full);
+          const ok = finds.n >= (s.kind === "tilt" ? TILT_MIN_CORNERS : MIN_CORNERS) && (s.kind !== "zero" || finds.full);
           const m = ok && measure(finds, w, h);
           if (m) {
-            samples.push({ kind: s.kind, pan: s.pan, tilt: s.tilt, x: robot.x, y: robot.y, th: robot.th, ...m, n: finds.n });
+            samples.push({ kind: s.kind, pan: s.pan, tilt: s.tilt, x: robot.x, y: robot.y, th: robot.th, att: m.att, rms: m.rms, n: finds.n });
             next();
           } else if (performance.now() - run.t > SHOT_TIMEOUT_MS) {
             say(`Board not seen well enough (${s.what}${s.kind === "zero" ? ": needs the whole board" : ""}) -- skipped`, "#ffb060");
@@ -226,7 +290,7 @@ Lynx.games = Lynx.games || {};
 
     function save() {
       if (!result) {
-        say("Nothing to save yet -- run it first (Fire)", "#ff9090");
+        say("Nothing to save yet -- run it first (\u25b6 Start)", "#ff9090");
         return;
       }
       const P = result.newPan;
@@ -264,8 +328,9 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- controls ------------------------------------------------------------------------------------------
-    Lynx.onAction("fire", () => (run ? finish("Stopped", "#ffe080") : start()));
+    // (only this button starts it -- not fire, which a click anywhere on the picture is too)
     const touch = Lynx.touchButtons();
+    const startBtn = touch.add("\u25b6 Start", () => (run ? finish("Stopped", "#ffe080") : start()));
     touch.add("\u{1F4BE} Save", () => save());
     ar.onDestroy(() => {
       alive = false;
@@ -277,6 +342,8 @@ Lynx.games = Lynx.games || {};
     let liveAt = 0;
     ar.onFrame((now) => {
       step(now);
+      const label = run ? "\u25a0 Stop" : "\u25b6 Start";
+      if (startBtn.textContent !== label) startBtn.textContent = label;
       if (!run && !busy && now - liveAt > 300) {
         liveAt = now;
         grab((finds, w, h) => (live = { ...finds, w, h, at: performance.now() }));
@@ -301,7 +368,8 @@ Lynx.games = Lynx.games || {};
       }
       const lines = [];
       const s = run && run.steps[run.i];
-      lines.push(`${live.n} corners${live.full ? " (whole board)" : ""} · ${samples.length} pictures${s ? ` · ${run.i + 1}/${run.steps.length}: ${s.what} (${{ move: "moving", settle: "settling", shoot: "picture" }[run.phase]})` : ""}`);
+      lines.push(`${live.n} corners${live.full ? " (whole board)" : ""} \u00b7 ${samples.length} pictures${s ? ` \u00b7 ${run.i + 1}/${run.steps.length}: ${s.what} (${{ move: "moving", settle: "settling", shoot: "picture" }[run.phase]})` : ""}`);
+      if (run && run.i === 0 && run.phase === "move") lines.push(`tilt: ${run.steps.filter((q) => q.kind === "tilt" && q.tilt).length} pictures planned, ${Math.min(...run.steps.map((q) => q.tilt))}\u00b0 to ${Math.max(...run.steps.map((q) => q.tilt))}\u00b0`);
       if (result) {
         const r = result;
         const f = (x) => (x >= 0 ? "+" : "") + x.toFixed(1);
@@ -317,11 +385,11 @@ Lynx.games = Lynx.games || {};
       }
       lines.forEach((t, i) => ar.text(t, v.x + 12, v.y + 24 + i * 18, { size: 13, color: i ? "#ffe080" : "#c0f0ff" }));
       if (!run && !samples.length && !result) {
-        ar.banner("SERVO CALIBRATION", "Robot ~0.5 m in front of the checkerboard, facing it, whole board in view · Fire: start (it drives and turns by itself)", { color: "#80d0ff" });
+        ar.banner("SERVO CALIBRATION", "Robot ~0.5 m in front of the checkerboard, facing it, whole board in view · \u25b6 Start: it drives and turns by itself", { color: "#80d0ff" });
       }
       if (note && now - note.at < 5000) ar.text(note.text, v.cx, v.y + v.h - 40, { size: 15, align: "center", color: note.color });
     });
 
-    return { actionLabel: "▶ Start", debug: { samples: () => samples, result: () => result, run: () => run, analyze } };
+    return { debug: { samples: () => samples, result: () => result, run: () => run, analyze, tiltPlan } };
   };
 })(window.Lynx);

@@ -7,12 +7,12 @@
 //
 // Put the target upright (e.g. on a wall, near the floor) with the robot in
 // front of it, looking at it. Then:
-//   Start tour (Fire): the robot finds the target, then drives to viewpoints
+//   ▶ Tour: the robot finds the target, then drives to viewpoints
 //     in front of it -- DISTANCES x ANGLES around its center, never closer to
 //     the wall than the nearest distance -- and at each, points the camera so
 //     the target lands in the middle, at the sides, top and bottom and the
 //     corners of the picture (the edges are where the lens bends most). It
-//     only takes a picture with the camera still. Fire again stops it.
+//     only takes a picture with the camera still. ■ Stop stops it.
 //   Capture (C / gamepad Y): one picture now, from wherever you put it.
 //   Solve: fit the intrinsics to the pictures so far (done after a tour too).
 //   Save: into the robot's camcal for this resolution -- every overlay and
@@ -548,7 +548,7 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- controls -------------------------------------------------------------------------------------
-    Lynx.onAction("fire", () => (tour ? stopTour() : startTour()));
+    // (only the Tour button starts it -- not fire, which a click anywhere on the picture is too)
     // (a capture asked for while a detection is under way waits for it)
     let wantShot = false;
     const manualCapture = () => {
@@ -556,6 +556,7 @@ Lynx.games = Lynx.games || {};
     };
     Lynx.onAction("camera", manualCapture);
     const touch = Lynx.touchButtons();
+    const tourBtn = touch.add("\u25b6 Tour", () => (tour ? stopTour() : startTour()));
     touch.add("\u{1F4F7} Capture", manualCapture);
     touch.add("\u{1F9EE} Solve", () => !tour && solveNow());
     touch.add("\u{1F4BE} Save", () => save());
@@ -593,6 +594,8 @@ Lynx.games = Lynx.games || {};
     }
     ar.onFrame((now) => {
       step(now);
+      const label = tour ? "\u25a0 Stop" : "\u25b6 Tour";
+      if (tourBtn.textContent !== label) tourBtn.textContent = label;
       const v = ar.view;
       const g = ar.ctx;
       // coverage: every corner captured so far
@@ -646,11 +649,11 @@ Lynx.games = Lynx.games || {};
       }
       lines.forEach((s, i) => ar.text(s, v.x + 12, v.y + 24 + i * 18, { size: 13, color: i ? "#ffe080" : "#c0f0ff" }));
       if (state === "idle" && !views.length && !result) {
-        ar.banner(extr ? "CAMERA MOUNT" : "CAMERA CALIBRATION", `Point the camera at the ${checker ? "checkerboard" : "AprilGrid"}${extr ? " (with the cube on the floor next to it)" : ""} target · Fire: robot tour · C: one picture`, { color: "#80d0ff" });
+        ar.banner(extr ? "CAMERA MOUNT" : "CAMERA CALIBRATION", `Point the camera at the ${checker ? "checkerboard" : "AprilGrid"}${extr ? " (with the cube on the floor next to it)" : ""} target · \u25b6 Tour: the robot takes the pictures · \u{1F4F7} Capture: one picture`, { color: "#80d0ff" });
       }
       if (note && now - note.at < 4000) ar.text(note.text, v.cx, v.y + v.h - 40, { size: 15, align: "center", color: note.color });
     });
 
-    return { actionLabel: "▶ Tour", debug: { views: () => views, result: () => result, tour: () => tour, solveNow, locate, plan } };
+    return { debug: { views: () => views, result: () => result, tour: () => tour, solveNow, locate, plan } };
   };
 })(window.Lynx);
