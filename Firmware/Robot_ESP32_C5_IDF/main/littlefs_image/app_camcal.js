@@ -30,6 +30,8 @@ Lynx.games = Lynx.games || {};
   const SETTLE_MS = 1000; // after the camera reaches its aim: servos settle, the video catches up
   const STILL_MS = 500;
   const DRIVE_TIMEOUT_MS = 25000;
+  const ARRIVED_M = 0.035; // the robot's goto stops within 3 cm (GOTO_ARRIVAL_TOLERANCE_M)
+  const STOPPED_MS = 1000; // ...or: not moving for this long (it's as close as it gets)
   const SHOT_TIMEOUT_MS = 6000;
   const LIVE_EVERY_MS = 300;
   const MIN_TAGS = 4;
@@ -326,7 +328,13 @@ Lynx.games = Lynx.games || {};
           tour.gotoAt = now;
         }
         const r = robotXY();
-        if (Math.hypot(r.x - stop.x, r.y - stop.y) < 0.02 || now - tour.legAt > DRIVE_TIMEOUT_MS) {
+        // (when it last moved or turned, for "stopped" -- the goto turns on the spot first)
+        const th = typeof r.th === "number" ? r.th : r.theta;
+        if (!tour.lastPos || Math.hypot(r.x - tour.lastPos.x, r.y - tour.lastPos.y) > 0.005 || Math.abs(wrap(th - tour.lastPos.th)) > 0.02) tour.lastPos = { x: r.x, y: r.y, th, at: now };
+        const arrived = Math.hypot(r.x - stop.x, r.y - stop.y) < ARRIVED_M;
+        const stopped = now - tour.legAt > 1500 && now - tour.lastPos.at > STOPPED_MS;
+        if (arrived || stopped || now - tour.legAt > DRIVE_TIMEOUT_MS) {
+          tour.lastPos = null;
           state = "aim";
           tour.aimAt = now;
           tour.j = 0;
