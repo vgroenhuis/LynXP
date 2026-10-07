@@ -1,7 +1,9 @@
 // Camera calibration (Games & apps -> "Camera calibration"): the camera's
 // intrinsics -- focal length, optical center, the lens's distortion k1, k2
-// (see Lynx.lens) -- from photos of an AprilGrid calibration target (Kalibr
-// layout, tag36h11 by default; camcal_solver.js does the math).
+// (see Lynx.lens) -- from photos of a calibration target: an AprilGrid
+// (Kalibr layout, tag36h11 by default; tag_worker.js finds the tags) or a
+// checkerboard (camcal_checker.js in checker_worker.js finds its corners;
+// the more accurate one). camcal_solver.js does the math.
 //
 // Put the target upright (e.g. on a wall, near the floor) with the robot in
 // front of it, looking at it. Then:
@@ -15,8 +17,9 @@
 //   Solve: fit the intrinsics to the pictures so far (done after a tour too).
 //   Save: into the robot's camcal for this resolution -- every overlay and
 //     game uses it from then on.
-// The tags found are outlined live (green); the corners already captured are
-// dots (yellow), to see which parts of the picture are covered.
+// What's found is drawn live (green: tag outlines / corners); the corners
+// already captured are dots (yellow), to see which parts of the picture are
+// covered.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -30,6 +33,7 @@ Lynx.games = Lynx.games || {};
   const SHOT_TIMEOUT_MS = 6000;
   const LIVE_EVERY_MS = 300;
   const MIN_TAGS = 4;
+  const MIN_CORNERS = 12;
 
   Lynx.games.camcal = (ar, cfg) => {
     const S = Lynx.camcalSolver;
@@ -40,16 +44,24 @@ Lynx.games = Lynx.games || {};
       tagSpacing: Number.isFinite(+cfg.tagSpacing) ? +cfg.tagSpacing : 0.3,
     };
     const G = S.gridInfo(grid);
-    const boardW = (grid.tagCols - 1) * G.pitch + G.s;
-    const boardH = (grid.tagRows - 1) * G.pitch + G.s;
+    const checker = cfg.target === "checkerboard";
+    const chk = {
+      cols: Math.max(2, Math.round(+cfg.checkerCols || 13)), // inner corners
+      rows: Math.max(2, Math.round(+cfg.checkerRows || 14)),
+      sq: (+cfg.checkerSquareMm || 20) / 1000,
+    };
+    const boardW = checker ? (chk.cols + 1) * chk.sq : (grid.tagCols - 1) * G.pitch + G.s;
+    const boardH = checker ? (chk.rows + 1) * chk.sq : (grid.tagRows - 1) * G.pitch + G.s;
     const family = cfg.tagFamily === "tag16h5" ? "tag16h5" : "tag36h11";
+    const what = checker ? "corners" : "tags";
     const img = document.getElementById("camStream");
     const canvas = document.createElement("canvas");
     const g2 = canvas.getContext("2d", { willReadFrequently: true });
 
     let state = "idle"; // idle | locate | drive | aim | shoot | solving | done
-    let views = []; // {dets, w, h}
-    let live = { dets: [], w: 640, h: 480, at: 0 };
+    // A picture's finds: {dets (tags) | points ([{X, Y, u, v}], checkerboard), n, w, h}
+    let views = [];
+    let live = { dets: [], points: [], n: 0, w: 640, h: 480, at: 0 };
     let result = null;
     let note = null;
     let tour = null; // {plate, stops: [{x, y, offsets: [[dyaw, dtilt]]}], i, j, t0, reached, ...}
@@ -58,21 +70,21 @@ Lynx.games = Lynx.games || {};
 
     // -- the AprilTag worker ----------------------------------------------------------------------
     if (Lynx.cam && Lynx.cam.enableCors) Lynx.cam.enableCors();
-    const worker = new Worker("tag_worker.js");
-    let ready = false;
+    const worker = new Worker(checker ? "checker_worker.js" : "tag_worker.js");
+    let ready = checker; // (the checkerboard worker needs nothing loaded)
     let busy = false;
     let pending = null; // {cb} -- the detection under way
     worker.onmessage = (ev) => {
       const m = ev.data;
       if (m.type === "ready") ready = true;
       else if (m.type === "error") say(m.message, "#ff8080");
-      else if (m.type === "detections") {
+      else if (m.type === "detections" || m.type === "corners") {
         const p = pending;
         pending = null;
-        if (p) p.cb(m.detections);
+        if (p) p.cb(m.type === "corners" ? m.result : m.detections);
       }
     };
-    worker.postMessage({ type: "family", family });
+    if (!checker) worker.postMessage({ type: "family", family });
     // Each picture is searched twice: as it is, and with black thinned a pixel
     // (camcal_solver.js thinBlack: Kalibr's corner squares touch the tags'
     // corners, so the detector misses them otherwise). A tag found as is keeps
@@ -84,6 +96,7 @@ Lynx.games = Lynx.games || {};
         worker.postMessage({ type: "frame", id: Date.now(), width: w, height: h, rgba: rgba.buffer }, [rgba.buffer]);
       });
     }
+    // One picture -> cb(finds, w, h): {dets} (tags) or {points} (checkerboard), and n
     function grab(kind, cb) {
       if (!ready || busy || !img || !img.naturalWidth) return false;
       const w = img.naturalWidth;
@@ -100,6 +113,18 @@ Lynx.games = Lynx.games || {};
         return false; // (CORS: the stream is reconnecting)
       }
       busy = true;
+      if (checker) {
+        const gray = S.grayOf(data, w, h);
+        new Promise((resolve) => {
+          pending = { cb: resolve };
+          worker.postMessage({ type: "frame", id: Date.now(), width: w, height: h, gray: gray.buffer, opts: { maxCols: chk.cols, maxRows: chk.rows } }, [gray.buffer]);
+        }).then((res) => {
+          busy = false;
+          const points = res ? res.points.map((p) => ({ X: p.i * chk.sq, Y: p.j * chk.sq, u: p.u, v: p.v })) : [];
+          cb({ points, n: points.length }, w, h);
+        });
+        return true;
+      }
       const thin = S.thinBlack(data, w, h);
       detectOnce(data, w, h)
         .then((plain) => detectOnce(thin, w, h).then((thinned) => [plain, thinned]))
@@ -107,10 +132,18 @@ Lynx.games = Lynx.games || {};
           busy = false;
           const ids = new Set(plain.map((d) => d.id));
           const extra = thinned.filter((d) => !ids.has(d.id)).map((d) => ({ ...d, corners: S.unthinCorners(d.corners), refined: true }));
-          cb(plain.concat(extra).filter((d) => d.id < G.n), w, h);
+          const dets = plain.concat(extra).filter((d) => d.id < G.n);
+          cb({ dets, n: dets.length }, w, h);
         });
       return true;
     }
+    // a picture's finds -> the solver's view (corners matched to the board, a first pose)
+    const lensInit = (w, h) => {
+      const lens = Lynx.lens.params(w, h);
+      return { f: lens.f, cx: lens.cx, cy: lens.cy, k1: lens.k1 || 0, k2: lens.k2 || 0 };
+    };
+    const prepare = (finds, w, h, init) => (finds.points ? S.viewFromPoints(finds.points, w, h, init) : S.prepareView(finds.dets, grid, w, h, init));
+    const enough = (finds) => finds.n >= (checker ? MIN_CORNERS : MIN_TAGS);
 
     // -- the camera and the robot ---------------------------------------------------------------
     const chassis = { x: 0, y: 0, th: 0, at: -1e9 };
@@ -150,9 +183,8 @@ Lynx.games = Lynx.games || {};
     const aimReached = () => aim && Math.abs(wrap(ar.camTheta - aim.yaw)) < 0.03 && Math.abs(ar.tilt - (ar.calib.tiltRad - (aim.tiltDeg * Math.PI) / 180)) < 0.03;
 
     // -- the target in the world, from one picture -------------------------------------------------
-    function locate(dets, w, h) {
-      const lens = Lynx.lens.params(w, h);
-      const v = S.prepareView(dets, grid, w, h, { f: lens.f, cx: lens.cx, cy: lens.cy, k1: lens.k1 || 0, k2: lens.k2 || 0 });
+    function locate(finds, w, h) {
+      const v = prepare(finds, w, h, lensInit(w, h));
       if (!v) return null;
       const R = S.rodrigues(v.pose.r);
       const t = v.pose.t;
@@ -168,7 +200,11 @@ Lynx.games = Lynx.games || {};
         return [fwd * cth + q[0] * sth, fwd * sth - q[0] * cth, -down];
       };
       const cw = ar.cameraWorld();
-      const c = dir(cam(boardW / 2, boardH / 2));
+      // the target's center (a checkerboard: the middle of the corners seen)
+      const mid = finds.points
+        ? [finds.points.reduce((a, p) => a + p.X, 0) / finds.points.length, finds.points.reduce((a, p) => a + p.Y, 0) / finds.points.length]
+        : [boardW / 2, boardH / 2];
+      const c = dir(cam(mid[0], mid[1]));
       const center = { x: cw.x + c[0], y: cw.y + c[1], h: cw.h + c[2] };
       // its normal, horizontal, toward the camera
       let n = dir([R[0][2], R[1][2], R[2][2]]);
@@ -223,14 +259,13 @@ Lynx.games = Lynx.games || {};
     }
 
     function capture(manual) {
-      return grab("shot", (dets, w, h) => {
-        const lens = Lynx.lens.params(w, h);
-        const v = S.prepareView(dets, grid, w, h, { f: lens.f, cx: lens.cx, cy: lens.cy, k1: lens.k1 || 0, k2: lens.k2 || 0 });
-        live = { dets, w, h, at: performance.now() };
-        if (dets.length >= MIN_TAGS && v) {
-          views.push({ dets, w, h });
-          if (manual) say(`Picture ${views.length}: ${dets.length} tags`, "#a0ffa0");
-        } else if (manual) say(`Not enough of the target in view (${dets.length} tags)`, "#ff9090");
+      return grab("shot", (finds, w, h) => {
+        const v = prepare(finds, w, h, lensInit(w, h));
+        live = { dets: [], points: [], ...finds, w, h, at: performance.now() };
+        if (enough(finds) && v) {
+          views.push({ ...finds, w, h });
+          if (manual) say(`Picture ${views.length}: ${finds.n} ${what}`, "#a0ffa0");
+        } else if (manual) say(`Not enough of the target in view (${finds.n} ${what})`, "#ff9090");
         if (tour && state === "shoot") nextShot();
       });
     }
@@ -261,15 +296,15 @@ Lynx.games = Lynx.games || {};
       if (wantShot && !busy && !tour && capture(true)) wantShot = false;
       // live detections (for the outlines, and to find the target)
       if (!busy && !wantShot && now - live.at > LIVE_EVERY_MS && state !== "shoot") {
-        grab("live", (dets, w, h) => {
-          live = { dets, w, h, at: performance.now() };
+        grab("live", (finds, w, h) => {
+          live = { dets: [], points: [], ...finds, w, h, at: performance.now() };
           if (state === "locate" && tour) {
-            if (dets.length < 6) {
+            if (finds.n < (checker ? 2 * MIN_CORNERS : 6)) {
               if (now - tour.t0 > 8000) stopTour("Target not found -- point the camera at it and try again");
               return;
             }
             if (stillFor() < STILL_MS) return;
-            const plate = locate(dets, w, h);
+            const plate = locate(finds, w, h);
             if (!plate) return;
             tour.plate = plate;
             tour.stops = plan(plate, w, h);
@@ -318,11 +353,11 @@ Lynx.games = Lynx.games || {};
         const { w, h } = views[0];
         const same = views.filter((v) => v.w === w && v.h === h);
         const lens = Lynx.lens.params(w, h);
-        let init = { f: lens.f, cx: lens.cx, cy: lens.cy, k1: lens.k1 || 0, k2: lens.k2 || 0 };
+        let init = lensInit(w, h);
         let res = null;
-        // twice: the second time the corners are matched with the first solution
+        // twice: the second time the corners are matched (and the poses started) with the first solution
         for (let pass = 0; pass < 2; pass++) {
-          const prepared = same.map((v) => S.prepareView(v.dets, grid, w, h, init)).filter(Boolean);
+          const prepared = same.map((v) => prepare(v, w, h, init)).filter(Boolean);
           res = S.solve(prepared, init, w, h);
           if (res.error) break;
           init = { f: res.f, cx: res.cx, cy: res.cy, k1: res.k1, k2: res.k2 };
@@ -364,7 +399,7 @@ Lynx.games = Lynx.games || {};
             ...old,
             fPx: +r.f.toFixed(2), cx: +r.cx.toFixed(2), cy: +r.cy.toFixed(2), k1: +r.k1.toFixed(4), k2: +r.k2.toFixed(4),
             hfovDeg: +r.hfovDeg.toFixed(2), vfovDeg: +r.vfovDeg.toFixed(2),
-            rmsPx: +r.rms.toFixed(3), views: r.views, method: "aprilgrid", at: new Date().toISOString().slice(0, 19),
+            rmsPx: +r.rms.toFixed(3), views: r.views, method: checker ? "checkerboard" : "aprilgrid", at: new Date().toISOString().slice(0, 19),
           };
           return fetch("/appdata/camcal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) }).then((x) => {
             if (!x.ok) throw new Error(x.status);
@@ -427,13 +462,31 @@ Lynx.games = Lynx.games || {};
       views.forEach((vw) => {
         const sx = v.w / vw.w;
         const sy = v.h / vw.h;
-        vw.dets.forEach((d) => d.corners.forEach((p) => g.fillRect(v.x + p.x * sx - 1.5, v.y + p.y * sy - 1.5, 3, 3)));
+        if (vw.points) vw.points.forEach((p) => g.fillRect(v.x + p.u * sx - 1.5, v.y + p.v * sy - 1.5, 3, 3));
+        else vw.dets.forEach((d) => d.corners.forEach((p) => g.fillRect(v.x + p.x * sx - 1.5, v.y + p.y * sy - 1.5, 3, 3)));
       });
-      if (now - live.at < 1000) live.dets.forEach((d) => drawPoly(d.corners, live.w, live.h, "rgba(60,255,120,0.9)", 2));
+      if (now - live.at < 1000) {
+        live.dets.forEach((d) => drawPoly(d.corners, live.w, live.h, "rgba(60,255,120,0.9)", 2));
+        // checkerboard corners: small green crosses
+        const sx = v.w / live.w;
+        const sy = v.h / live.h;
+        g.strokeStyle = "rgba(60,255,120,0.95)";
+        g.lineWidth = 1.5;
+        live.points.forEach((p) => {
+          const x = v.x + p.u * sx;
+          const y = v.y + p.v * sy;
+          g.beginPath();
+          g.moveTo(x - 4, y);
+          g.lineTo(x + 4, y);
+          g.moveTo(x, y - 4);
+          g.lineTo(x, y + 4);
+          g.stroke();
+        });
+      }
       // status
       const lines = [];
       const st = { idle: "", locate: "Finding the target...", drive: "Driving to the next spot", aim: "Aiming", shoot: "Taking a picture", solving: "Solving...", done: "" }[state];
-      lines.push(`${ready ? `${live.dets.length} tags in view` : "Loading the tag detector..."} · ${views.length} pictures${tour && tour.stops ? ` · spot ${tour.i + 1}/${tour.stops.length}, shot ${tour.j + 1}/${tour.stops[tour.i].offsets.length}` : ""}${st ? ` · ${st}` : ""}`);
+      lines.push(`${ready ? `${live.n} ${what} in view` : "Loading the tag detector..."} · ${views.length} pictures${tour && tour.stops ? ` · spot ${tour.i + 1}/${tour.stops.length}, shot ${tour.j + 1}/${tour.stops[tour.i].offsets.length}` : ""}${st ? ` · ${st}` : ""}`);
       if (result) {
         const r = result;
         const o = r.old;
@@ -443,7 +496,7 @@ Lynx.games = Lynx.games || {};
       }
       lines.forEach((s, i) => ar.text(s, v.x + 12, v.y + 24 + i * 18, { size: 13, color: i ? "#ffe080" : "#c0f0ff" }));
       if (state === "idle" && !views.length && !result) {
-        ar.banner("CAMERA CALIBRATION", `Point the camera at the AprilGrid target · Fire: robot tour · C: one picture`, { color: "#80d0ff" });
+        ar.banner("CAMERA CALIBRATION", `Point the camera at the ${checker ? "checkerboard" : "AprilGrid"} target · Fire: robot tour · C: one picture`, { color: "#80d0ff" });
       }
       if (note && now - note.at < 4000) ar.text(note.text, v.cx, v.y + v.h - 40, { size: 15, align: "center", color: note.color });
     });

@@ -276,16 +276,20 @@ window.Lynx = window.Lynx || {};
       name: "Camera calibration",
       icon: "\u{1F4D0}",
       blurb:
-        "Calibrates the camera's lens (focal length, optical center, distortion) from photos of an AprilGrid " +
-        "target (Kalibr layout). Put the target upright, e.g. on a wall near the floor, with the robot in front of it: " +
+        "Calibrates the camera's lens (focal length, optical center, distortion) from photos of a calibration target: " +
+        "a checkerboard (the more accurate) or an AprilGrid (Kalibr layout). Put the target upright, e.g. on a wall near the floor, with the robot in front of it: " +
         "the robot drives a tour around it and photographs it so it lands all over the picture, then fits the lens. " +
         "Save stores it for the current camera resolution. Needs internet once (the tag detector).",
       settings: [
-        { key: "tagFamily", label: "Tag family", type: "select", def: "tag36h11", options: [["tag36h11", "tag36h11 (Kalibr's AprilGrid)"], ["tag16h5", "tag16h5"]] },
-        { key: "tagCols", label: "Tags across (tagCols)", type: "number", def: 6, min: 2, max: 20, step: 1 },
-        { key: "tagRows", label: "Tags down (tagRows)", type: "number", def: 6, min: 2, max: 20, step: 1 },
-        { key: "tagSizeMm", label: "Tag size (black square, tagSize)", type: "number", unit: "mm", def: 34, min: 5, max: 300, step: 0.1 },
-        { key: "tagSpacing", label: "Gap between tags, as a share of the tag size (tagSpacing)", type: "number", def: 0.3, min: 0, max: 2, step: 0.01 },
+        { key: "target", label: "Calibration target", type: "select", def: "aprilgrid", options: [["aprilgrid", "AprilGrid (Kalibr)"], ["checkerboard", "Checkerboard"]] },
+        { key: "checkerCols", label: "Checkerboard: inner corners across (targetCols)", type: "number", def: 13, min: 2, max: 40, step: 1 },
+        { key: "checkerRows", label: "Checkerboard: inner corners down (targetRows)", type: "number", def: 14, min: 2, max: 40, step: 1 },
+        { key: "checkerSquareMm", label: "Checkerboard: square size", type: "number", unit: "mm", def: 20, min: 2, max: 200, step: 0.1 },
+        { key: "tagFamily", label: "AprilGrid: tag family", type: "select", def: "tag36h11", options: [["tag36h11", "tag36h11 (Kalibr's AprilGrid)"], ["tag16h5", "tag16h5"]] },
+        { key: "tagCols", label: "AprilGrid: tags across (tagCols)", type: "number", def: 6, min: 2, max: 20, step: 1 },
+        { key: "tagRows", label: "AprilGrid: tags down (tagRows)", type: "number", def: 6, min: 2, max: 20, step: 1 },
+        { key: "tagSizeMm", label: "AprilGrid: tag size (black square, tagSize)", type: "number", unit: "mm", def: 34, min: 5, max: 300, step: 0.1 },
+        { key: "tagSpacing", label: "AprilGrid: gap between tags, as a share of the tag size (tagSpacing)", type: "number", def: 0.3, min: 0, max: 2, step: 0.01 },
       ],
     },
     {

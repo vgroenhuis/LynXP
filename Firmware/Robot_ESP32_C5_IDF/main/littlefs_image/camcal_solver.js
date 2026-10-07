@@ -235,6 +235,16 @@ window.Lynx = window.Lynx || {};
     return { points, pose: poseFromH(H2), tags: points.length / 4 };
   }
 
+  // A picture's board points with their pixels ([{X, Y, u, v}], e.g. a
+  // checkerboard's corners) -> the same view object, with a first pose.
+  function viewFromPoints(points, w, h, init) {
+    if (!points || points.length < 9) return null;
+    const K = { f: init.f, cx: init.cx ?? w / 2, cy: init.cy ?? h / 2, k1: init.k1 || 0, k2: init.k2 || 0 };
+    const H = homographyLS(points.map((p) => [p.X, p.Y]), points.map((p) => unproject(K, p.u, p.v)));
+    if (!H) return null;
+    return { points, pose: poseFromH(H) };
+  }
+
   // -- Levenberg-Marquardt ----------------------------------------------------------------------
   const INTR = ["f", "cx", "cy", "k1", "k2"];
   const STEP = { f: 0.01, cx: 0.01, cy: 0.01, k1: 1e-6, k2: 1e-6 };
@@ -351,7 +361,7 @@ window.Lynx = window.Lynx || {};
   }
 
   function solve(viewsIn, init, w, h, opts = {}) {
-    let views = viewsIn.filter((v) => v && v.points.length >= 16);
+    let views = viewsIn.filter((v) => v && v.points.length >= 9);
     if (views.length < 3) return { error: "Need at least 3 good pictures of the target" };
     const K0 = { f: init.f, cx: init.cx ?? w / 2, cy: init.cy ?? h / 2, k1: init.k1 || 0, k2: init.k2 || 0 };
     // first without k2 (stabler), then everything
@@ -369,7 +379,7 @@ window.Lynx = window.Lynx || {};
       });
       o += 2 * v.points.length;
       return { ...v, points: pts, pose: res.poses[i] };
-    }).filter((v) => v.points.length >= 16);
+    }).filter((v) => v.points.length >= 9);
     if (dropped) res = lm(kept, res.K, { maxIter: 60 });
     const used = dropped ? kept : views;
     // per-view RMS, for showing which pictures fit worst
@@ -569,5 +579,5 @@ window.Lynx = window.Lynx || {};
     return out;
   }
 
-  Lynx.camcalSolver = { prepareView, solve, project, unproject, rodrigues, gridInfo, thinBlack, grayOf, refineCorners, unthinCorners };
+  Lynx.camcalSolver = { viewFromPoints, prepareView, solve, project, unproject, rodrigues, gridInfo, thinBlack, grayOf, refineCorners, unthinCorners };
 })(window.Lynx);
