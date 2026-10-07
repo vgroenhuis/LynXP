@@ -76,8 +76,8 @@ Lynx.games = Lynx.games || {};
     // Each picture is searched twice: as it is, and with black thinned a pixel
     // (camcal_solver.js thinBlack: Kalibr's corner squares touch the tags'
     // corners, so the detector misses them otherwise). A tag found as is keeps
-    // the detector's corners; one found only thinned gets them refined on the
-    // picture itself.
+    // the detector's corners; one found only thinned gets its edges moved back
+    // out by exactly what the thinning took (camcal_solver.js unthinCorners).
     function detectOnce(rgba, w, h) {
       return new Promise((resolve) => {
         pending = { cb: resolve };
@@ -100,16 +100,13 @@ Lynx.games = Lynx.games || {};
         return false; // (CORS: the stream is reconnecting)
       }
       busy = true;
-      const gray = S.grayOf(data, w, h);
       const thin = S.thinBlack(data, w, h);
-      const lens = Lynx.lens.params(w, h);
-      const K = { f: lens.f, cx: lens.cx, cy: lens.cy, k1: lens.k1 || 0, k2: lens.k2 || 0 };
       detectOnce(data, w, h)
         .then((plain) => detectOnce(thin, w, h).then((thinned) => [plain, thinned]))
         .then(([plain, thinned]) => {
           busy = false;
           const ids = new Set(plain.map((d) => d.id));
-          const extra = thinned.filter((d) => !ids.has(d.id)).map((d) => ({ ...d, corners: S.refineCorners(gray, w, h, d.corners, K), refined: true }));
+          const extra = thinned.filter((d) => !ids.has(d.id)).map((d) => ({ ...d, corners: S.unthinCorners(d.corners), refined: true }));
           cb(plain.concat(extra).filter((d) => d.id < G.n), w, h);
         });
       return true;
