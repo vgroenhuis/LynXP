@@ -210,7 +210,19 @@ window.Lynx = window.Lynx || {};
         lean = { fwdDeg: x[1] / D2R, leftDeg: x[2] / D2R, rmsDeg: Math.sqrt(res.reduce((a, r) => a + r * r, 0) / res.length) / D2R };
       }
     }
-    return { pan, tilt, newPan, newTilt, panTable, tiltTable, lean, p0Deg: p0 / D2R, horizonDeg: e0 / D2R, rollDeg: roll / D2R, legs: legs.map((l) => ({ p0Deg: l.p0 / D2R, cm: l.cm })) };
+    // Backlash left over (with the robot's compensation as it is): the same
+    // setpoint (pan 0 / tilt 0) arrived at turning + and turning -; where it
+    // ends turning + less where it ends turning - (degrees).
+    const gap = (kind, key) => {
+      const up = samples.filter((s) => s.kind === kind && s.dir > 0).map((s) => s.att[key]);
+      const down = samples.filter((s) => s.kind === kind && s.dir < 0).map((s) => s.att[key]);
+      if (!up.length || !down.length) return null;
+      const mean = (v) => v.reduce((a, b) => a + b, 0) / v.length;
+      // (yaw: positive to the left, as the pan; pitch: positive up, as the tilt)
+      return (mean(up) - mean(down)) / D2R;
+    };
+    const backlash = { panGapDeg: gap("blPan", "yaw"), tiltGapDeg: gap("blTilt", "pitch") };
+    return { pan, tilt, newPan, newTilt, panTable, tiltTable, lean, backlash, p0Deg: p0 / D2R, horizonDeg: e0 / D2R, rollDeg: roll / D2R, legs: legs.map((l) => ({ p0Deg: l.p0 / D2R, cm: l.cm })) };
   }
 
   Lynx.camServo = { attitude, analyze, pulseOf, angleOf, fitPulses, tableFrom, tableAngles };

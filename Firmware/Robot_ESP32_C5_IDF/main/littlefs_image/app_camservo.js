@@ -29,6 +29,13 @@ Lynx.games = Lynx.games || {};
 (function (Lynx) {
   const PANS = [15, 30, 45, 60, 75, 90, -15, -30, -45, -60, -75, -90]; // deg (every table angle: camservo.js)
   const TILT_STEP = 6; // deg: tilt angles tried, -90..90 in these steps
+  // Backlash: pan 0 arrived at from +BL_PAN and -BL_PAN, tilt 0 from +BL_TILT / -BL_TILT, BL_REPEATS times each
+  const BL_PAN = 30;
+  const BL_TILT = 15;
+  const BL_REPEATS = 2;
+  // the servos answer a change of compensation more strongly than the gap it's
+  // meant to close (measured: ~1.36x) -- the gap's share added each time
+  const BL_GAIN = 0.73;
   const DISTANCES = [0.35, 0.25, 0.17]; // m, camera to board: the tilt sweeps after the one where it starts
   const CLOSEST_M = 0.17; // (the robot's front stays clear of the board)
   const TILT_MIN_CORNERS = 30; // a tilt picture needs this many (part of the board)
@@ -215,6 +222,17 @@ Lynx.games = Lynx.games || {};
         { kind: "zero", x, y, heading: th, pan: 0, tilt: 0, what: "and forward" },
         ...PANS.map((c) => ({ kind: "pan", x, y, heading: wrap(th - c * D2R), pan: c, tilt: 0, what: `pan ${c > 0 ? "left" : "right"} ${Math.abs(c)}°` })),
         { kind: "pan", x, y, heading: th, pan: 0, tilt: 0, what: "pan 0" },
+        // backlash: the same setpoint from either side (the "via" steps just turn the servo there)
+        ...Array.from({ length: BL_REPEATS }, () => [
+          { kind: "via", x, y, heading: th, pan: BL_PAN, tilt: 0, what: "backlash: pan from the left" },
+          { kind: "blPan", dir: -1, x, y, heading: th, pan: 0, tilt: 0, what: "backlash: pan from the left" },
+          { kind: "via", x, y, heading: th, pan: -BL_PAN, tilt: 0, what: "backlash: pan from the right" },
+          { kind: "blPan", dir: 1, x, y, heading: th, pan: 0, tilt: 0, what: "backlash: pan from the right" },
+          { kind: "via", x, y, heading: th, pan: 0, tilt: BL_TILT, what: "backlash: tilt from above" },
+          { kind: "blTilt", dir: -1, x, y, heading: th, pan: 0, tilt: 0, what: "backlash: tilt from above" },
+          { kind: "via", x, y, heading: th, pan: 0, tilt: -BL_TILT, what: "backlash: tilt from below" },
+          { kind: "blTilt", dir: 1, x, y, heading: th, pan: 0, tilt: 0, what: "backlash: tilt from below" },
+        ]).flat(),
         ...tiltSteps,
         { kind: "back", x, y, heading: th, pan: 0, tilt: 0, what: "back to the start" },
       ];
@@ -263,7 +281,7 @@ Lynx.games = Lynx.games || {};
           run.phase = "settle";
           run.t = now;
         }
-      } else if (run.phase === "settle" && s.kind === "back") {
+      } else if (run.phase === "settle" && (s.kind === "back" || s.kind === "via")) {
         next(); // (no picture: just out of the board's way)
       } else if (run.phase === "settle") {
         if (now - run.t > SETTLE_MS) {
@@ -278,7 +296,7 @@ Lynx.games = Lynx.games || {};
           const ok = finds.n >= (s.kind === "tilt" ? TILT_MIN_CORNERS : MIN_CORNERS) && (s.kind !== "zero" || finds.full);
           const m = ok && measure(finds, w, h);
           if (m) {
-            samples.push({ kind: s.kind, pan: s.pan, tilt: s.tilt, x: robot.x, y: robot.y, th: robot.th, att: m.att, rms: m.rms, n: finds.n });
+            samples.push({ kind: s.kind, dir: s.dir, pan: s.pan, tilt: s.tilt, x: robot.x, y: robot.y, th: robot.th, att: m.att, rms: m.rms, n: finds.n });
             next();
           } else if (performance.now() - run.t > SHOT_TIMEOUT_MS) {
             say(`Board not seen well enough (${s.what}${s.kind === "zero" ? ": needs the whole board" : ""}) -- skipped`, "#ffb060");
@@ -295,6 +313,13 @@ Lynx.games = Lynx.games || {};
         finish();
         analyze();
       }
+    }
+
+    function newBacklash(r) {
+      const b = r.backlash || {};
+      const was = (k) => (Number.isFinite(+params[k]) ? +params[k] : 0);
+      const add = (gap, k) => (gap === null || !Number.isFinite(gap) || Math.abs(gap) > 4 ? null : Math.max(-5, Math.min(5, was(k) + BL_GAIN * gap)));
+      return { pan: add(b.panGapDeg, "panBacklashDeg"), tilt: add(b.tiltGapDeg, "tiltBacklashDeg") };
     }
 
     function save() {
@@ -323,6 +348,10 @@ Lynx.games = Lynx.games || {};
           doc = d || {};
           const q = new URLSearchParams({ servoMinPulseUs: P.minP, servoCenterPulseUs: P.cenP, servoMaxPulseUs: P.maxP, tiltMinPulseUs: T.minP, tiltMaxPulseUs: T.maxP,
             panTable: result.panTable.join(","), tiltTable: result.tiltTable.join(",") });
+          // the backlash compensation: plus the measured gap's share (BL_GAIN)
+          const bl = newBacklash(r);
+          if (bl.pan !== null) q.set("panBacklashDeg", bl.pan.toFixed(2));
+          if (bl.tilt !== null) q.set("tiltBacklashDeg", bl.tilt.toFixed(2));
           // (the forward lean's change, out of the mount tilt: straight ahead stays as it was)
           if (lean) q.set("cameraTiltDeg", (params.cameraTiltDeg - (lean.fwdDeg - ((doc.lean && +doc.lean.fwdDeg) || 0))).toFixed(2));
           return fetch(`/set?${q}`);
@@ -398,6 +427,11 @@ Lynx.games = Lynx.games || {};
         lines.push(`straight ahead is at pan ${f(r.p0Deg)}° (legs ${r.legs.map((l) => f(l.p0Deg)).join(", ")}) · camera roll ${f(r.rollDeg)}° · horizon ${f(r.horizonDeg)}° (if the board is upright)`);
         if (r.lean) lines.push(`the robot leans ${f(r.lean.fwdDeg)}\u00b0 forward (nose down), ${f(r.lean.leftDeg)}\u00b0 to the left (fit \u00b1${r.lean.rmsDeg.toFixed(2)}\u00b0)`);
         lines.push(`pan: ${r.pan.map((p) => `${p.cmd}\u2192${p.actual.toFixed(1)}`).join("  ")}`);
+        if (r.backlash && (r.backlash.panGapDeg !== null || r.backlash.tiltGapDeg !== null)) {
+          const bl = newBacklash(r);
+          const g = (v) => (v === null ? "--" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}\u00b0`);
+          lines.push(`backlash left: pan ${g(r.backlash.panGapDeg)}, tilt ${g(r.backlash.tiltGapDeg)} -- compensation pan ${(+params.panBacklashDeg || 0).toFixed(2)} \u2192 ${bl.pan === null ? "same" : bl.pan.toFixed(2)}, tilt ${(+params.tiltBacklashDeg || 0).toFixed(2)} \u2192 ${bl.tilt === null ? "same" : bl.tilt.toFixed(2)}`);
+        }
         lines.push(`tilt: ${r.tilt.map((p) => `${p.cmd}→${p.actual.toFixed(1)}`).join("  ")}`);
         const P = r.newPan;
         const T = r.newTilt;
