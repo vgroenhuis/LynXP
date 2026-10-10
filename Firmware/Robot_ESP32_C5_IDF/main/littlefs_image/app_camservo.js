@@ -11,8 +11,8 @@
 //   - tilts up and down (pan 0): what the tilt servo really turns -- from
 //     where it starts and then closer and closer to the board (down to
 //     CLOSEST_M), so the camera can tilt further and still see part of it.
-//     Which angles show enough of the board at each distance is worked out
-//     from the first picture.
+//     At each distance it sweeps every tilt angle that still shows enough of
+//     the board (worked out from the first picture) -- not just the new ones.
 // Then it shows commanded -> measured angles and the new servo pulses; Save
 // writes those (the pan's min / center / max, the tilt's min / max -- its
 // center offset is the camera's mount tilt, the next step's).
@@ -161,17 +161,13 @@ Lynx.games = Lynx.games || {};
         return n;
       };
       const stops = [d0, ...DISTANCES.filter((d) => d < d0 - 0.05 && d >= CLOSEST_M)];
-      // each angle once, from the farthest stop that sees enough of the board
-      const done = new Set();
+      // every stop: every angle that sees enough of the board there -- the
+      // whole range again, not just what the farther stops couldn't reach (an
+      // angle seen from several distances is averaged: camservo.js byCommand)
       const plan = [];
       stops.forEach((d) => {
         const tilts = [];
-        for (let t = -90 + TILT_STEP; t < 90; t += TILT_STEP) {
-          if (t !== 0 && !done.has(t) && seen(d0 - d, t) >= TILT_MIN_CORNERS + 10) {
-            tilts.push(t);
-            done.add(t);
-          }
-        }
+        for (let t = -90 + TILT_STEP; t < 90; t += TILT_STEP) if (t !== 0 && seen(d0 - d, t) >= TILT_MIN_CORNERS + 10) tilts.push(t);
         // (each stop: a tilt-0 picture first -- the reference -- then up, then down)
         if (tilts.length) plan.push({ ahead: d0 - d, d, tilts: [0, ...tilts.filter((t) => t > 0), ...tilts.filter((t) => t < 0).reverse()] });
       });
