@@ -462,7 +462,11 @@ Lynx.games = Lynx.games || {};
     let params = null; // the robot's /params (settings), for the priors and the servo pulses
     fetch("/params", { cache: "no-store" }).then((r) => r.json()).then((p) => (params = p)).catch(() => {});
     let savedLean = null; // the chassis's lean as last measured (camcal "lean"; the servo step)
-    fetch("/appdata/camcal", { cache: "no-store" }).then((r) => r.json()).then((d) => (savedLean = d && d.lean)).catch(() => {});
+    let savedMount = null; // the rolls in use (camcal "mount")
+    fetch("/appdata/camcal", { cache: "no-store" }).then((r) => r.json()).then((d) => {
+      savedLean = d && d.lean;
+      savedMount = d && d.mount;
+    }).catch(() => {});
     const D2R = Math.PI / 180;
     function solveExtrinsics() {
       const E = Lynx.camextSolver;
@@ -477,6 +481,12 @@ Lynx.games = Lynx.games || {};
       prior.offset = (Number.isFinite(+cfg.lensOffsetMm) ? +cfg.lensOffsetMm : 5) / 1000; // (measured: the setting)
       const lensUpMeasured = Number.isFinite(+cfg.lensUpMm) && +cfg.lensUpMm >= 0;
       if (lensUpMeasured) prior.lensUp = +cfg.lensUpMm / 1000;
+      // The rolls are held where they are: fitted here they twice came out at
+      // +9 / -7 degrees, trading off against each other, and made a still
+      // cube wander twice as much as with the camera's ~1 degree, measured
+      // from snapshots (camcal "mount").
+      prior.camRoll = ((savedMount && +savedMount.camRollDeg) || 0) * D2R;
+      prior.axisRoll = ((savedMount && +savedMount.axisRollDeg) || 0) * D2R;
       if (savedLean) {
         prior.leanFwd = (+savedLean.fwdDeg || 0) * D2R;
         prior.leanLeft = (+savedLean.leftDeg || 0) * D2R;
@@ -486,8 +496,7 @@ Lynx.games = Lynx.games || {};
         { square: chk.sq, cube: cubeM, cols: chk.cols, rows: chk.rows, prior,
           // the servos are calibrated (step 2) and the lens's offset measured (a setting); the rolls
           // a degree or two at most -- free, they traded off against each other (+22 / -20 degrees)
-          fixed: ["panOffset", "panGainL", "panGainR", "tiltGainUp", "tiltGainDown", "offset", ...(lensUpMeasured ? ["lensUp"] : [])],
-          sigma: { axisRoll: 1.5 * D2R, camRoll: 2 * D2R } },
+          fixed: ["panOffset", "panGainL", "panGainR", "tiltGainUp", "tiltGainDown", "offset", "axisRoll", "camRoll", ...(lensUpMeasured ? ["lensUp"] : [])] },
       );
       state = "done";
       if (res.error) {
