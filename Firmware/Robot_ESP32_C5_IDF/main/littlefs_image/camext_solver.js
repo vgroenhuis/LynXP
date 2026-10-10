@@ -59,6 +59,10 @@ window.Lynx = window.Lynx || {};
     // step measures these (camservo.js); the mount step holds them there
     ["leanFwd", 0, 2 * D2R],
     ["leanLeft", 0, 2 * D2R],
+    // the lens above the tilt axis (the camera sits on the tilt bracket):
+    // tilting swings it forward / back on that arm -- the tilt axis is h -
+    // lensUp up, on the pan axis; the lens offset ahead of it along the view
+    ["lensUp", 0, 0.03],
   ];
 
   const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
@@ -98,7 +102,9 @@ window.Lynx = window.Lynx || {};
     const lean = mul(Rdown(P.leanFwd || 0), Rx(-(P.leanLeft || 0)));
     const R = mul(mul(mul(mul(mul(Rz(TH), lean), Rz(psi - TH)), Rx(P.axisRoll)), Rdown(D)), Rx(P.camRoll));
     const fwd = [R[0][0], R[1][0], R[2][0]];
-    const C = [X + P.offset * fwd[0], Y + P.offset * fwd[1], P.h + P.offset * fwd[2]];
+    const up = [R[0][2], R[1][2], R[2][2]];
+    const u = P.lensUp || 0;
+    const C = [X + P.offset * fwd[0] + u * up[0], Y + P.offset * fwd[1] + u * up[1], P.h - u + P.offset * fwd[2] + u * up[2]];
     // camera axes: forward = local x, right = -local y, down = -local z
     return { C, fwd, right: [-R[0][1], -R[1][1], -R[2][1]], down: [-R[0][2], -R[1][2], -R[2][2]] };
   }
@@ -197,6 +203,8 @@ window.Lynx = window.Lynx || {};
     let v = pack(P0);
     const n = v.length;
     const steps = v.map((_, i) => (i < CHAIN.length ? 1e-6 : 1e-6));
+    // held parameters (opts.fixed) don't move at all
+    const held = CHAIN.map(([name], i) => (opts.fixed && opts.fixed.includes(name) ? i : -1)).filter((i) => i >= 0);
     let r = residuals(unpack(v, nSpots), views, opts, prior);
     let cost = r.reduce((a, x) => a + x * x, 0);
     let lambda = 1e-3;
@@ -205,6 +213,10 @@ window.Lynx = window.Lynx || {};
       const m = r.length;
       const J = [];
       for (let i = 0; i < n; i++) {
+        if (held.includes(i)) {
+          J.push(new Float64Array(m));
+          continue;
+        }
         const vp = v.slice();
         vp[i] += steps[i];
         const rp = residuals(unpack(vp, nSpots), views, opts, prior);
@@ -226,6 +238,10 @@ window.Lynx = window.Lynx || {};
           JtJ[i][j] = JtJ[j][i] = u;
         }
       }
+      held.forEach((i) => {
+        JtJ[i][i] = 1; // (its row and column are zero: d[i] = 0)
+        Jtr[i] = 0;
+      });
       let improved = false;
       for (let t = 0; t < 10; t++) {
         const A = JtJ.map((row, i) => row.map((x, j) => (i === j ? x * (1 + lambda) + 1e-12 : x)));
@@ -443,7 +459,7 @@ window.Lynx = window.Lynx || {};
     const rms = PIX_SIGMA * Math.sqrt(pixRes.reduce((a, x) => a + x * x, 0) / Math.max(1, nMeas));
     const scale = Math.max(1, rms / PIX_SIGMA);
     const sigma = {};
-    CHAIN.forEach(([n], i) => (sigma[n] = cov && cov[i] ? Math.sqrt(Math.max(0, cov[i][i])) * scale : NaN));
+    CHAIN.forEach(([n], i) => (sigma[n] = opts.fixed && opts.fixed.includes(n) ? 0 : cov && cov[i] ? Math.sqrt(Math.max(0, cov[i][i])) * scale : NaN));
     return {
       params: Object.fromEntries(CHAIN.map(([n]) => [n, P[n]])), sigma, prior, rms,
       views: kept.length, full: full.length, partial: placed.length, spots: spots.length,

@@ -303,6 +303,7 @@ window.Lynx = window.Lynx || {};
       settings: [
         { key: "calibrate", label: "Calibrate", type: "select", def: "intrinsics", options: [["intrinsics", "1. The lens (intrinsics)"], ["servos", "2. The pan / tilt servos (checkerboard; the robot drives and turns)"], ["extrinsics", "3. The camera's mount: height, tilt (checkerboard + the frame cube on the floor)"]] },
         { key: "lensOffsetMm", label: "Lens in front of the pan axis (measured; the mount step holds it)", type: "number", unit: "mm", def: 5, min: -20, max: 40, step: 0.5 },
+        { key: "lensUpMm", label: "Lens above the tilt axis (measured; -1: the mount step finds it)", type: "number", unit: "mm", def: -1, min: -1, max: 60, step: 0.5 },
         { key: "target", label: "Calibration target", type: "select", def: "aprilgrid", options: [["aprilgrid", "AprilGrid (Kalibr)"], ["checkerboard", "Checkerboard"]] },
         { key: "checkerCols", label: "Checkerboard: inner corners across (targetCols)", type: "number", def: 13, min: 2, max: 40, step: 1 },
         { key: "checkerRows", label: "Checkerboard: inner corners down (targetRows)", type: "number", def: 14, min: 2, max: 40, step: 1 },
@@ -615,7 +616,8 @@ window.Lynx = window.Lynx || {};
   // mount calibration fits (camext_solver.js cameraOf): the chassis's heading
   // and lean, the pan, the tilt axis (rolled by axisRollRad), the tilt (down:
   // calib.tiltRad less the tilt servo's angle), the camera's own roll; the
-  // lens offsetM ahead of the pan axis along where it looks. With the page's
+  // lens offsetM ahead of the pan axis along where it looks, and lensUpM
+  // above the tilt axis (heightM is the lens's height looking level). With the page's
   // smooth aim the pose carries the camera's heading and pose.chassisTheta.
   // -> {C: [x, y, h] (h without a game's jump), fwd, right, down} (unit vectors)
   Lynx.cameraFrame = (calib, pose) => {
@@ -634,9 +636,11 @@ window.Lynx = window.Lynx || {};
     let R = mul(Rz(TH), mul(Rdown(calib.leanFwdRad || 0), Rx(-(calib.leanLeftRad || 0))));
     R = mul(mul(mul(mul(R, Rz(pan)), Rx(calib.axisRollRad || 0)), Rdown(D)), Rx(calib.camRollRad || 0));
     const fwd = [R[0][0], R[1][0], R[2][0]];
+    const up = [R[0][2], R[1][2], R[2][2]];
     const off = calib.offsetM || 0;
+    const u = calib.lensUpM || 0; // the lens above the tilt axis: tilting swings it on that arm
     return {
-      C: [pose.x + off * fwd[0], pose.y + off * fwd[1], calib.heightM + off * fwd[2]],
+      C: [pose.x + off * fwd[0] + u * up[0], pose.y + off * fwd[1] + u * up[1], calib.heightM - u + off * fwd[2] + u * up[2]],
       fwd,
       right: [-R[0][1], -R[1][1], -R[2][1]],
       down: [-R[0][2], -R[1][2], -R[2][2]],

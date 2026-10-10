@@ -223,6 +223,7 @@ window.addEventListener("DOMContentLoaded", () => {
               camRollRad: camcal && camcal.mount ? ((+camcal.mount.camRollDeg || 0) * Math.PI) / 180 : 0,
               axisRollRad: camcal && camcal.mount ? ((+camcal.mount.axisRollDeg || 0) * Math.PI) / 180 : 0,
               offsetM: camcal && camcal.mount && Number.isFinite(+camcal.mount.offsetMm) ? +camcal.mount.offsetMm / 1000 : 0.005,
+              lensUpM: camcal && camcal.mount && Number.isFinite(+camcal.mount.lensUpMm) ? +camcal.mount.lensUpMm / 1000 : 0,
               vfovRad: (data.cameraVerticalFovDeg * Math.PI) / 180, // fallback only -- projection goes through Lynx.lens
               // how the robot turns camera input into angles (see stepAim())
               aim: typeof data.panMaxSpeedDegPerSec !== "number" ? null : {

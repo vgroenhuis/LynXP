@@ -475,6 +475,8 @@ Lynx.games = Lynx.games || {};
         prior.mountTilt = params.cameraTiltDeg * D2R;
       }
       prior.offset = (Number.isFinite(+cfg.lensOffsetMm) ? +cfg.lensOffsetMm : 5) / 1000; // (measured: the setting)
+      const lensUpMeasured = Number.isFinite(+cfg.lensUpMm) && +cfg.lensUpMm >= 0;
+      if (lensUpMeasured) prior.lensUp = +cfg.lensUpMm / 1000;
       if (savedLean) {
         prior.leanFwd = (+savedLean.fwdDeg || 0) * D2R;
         prior.leanLeft = (+savedLean.leftDeg || 0) * D2R;
@@ -484,7 +486,7 @@ Lynx.games = Lynx.games || {};
         { square: chk.sq, cube: cubeM, cols: chk.cols, rows: chk.rows, prior,
           // the servos are calibrated (step 2) and the lens's offset measured (a setting); the rolls
           // a degree or two at most -- free, they traded off against each other (+22 / -20 degrees)
-          fixed: ["panOffset", "panGainL", "panGainR", "tiltGainUp", "tiltGainDown", "offset"],
+          fixed: ["panOffset", "panGainL", "panGainR", "tiltGainUp", "tiltGainDown", "offset", ...(lensUpMeasured ? ["lensUp"] : [])],
           sigma: { axisRoll: 1.5 * D2R, camRoll: 2 * D2R } },
       );
       state = "done";
@@ -518,7 +520,7 @@ Lynx.games = Lynx.games || {};
             version: 2, ...doc,
             extrinsics: {
               heightMm: +(P.h * 1000).toFixed(2), offsetMm: +(P.offset * 1000).toFixed(2), mountTiltDeg: +(P.mountTilt / D2R).toFixed(3),
-              axisRollDeg: +(P.axisRoll / D2R).toFixed(3), camRollDeg: +(P.camRoll / D2R).toFixed(3),
+              axisRollDeg: +(P.axisRoll / D2R).toFixed(3), camRollDeg: +(P.camRoll / D2R).toFixed(3), lensUpMm: +(P.lensUp * 1000).toFixed(2),
               leanFwdDeg: +(P.leanFwd / D2R).toFixed(3), leanLeftDeg: +(P.leanLeft / D2R).toFixed(3),
               rmsPx: +r.rms.toFixed(3), views: r.views, at: new Date().toISOString().slice(0, 19),
             },
@@ -526,7 +528,7 @@ Lynx.games = Lynx.games || {};
           // (cameraTiltDeg is now the tilt to the chassis: the overlays add this lean)
           out.lean = { fwdDeg: +(P.leanFwd / D2R).toFixed(2), leftDeg: +(P.leanLeft / D2R).toFixed(2), from: "mount", at: out.extrinsics.at };
           // what the overlays and the cube finder use (Lynx.cameraFrame)
-          out.mount = { offsetMm: +(P.offset * 1000).toFixed(1), camRollDeg: +(P.camRoll / D2R).toFixed(2), axisRollDeg: +(P.axisRoll / D2R).toFixed(2), at: out.extrinsics.at };
+          out.mount = { offsetMm: +(P.offset * 1000).toFixed(1), lensUpMm: +(P.lensUp * 1000).toFixed(1), camRollDeg: +(P.camRoll / D2R).toFixed(2), axisRollDeg: +(P.axisRoll / D2R).toFixed(2), at: out.extrinsics.at };
           return fetch("/appdata/camcal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
         })
         .then(() => {
@@ -657,7 +659,7 @@ Lynx.games = Lynx.games || {};
         const pr = r.prior;
         const mm = (x) => (x * 1000).toFixed(1);
         const dg = (x) => (x / D2R).toFixed(2);
-        lines.push(`height ${mm(P.h)} \u00b1 ${mm(sg.h)} mm (was ${mm(pr.h)}) \u00b7 lens ${mm(P.offset)} mm ahead of the pan axis (as set)${r.views < MIN_MOUNT_VIEWS ? ` \u00b7 only ${r.views} pictures: too few to save` : ""}`);
+        lines.push(`height ${mm(P.h)} \u00b1 ${mm(sg.h)} mm (was ${mm(pr.h)}) \u00b7 lens ${mm(P.offset)} mm ahead of the pan axis (as set), ${mm(P.lensUp)}${sg.lensUp ? ` \u00b1 ${mm(sg.lensUp)}` : ""} mm above the tilt axis${r.views < MIN_MOUNT_VIEWS ? ` \u00b7 only ${r.views} pictures: too few to save` : ""}`);
         lines.push(`mount tilt ${dg(P.mountTilt)} \u00b1 ${dg(sg.mountTilt)}\u00b0 (was ${dg(pr.mountTilt)})`);
         lines.push(`tilt axis roll ${dg(P.axisRoll)} \u00b1 ${dg(sg.axisRoll)}\u00b0 \u00b7 camera roll ${dg(P.camRoll)} \u00b1 ${dg(sg.camRoll)}\u00b0`);
         lines.push(`robot lean ${dg(P.leanFwd)} ± ${dg(sg.leanFwd)}° forward, ${dg(P.leanLeft)} ± ${dg(sg.leanLeft)}° left${savedLean ? ` (servo step: ${(+savedLean.fwdDeg).toFixed(2)}, ${(+savedLean.leftDeg).toFixed(2)})` : ""}`);
