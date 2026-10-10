@@ -808,7 +808,7 @@ window.Lynx = window.Lynx || {};
     const unsubscribe = subscribeToPose((pose) => {
       ar.pose = pose;
       ar.camTheta = pose.theta + (pose.servoAngleDeg * Math.PI) / 180;
-      ar.tilt = calib.tiltRad - (pose.tiltAngleDeg * Math.PI) / 180;
+      ar.tilt = Lynx.cameraDown(calib, pose);
       updateView();
       const now = performance.now();
       const dt = lastFrameMs === null ? 0 : Math.max(0, Math.min((now - lastFrameMs) / 1000, 0.1));

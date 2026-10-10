@@ -573,6 +573,25 @@ window.Lynx = window.Lynx || {};
   };
   Lynx.emojiFor = (cls) => EMOJI[cls] || "\u{1F4E6}";
 
+  // -- the camera's tilt --------------------------------------------------------------
+  // How far the camera looks down (rad) for a pose: the mount tilt
+  // (calib.tiltRad, cameraTiltDeg) less the tilt servo's angle, plus the
+  // chassis's lean where the camera points -- leaning nose down by leanFwd
+  // (left side down by leanLeft) tips the pan axis, so the camera looks lower
+  // straight ahead, higher behind, and (panned left) lower by leanLeft. The
+  // lean's roll part (panned sideways) isn't drawn. The pan: the camera's
+  // angle to the chassis (servoAngleDeg -- or, with the page's smooth aim,
+  // its heading less pose.chassisTheta).
+  Lynx.cameraDown = (calib, pose) => {
+    let down = calib.tiltRad - ((pose.tiltAngleDeg || 0) * Math.PI) / 180;
+    if (calib.leanFwdRad || calib.leanLeftRad) {
+      let pan = ((pose.servoAngleDeg || 0) * Math.PI) / 180;
+      if (typeof pose.chassisTheta === "number") pan += pose.theta - pose.chassisTheta;
+      down += (calib.leanFwdRad || 0) * Math.cos(pan) + (calib.leanLeftRad || 0) * Math.sin(pan);
+    }
+    return down;
+  };
+
   // -- camera lens model ---------------------------------------------------------
   // Shared by every camera-page overlay (floor grid, axes, waypoints,
   // fireballs, AR games). The camera has a wide, strongly barrel-distorted

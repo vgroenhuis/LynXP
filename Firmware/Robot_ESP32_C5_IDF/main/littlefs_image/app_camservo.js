@@ -16,6 +16,12 @@
 // Then it shows commanded -> measured angles and the new servo pulses; Save
 // writes those (the pan's min / center / max, the tilt's min / max -- its
 // center offset is the camera's mount tilt, the next step's).
+// The pan sweep also shows whether the chassis leans (casters of different
+// heights: the pan axis isn't vertical): the camera, facing the board all
+// along, pitches with the pan angle (camservo.js). Save keeps that in the
+// camcal document ("lean", which the overlays use: Lynx.cameraDown) and moves
+// the forward lean's change out of cameraTiltDeg -- straight ahead looks the
+// same as before, the other directions get better.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -301,26 +307,34 @@ Lynx.games = Lynx.games || {};
         say("The new pulses are too far from the old ones -- not saved (check the setup and run it again)", "#ff9090");
         return;
       }
-      const q = new URLSearchParams({ servoMinPulseUs: P.minP, servoCenterPulseUs: P.cenP, servoMaxPulseUs: P.maxP, tiltMinPulseUs: T.minP, tiltMaxPulseUs: T.maxP });
-      fetch(`/set?${q}`)
+      const r = result;
+      const lean = r.lean && Math.abs(r.lean.fwdDeg) < 6 && Math.abs(r.lean.leftDeg) < 6 ? r.lean : null;
+      let doc = {};
+      fetch("/appdata/camcal", { cache: "no-store" })
+        .then((y) => (y.ok ? y.json() : {}))
+        .catch(() => ({}))
+        .then((d) => {
+          doc = d || {};
+          const q = new URLSearchParams({ servoMinPulseUs: P.minP, servoCenterPulseUs: P.cenP, servoMaxPulseUs: P.maxP, tiltMinPulseUs: T.minP, tiltMaxPulseUs: T.maxP });
+          // (the forward lean's change, out of the mount tilt: straight ahead stays as it was)
+          if (lean) q.set("cameraTiltDeg", (params.cameraTiltDeg - (lean.fwdDeg - ((doc.lean && +doc.lean.fwdDeg) || 0))).toFixed(2));
+          return fetch(`/set?${q}`);
+        })
         .then((x) => {
           if (!x.ok) throw new Error(x.status);
-          return fetch("/appdata/camcal", { cache: "no-store" }).then((y) => (y.ok ? y.json() : {})).catch(() => ({}));
-        })
-        .then((doc) => {
-          const r = result;
           const out = {
             version: 2, ...doc,
             servos: {
               panZeroDeg: +r.p0Deg.toFixed(2), horizonDeg: +r.horizonDeg.toFixed(2), rollDeg: +r.rollDeg.toFixed(2),
               pan: r.pan.map((p) => [p.cmd, +p.actual.toFixed(2)]), tilt: r.tilt.map((p) => [p.cmd, +p.actual.toFixed(2)]),
-              oldPulses: old, newPulses: now, at: new Date().toISOString().slice(0, 19),
+              lean: r.lean, oldPulses: old, newPulses: now, at: new Date().toISOString().slice(0, 19),
             },
           };
+          if (lean) out.lean = { fwdDeg: +lean.fwdDeg.toFixed(2), leftDeg: +lean.leftDeg.toFixed(2), from: "servos", at: out.servos.at };
           return fetch("/appdata/camcal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
         })
         .then(() => {
-          say("Saved: the new servo pulses are in use", "#a0ffa0");
+          say(`Saved: the new servo pulses${lean ? " and the lean" : ""} -- reload the page for the overlays`, "#a0ffa0");
           result = null;
           return loadParams();
         })
@@ -374,7 +388,8 @@ Lynx.games = Lynx.games || {};
         const r = result;
         const f = (x) => (x >= 0 ? "+" : "") + x.toFixed(1);
         lines.push(`straight ahead is at pan ${f(r.p0Deg)}° (legs ${r.legs.map((l) => f(l.p0Deg)).join(", ")}) · camera roll ${f(r.rollDeg)}° · horizon ${f(r.horizonDeg)}° (if the board is upright)`);
-        lines.push(`pan: ${r.pan.map((p) => `${p.cmd}→${p.actual.toFixed(1)}`).join("  ")}`);
+        if (r.lean) lines.push(`the robot leans ${f(r.lean.fwdDeg)}\u00b0 forward (nose down), ${f(r.lean.leftDeg)}\u00b0 to the left (fit \u00b1${r.lean.rmsDeg.toFixed(2)}\u00b0)`);
+        lines.push(`pan: ${r.pan.map((p) => `${p.cmd}\u2192${p.actual.toFixed(1)}`).join("  ")}`);
         lines.push(`tilt: ${r.tilt.map((p) => `${p.cmd}→${p.actual.toFixed(1)}`).join("  ")}`);
         const P = r.newPan;
         const T = r.newTilt;

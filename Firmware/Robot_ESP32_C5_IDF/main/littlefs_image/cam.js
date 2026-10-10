@@ -215,6 +215,9 @@ window.addEventListener("DOMContentLoaded", () => {
             return {
               heightM: data.cameraHeightMm / 1000,
               tiltRad: (data.cameraTiltDeg * Math.PI) / 180,
+              // the chassis's lean (camcal "lean": the servo / mount calibration; see Lynx.cameraDown)
+              leanFwdRad: camcal && camcal.lean ? ((+camcal.lean.fwdDeg || 0) * Math.PI) / 180 : 0,
+              leanLeftRad: camcal && camcal.lean ? ((+camcal.lean.leftDeg || 0) * Math.PI) / 180 : 0,
               vfovRad: (data.cameraVerticalFovDeg * Math.PI) / 180, // fallback only -- projection goes through Lynx.lens
               // how the robot turns camera input into angles (see stepAim())
               aim: typeof data.panMaxSpeedDegPerSec !== "number" ? null : {
@@ -831,7 +834,7 @@ function ensureFireballOverlayInitialized(calib) {
     // looking right now, not for a fireball's own trajectory (that's fixed
     // at launch, captured in fb.launch*).
     const cameraTheta = pose.theta + (pose.servoAngleDeg * Math.PI) / 180;
-    effectiveTiltRad = calib.tiltRad - (pose.tiltAngleDeg * Math.PI) / 180;
+    effectiveTiltRad = Lynx.cameraDown(calib, pose);
     const camPose = { x: pose.x, y: pose.y, theta: cameraTheta };
 
     // Collected as {zc, render} entries and depth-sorted (painter's
@@ -919,7 +922,7 @@ function spawnFireball(calib) {
     // see the header comment on why this is captured once here rather
     // than read live in draw().
     launchThetaRad: pose.theta + (pose.servoAngleDeg * Math.PI) / 180,
-    launchTiltRad: calib.tiltRad - (pose.tiltAngleDeg * Math.PI) / 180,
+    launchTiltRad: Lynx.cameraDown(calib, pose),
   });
 }
 
@@ -1213,7 +1216,7 @@ function subscribeToPose(callback) {
       return pose;
     }
     const seen = aimAveraged(now, AIM_SERVO_LAG_MS + overlayDelayMs());
-    return { ...pose, theta: wrapToPi(seen.yaw), servoAngleDeg: 0, tiltAngleDeg: seen.tiltDeg };
+    return { ...pose, theta: wrapToPi(seen.yaw), servoAngleDeg: 0, tiltAngleDeg: seen.tiltDeg, chassisTheta: pose.theta };
   }
 
   // The aim averaged over the last 2 x lagMs, instead of the aim exactly
@@ -1650,7 +1653,7 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
     // Subtracted, not added: confirmed on real hardware that pushing the
     // camera joystick "up" (positive tiltAngleDeg) physically rotates the
     // camera upward, i.e. REDUCES its downward pitch from calib.tiltRad.
-    effectiveTiltRad = calib.tiltRad - (robotPose.tiltAngleDeg * Math.PI) / 180;
+    effectiveTiltRad = Lynx.cameraDown(calib, robotPose);
     const pose = { x: robotPose.x, y: robotPose.y, theta: cameraTheta };
     const containerW = canvas.clientWidth;
     const containerH = canvas.clientHeight;
@@ -2132,7 +2135,7 @@ function initWaypointOverlay(calib) {
     // Subtracted, not added: confirmed on real hardware that pushing the
     // camera joystick "up" (positive tiltAngleDeg) physically rotates the
     // camera upward, i.e. REDUCES its downward pitch from calib.tiltRad.
-    effectiveTiltRad = calib.tiltRad - (robotPose.tiltAngleDeg * Math.PI) / 180;
+    effectiveTiltRad = Lynx.cameraDown(calib, robotPose);
     const pose = { x: robotPose.x, y: robotPose.y, theta: cameraTheta };
 
     const containerW = canvas.clientWidth;

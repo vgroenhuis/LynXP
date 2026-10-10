@@ -54,6 +54,11 @@ window.Lynx = window.Lynx || {};
     ["panGainR", 1, 0.03],
     ["tiltGainUp", 1, 0.03],
     ["tiltGainDown", 1, 0.03],
+    // the chassis leaning (casters of different heights front and back, so
+    // the pan axis isn't vertical): nose down, left side down -- the servo
+    // step measures these (camservo.js); the mount step holds them there
+    ["leanFwd", 0, 2 * D2R],
+    ["leanLeft", 0, 2 * D2R],
   ];
 
   const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
@@ -89,7 +94,9 @@ window.Lynx = window.Lynx || {};
     const tilt = view.tilt * D2R;
     const psi = TH + P.panOffset + pan * (pan > 0 ? P.panGainL : P.panGainR);
     const D = P.mountTilt - tilt * (tilt > 0 ? P.tiltGainUp : P.tiltGainDown);
-    const R = mul(mul(mul(Rz(psi), Rx(P.axisRoll)), Rdown(D)), Rx(P.camRoll));
+    // chassis heading, its lean, the pan to it, then the tilt axis and the camera
+    const lean = mul(Rdown(P.leanFwd || 0), Rx(-(P.leanLeft || 0)));
+    const R = mul(mul(mul(mul(mul(Rz(TH), lean), Rz(psi - TH)), Rx(P.axisRoll)), Rdown(D)), Rx(P.camRoll));
     const fwd = [R[0][0], R[1][0], R[2][0]];
     const C = [X + P.offset * fwd[0], Y + P.offset * fwd[1], P.h + P.offset * fwd[2]];
     // camera axes: forward = local x, right = -local y, down = -local z

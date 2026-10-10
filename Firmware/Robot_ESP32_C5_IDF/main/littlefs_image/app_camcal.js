@@ -460,6 +460,8 @@ Lynx.games = Lynx.games || {};
     // -- extrinsics ------------------------------------------------------------------------------------
     let params = null; // the robot's /params (settings), for the priors and the servo pulses
     fetch("/params", { cache: "no-store" }).then((r) => r.json()).then((p) => (params = p)).catch(() => {});
+    let savedLean = null; // the chassis's lean as last measured (camcal "lean"; the servo step)
+    fetch("/appdata/camcal", { cache: "no-store" }).then((r) => r.json()).then((d) => (savedLean = d && d.lean)).catch(() => {});
     const D2R = Math.PI / 180;
     function solveExtrinsics() {
       const E = Lynx.camextSolver;
@@ -470,6 +472,10 @@ Lynx.games = Lynx.games || {};
       if (params) {
         prior.h = params.cameraHeightMm / 1000;
         prior.mountTilt = params.cameraTiltDeg * D2R;
+      }
+      if (savedLean) {
+        prior.leanFwd = (+savedLean.fwdDeg || 0) * D2R;
+        prior.leanLeft = (+savedLean.leftDeg || 0) * D2R;
       }
       const res = E.solve(
         views.filter((v) => v.w === w && v.h === h).map((v) => ({ K, pan: v.pan, tilt: v.tilt, odo: v.odo, points: v.raw, tags: v.tags })),
@@ -503,13 +509,16 @@ Lynx.games = Lynx.games || {};
             extrinsics: {
               heightMm: +(P.h * 1000).toFixed(2), offsetMm: +(P.offset * 1000).toFixed(2), mountTiltDeg: +(P.mountTilt / D2R).toFixed(3),
               axisRollDeg: +(P.axisRoll / D2R).toFixed(3), camRollDeg: +(P.camRoll / D2R).toFixed(3),
+              leanFwdDeg: +(P.leanFwd / D2R).toFixed(3), leanLeftDeg: +(P.leanLeft / D2R).toFixed(3),
               rmsPx: +r.rms.toFixed(3), views: r.views, at: new Date().toISOString().slice(0, 19),
             },
           };
+          // (cameraTiltDeg is now the tilt to the chassis: the overlays add this lean)
+          out.lean = { fwdDeg: +(P.leanFwd / D2R).toFixed(2), leftDeg: +(P.leanLeft / D2R).toFixed(2), from: "mount", at: out.extrinsics.at };
           return fetch("/appdata/camcal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
         })
         .then(() => {
-          say("Saved: camera height and tilt -- reload the page to use them", "#a0ffa0");
+          say("Saved: camera height, tilt and the robot's lean -- reload the page to use them", "#a0ffa0");
           return fetch("/params", { cache: "no-store" }).then((x) => x.json()).then((x) => (params = x));
         })
         .catch(() => say("Couldn't save -- is the robot reachable?", "#ff9090"));
@@ -639,6 +648,7 @@ Lynx.games = Lynx.games || {};
         lines.push(`height ${mm(P.h)} \u00b1 ${mm(sg.h)} mm (was ${mm(pr.h)}) \u00b7 lens ${mm(P.offset)} \u00b1 ${mm(sg.offset)} mm in front of the tilt axis`);
         lines.push(`mount tilt ${dg(P.mountTilt)} \u00b1 ${dg(sg.mountTilt)}\u00b0 (was ${dg(pr.mountTilt)})`);
         lines.push(`tilt axis roll ${dg(P.axisRoll)} \u00b1 ${dg(sg.axisRoll)}\u00b0 \u00b7 camera roll ${dg(P.camRoll)} \u00b1 ${dg(sg.camRoll)}\u00b0`);
+        lines.push(`robot lean ${dg(P.leanFwd)} ± ${dg(sg.leanFwd)}° forward, ${dg(P.leanLeft)} ± ${dg(sg.leanLeft)}° left${savedLean ? ` (servo step: ${(+savedLean.fwdDeg).toFixed(2)}, ${(+savedLean.leftDeg).toFixed(2)})` : ""}`);
         lines.push(`RMS ${r.rms.toFixed(2)} px \u00b7 ${r.views} pictures (${r.full} whole board), ${r.spots} spots, ${r.corners} corners, ${r.tags} cube tags`);
       } else if (result) {
         const r = result;

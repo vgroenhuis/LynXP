@@ -19,7 +19,7 @@
 // stays: its offset is the camera's mount tilt (cameraTiltDeg).
 //
 //   attitude(R, t, mid) -> {yaw, pitch, roll, C, mid}    (pose: board -> camera; mid: the board's middle, board X, Y)
-//   analyze(samples, panMap, tiltMap) -> {pan, tilt, p0Deg, ...} | {error}
+//   analyze(samples, panMap, tiltMap) -> {pan, tilt, lean: {fwdDeg, leftDeg}, p0Deg, ...} | {error}
 //     samples: {kind: "zero" | "pan" | "tilt", pan, tilt (commanded, deg), x, y, th (odometry, m / rad), att}
 //     maps: {minA, maxA, minP, cenP, maxP} (the robot's settings)
 
@@ -89,6 +89,14 @@ window.Lynx = window.Lynx || {};
     return [...g.values()].map((e) => ({ cmd: e.cmd, actual: e.sum / e.n, n: e.n, spread: Math.max(...e.all) - Math.min(...e.all) })).sort((a, b) => a.cmd - b.cmd);
   }
 
+  // 3 x 3 linear system (Cramer)
+  function solve3(A, b) {
+    const det = (M) => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+    const d = det(A);
+    if (Math.abs(d) < 1e-12) return null;
+    return [0, 1, 2].map((k) => det(A.map((row, i) => row.map((v, j) => (j === k ? b[i] : v)))) / d);
+  }
+
   function analyze(samples, panMap, tiltMap) {
     // pan's zero, from each leg of the drive (consecutive "zero" pictures, the
     // whole board in view): the board's middle in the camera's frame at both
@@ -137,7 +145,29 @@ window.Lynx = window.Lynx || {};
     pan.forEach((p) => (p.after = angleOf(newPan, pulseOf(panMap, p.cmd)) - p.actual));
     tilt.forEach((p) => (p.after = angleOf(newTilt, pulseOf(tiltMap, p.cmd)) - p.actual));
     const roll = zeros.reduce((a, s) => a + s.att.roll, 0) / zeros.length;
-    return { pan, tilt, newPan, newTilt, p0Deg: p0 / D2R, horizonDeg: e0 / D2R, rollDeg: roll / D2R, legs: legs.map((l) => ({ p0Deg: l.p0 / D2R, cm: l.cm })) };
+    // The chassis's lean (the pan axis not vertical): panned to p, the camera
+    // (facing the board all along) pitches by -fwd cos p - left sin p --
+    // nose down, left side down. Least squares over the pan pictures; the
+    // constant is the camera's own tilt (and the board's lean).
+    let lean = null;
+    const lp = panPics.map((s) => ({ p: p0 + wrap(s.att.yaw - s.th - ref), e: s.att.pitch }));
+    if (lp.length >= 5 && lp.some((q) => q.p > 0.5) && lp.some((q) => q.p < -0.5)) {
+      const A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+      const b = [0, 0, 0];
+      lp.forEach(({ p, e }) => {
+        const row = [1, -Math.cos(p), -Math.sin(p)];
+        for (let i = 0; i < 3; i++) {
+          b[i] += row[i] * e;
+          for (let j = 0; j < 3; j++) A[i][j] += row[i] * row[j];
+        }
+      });
+      const x = solve3(A, b);
+      if (x) {
+        const res = lp.map(({ p, e }) => e - (x[0] - x[1] * Math.cos(p) - x[2] * Math.sin(p)));
+        lean = { fwdDeg: x[1] / D2R, leftDeg: x[2] / D2R, rmsDeg: Math.sqrt(res.reduce((a, r) => a + r * r, 0) / res.length) / D2R };
+      }
+    }
+    return { pan, tilt, newPan, newTilt, lean, p0Deg: p0 / D2R, horizonDeg: e0 / D2R, rollDeg: roll / D2R, legs: legs.map((l) => ({ p0Deg: l.p0 / D2R, cm: l.cm })) };
   }
 
   Lynx.camServo = { attitude, analyze, pulseOf, angleOf, fitPulses };
