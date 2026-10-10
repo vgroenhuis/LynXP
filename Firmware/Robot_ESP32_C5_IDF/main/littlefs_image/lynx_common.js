@@ -115,6 +115,24 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "coins", title: "Pacman", better: "higher", format: "points" }],
     },
     {
+      id: "sonar",
+      kind: "game",
+      name: "Sonar",
+      icon: "\u{1F4E1}",
+      blurb:
+        "A treasure hunt with nothing to see. Gems are buried on your floor and the robot only has sonar: " +
+        "pings that come faster and higher the closer you get to the nearest gem. Hunt by ear and the hot/cold meter, " +
+        "then dig where you stand -- but digs and time are limited, and every miss costs a dig.",
+      settings: [
+        { key: "gemCount", label: "Gems per round", type: "number", def: 4, min: 1, max: 5, step: 1 },
+        { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.5, min: 0.5, max: 5, step: 0.25 },
+        { key: "digs", label: "Digs per round", type: "number", def: 10, min: 2, max: 30, step: 1 },
+        { key: "timeS", label: "Time per round", type: "number", unit: "s", def: 120, min: 30, max: 600, step: 10 },
+        { key: "quiet", label: "Pings only (no extra beep when warm)", type: "checkbox", def: false },
+      ],
+      boards: [{ key: "sonar", title: "Sonar", better: "higher", format: "points" }],
+    },
+    {
       id: "prisma",
       kind: "game",
       name: "Prisma",
