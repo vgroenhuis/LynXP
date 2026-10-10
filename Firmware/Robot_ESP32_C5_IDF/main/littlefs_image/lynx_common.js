@@ -617,7 +617,9 @@ window.Lynx = window.Lynx || {};
   // and lean, the pan, the tilt axis (rolled by axisRollRad), the tilt (down:
   // calib.tiltRad less the tilt servo's angle), the camera's own roll; the
   // lens offsetM ahead of the pan axis along where it looks, and lensUpM
-  // above the tilt axis (heightM is the lens's height looking level). With the page's
+  // above the tilt axis (heightM is the lens's height looking level). While
+  // the servos stay where a cube showed the camera's real tilt, that tilt
+  // (Lynx.camTiltFix). With the page's
   // smooth aim the pose carries the camera's heading and pose.chassisTheta.
   // -> {C: [x, y, h] (h without a game's jump), fwd, right, down} (unit vectors)
   Lynx.cameraFrame = (calib, pose) => {
@@ -628,7 +630,13 @@ window.Lynx = window.Lynx || {};
       pan += pose.theta - pose.chassisTheta;
       TH = pose.chassisTheta;
     }
-    const D = calib.tiltRad - (pose.tiltAngleDeg || 0) * D2R;
+    // the camera's real tilt, measured from a cube (tagblocks.js fitCube) at
+    // these very servo angles: the hobby tilt servo is 1-2 degrees off in places
+    const panDeg = pan / D2R;
+    const tiltDeg = pose.tiltAngleDeg || 0;
+    const fx = Lynx.camTiltFix;
+    const fixRad = fx && Math.abs(fx.panDeg - panDeg) < 0.5 && Math.abs(fx.tiltDeg - tiltDeg) < 0.5 ? fx.rad : 0;
+    const D = calib.tiltRad - tiltDeg * D2R - fixRad;
     const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
     const Rz = (a) => [[Math.cos(a), -Math.sin(a), 0], [Math.sin(a), Math.cos(a), 0], [0, 0, 1]];
     const Rx = (a) => [[1, 0, 0], [0, Math.cos(a), -Math.sin(a)], [0, Math.sin(a), Math.cos(a)]];
@@ -644,8 +652,13 @@ window.Lynx = window.Lynx || {};
       fwd,
       right: [-R[0][1], -R[1][1], -R[2][1]],
       down: [-R[0][2], -R[1][2], -R[2][2]],
+      panDeg,
+      tiltDeg,
+      fixRad,
     };
   };
+  // {rad (up), panDeg, tiltDeg (the servo angles it was measured at)} or null
+  Lynx.camTiltFix = null;
 
   // -- camera lens model ---------------------------------------------------------
   // Shared by every camera-page overlay (floor grid, axes, waypoints,

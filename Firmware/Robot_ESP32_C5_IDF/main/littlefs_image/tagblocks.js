@@ -45,6 +45,14 @@
 // level stands on blocks below, which are inferred if not seen themselves.
 // clear() (a rescan) starts over.
 //
+// A cube with two or more tagged faces in one still picture is placed by a
+// whole-cube fit (fitCube): its x, y and heading -- upright, at its stacking
+// level, its size known -- together with the camera's actual tilt, to all
+// those tags' corners at once (also a tag seen too edge-on for a pose of
+// its own). Measured: a still cube's place repeats to 0.1 mm (12 mm from
+// separate tags), and the hobby tilt servo's 1-2 degrees of error -- ~2 cm
+// on the floor at 30 cm -- comes out with it: state.tiltFix.
+//
 // Remembered (opts.persist): each tag's size, how many cubes carry it and
 // where they were last seen go to the robot's "tags" document (/appdata/tags,
 // shown on the Tags page) -- sizes as soon as they're known, places at most
@@ -441,13 +449,213 @@ window.Lynx = window.Lynx || {};
       if (level < 0 || level > 5 || Math.abs(ch - (half + level * B)) > 0.45 * B) return null;
       // a vote for this ID's size: only from blocks on the floor (that's what the estimate assumes)
       const vote = cm0 >= MIN_CM && cm0 <= MAX_CM && level === 0 ? cm0 : 0;
-      return { id, tag: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN };
+      return { id, tag: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN, det: d };
     }
 
     const near = (b, o, B, k = 0.75) => Math.hypot(b.x - o.x, b.y - o.y) < k * B && Math.abs(b.h - o.h) < 0.5 * B;
     // Two real cubes can't overlap: sightings (or a sighting and a block) of the
     // same tag this close are one and the same cube.
     const OVERLAP = 0.9;
+    const FIT_MAX_PX = 2.5; // a whole-cube fit worse than this (RMS) isn't used
+    const FIT_MAX_TILT = (5 * Math.PI) / 180; // nor one that needs the camera tilted more than this
+
+    // -- the whole-cube fit -----------------------------------------------------------
+    // A cube's tags' corners in the picture for (x, y, yaw) and the camera
+    // tilted by dt (rad, up): each tag on a side face (k: which quarter turn
+    // from the cube's heading) or the top, its corners in its detection's
+    // order (shift, flip: how the tag sits on the face, found once).
+    function cubeResiduals(snap, B, zc, faces, q, dt) {
+      const F = snap.frame;
+      const c = Math.cos(dt);
+      const s = Math.sin(dt);
+      const fwd = [0, 1, 2].map((k) => F.fwd[k] * c - F.down[k] * s);
+      const down = [0, 1, 2].map((k) => F.down[k] * c + F.fwd[k] * s);
+      const right = F.right;
+      const half = B / 2;
+      const ts = (B * RATIO) / 2;
+      const cy = Math.cos(q[2]);
+      const sy = Math.sin(q[2]);
+      const out = [];
+      faces.forEach((f) => {
+        const n = f.top ? [0, 0, 1] : [Math.cos((f.k * Math.PI) / 2), Math.sin((f.k * Math.PI) / 2), 0];
+        const up = f.top ? [1, 0, 0] : [0, 0, 1];
+        const a = [n[1] * up[2] - n[2] * up[1], n[2] * up[0] - n[0] * up[2], n[0] * up[1] - n[1] * up[0]];
+        const model = [[-1, 1], [1, 1], [1, -1], [-1, -1]].map(([i, j]) => [0, 1, 2].map((k) => n[k] * half + a[k] * i * ts + up[k] * j * ts));
+        for (let k = 0; k < 4; k++) {
+          const m = model[f.flip ? (4 - ((k + f.shift) % 4)) % 4 : (k + f.shift) % 4];
+          const w = [q[0] + cy * m[0] - sy * m[1], q[1] + sy * m[0] + cy * m[1], zc + m[2]];
+          const d = [w[0] - snap.x, w[1] - snap.y, w[2] - snap.h];
+          const dot = (v) => d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+          const pr = Lynx.lens.project(dot(right), dot(down), dot(fwd), snap.w, snap.hgt);
+          if (!pr) out.push(50, 50);
+          else out.push(pr.u - f.det.corners[k].x, pr.v - f.det.corners[k].y);
+        }
+      });
+      return out;
+    }
+    const sq = (r) => r.reduce((a, v) => a + v * v, 0);
+    function solveSmall(A, b) {
+      const n = b.length;
+      const M = A.map((r, i) => [...r, b[i]]);
+      for (let c = 0; c < n; c++) {
+        let p = c;
+        for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+        if (Math.abs(M[p][c]) < 1e-18) return null;
+        [M[c], M[p]] = [M[p], M[c]];
+        for (let r = 0; r < n; r++) {
+          if (r === c) continue;
+          const k = M[r][c] / M[c][c];
+          for (let j = c; j <= n; j++) M[r][j] -= k * M[c][j];
+        }
+      }
+      return M.map((r, i) => r[n] / r[i]);
+    }
+    // The cluster's cube (its sightings c, plus dets: detections of its tags
+    // in this picture) fitted: {x, y, yaw, dt, rms, faces} or null.
+    function fitCube(c, dets, snap, B) {
+      const F = frames(snap);
+      const rep0 = c.rep;
+      const zc = rep0.level * B + B / 2;
+      // its faces: the sightings' detections, and same-tag detections right next to them
+      const mine = new Set(c.map((o) => o.det));
+      const box = (d) => {
+        const xs = d.corners.map((p) => p.x);
+        const ys = d.corners.map((p) => p.y);
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      };
+      const near = (d, e) => {
+        const a = box(d);
+        const b = box(e);
+        const size = Math.max(a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1]);
+        return Math.max(a[0] - b[2], b[0] - a[2], a[1] - b[3], b[1] - a[3]) < 0.6 * size;
+      };
+      const idOf = (d) => (alias.has(d.id) ? alias.get(d.id) : d.id);
+      dets.forEach((d) => {
+        if (!mine.has(d) && idOf(d) === rep0.id && [...mine].some((e) => near(d, e))) mine.add(d);
+      });
+      if (Lynx.debugCubeFit && mine.size < 2) console.log("cube fit: one tag only");
+      if (mine.size < 2) return null;
+      // A fit from a starting heading: each tag's face from where it sits
+      // around the cube (seen from above), the corner order that fits, then
+      // x, y, yaw and the camera's tilt -- twice (faces and orders again from
+      // the first round's cube).
+      const sightingTop = (det) => {
+        const o = c.find((oo) => oo.det === det);
+        return o ? o.face === "top" : false;
+      };
+      const assign = (q) =>
+        [...mine].map((det) => {
+          const u = det.corners.reduce((a, p) => a + p.x, 0) / 4;
+          const v = det.corners.reduce((a, p) => a + p.y, 0) / 4;
+          const nn = Lynx.lens.normalize(u, v, snap.w, snap.hgt);
+          const ray = F.toWorld([nn[0], nn[1], 1]);
+          const t = (zc - snap.h) / ray[2];
+          const k = Math.round((Math.atan2(snap.y + ray[1] * t - q[1], snap.x + ray[0] * t - q[0]) - q[2]) / (Math.PI / 2));
+          const f = { det, top: sightingTop(det), k: ((k % 4) + 4) % 4, shift: 0, flip: false };
+          let best = null;
+          for (const flip of [false, true]) {
+            for (let shift = 0; shift < 4; shift++) {
+              f.flip = flip;
+              f.shift = shift;
+              const e = sq(cubeResiduals(snap, B, zc, [f], q, 0));
+              if (!best || e < best.e) best = { e, flip, shift };
+            }
+          }
+          f.flip = best.flip;
+          f.shift = best.shift;
+          return f;
+        });
+      const refine = (faces, v0) => {
+        let v = v0.slice();
+        const res = (vv) => cubeResiduals(snap, B, zc, faces, vv, vv[3]);
+        let r = res(v);
+        let lam = 1e-3;
+        for (let it = 0; it < 30; it++) {
+          const J = [1e-5, 1e-5, 1e-5, 1e-5].map((hh, jj) => {
+            const vp = v.slice();
+            vp[jj] += hh;
+            return res(vp).map((x, ii) => (x - r[ii]) / hh);
+          });
+          const A = J.map((a) => J.map((b) => a.reduce((tt, x, ii) => tt + x * b[ii], 0)));
+          const g = J.map((a) => a.reduce((tt, x, ii) => tt + x * r[ii], 0));
+          let ok = false;
+          for (let k = 0; k < 8; k++) {
+            const d = solveSmall(A.map((row, ii) => row.map((x, jj) => (ii === jj ? x * (1 + lam) + 1e-12 : x))), g.map((x) => -x));
+            if (!d) {
+              lam *= 10;
+              continue;
+            }
+            const v2 = v.map((x, ii) => x + d[ii]);
+            const r2 = res(v2);
+            if (sq(r2) < sq(r)) {
+              v = v2;
+              r = r2;
+              lam = Math.max(1e-9, lam / 3);
+              ok = true;
+              break;
+            }
+            lam *= 10;
+          }
+          if (!ok) break;
+        }
+        return { v, r };
+      };
+      // Every way the tags can sit on the cube's side faces (distinct faces;
+      // a top tag stays on top), from two starting headings: the best fit.
+      // (Where the tags seem to sit around the cube can't be trusted for
+      // this: with the camera's tilt 2 degrees off, the cube seems 4 cm away
+      // from where it is.)
+      let bestFit = null;
+      const base = assign([rep0.x, rep0.y, rep0.yaw, 0]);
+      const sides = base.filter((f) => !f.top);
+      if (sides.length > 4) return null;
+      const combos = [];
+      const pick = (i, used, ks) => {
+        if (i === sides.length) {
+          combos.push(ks.slice());
+          return;
+        }
+        for (let k = 0; k < 4; k++) {
+          if (used.has(k)) continue;
+          used.add(k);
+          ks.push(k);
+          pick(i + 1, used, ks);
+          ks.pop();
+          used.delete(k);
+        }
+      };
+      pick(0, new Set(), []);
+      for (const ks of combos) {
+        for (let j = 0; j < 2; j++) {
+          const v0 = [rep0.x, rep0.y, rep0.yaw + (j * Math.PI) / 4, 0];
+          const faces = base.map((f) => ({ ...f }));
+          faces.filter((f) => !f.top).forEach((f, i) => (f.k = ks[i]));
+          // the corner order for each tag on its face, at the start
+          faces.forEach((f) => {
+            let best = null;
+            for (const flip of [false, true]) {
+              for (let shift = 0; shift < 4; shift++) {
+                f.flip = flip;
+                f.shift = shift;
+                const e = sq(cubeResiduals(snap, B, zc, [f], v0, 0));
+                if (!best || e < best.e) best = { e, flip, shift };
+              }
+            }
+            f.flip = best.flip;
+            f.shift = best.shift;
+          });
+          const fr = refine(faces, v0);
+          const e = sq(fr.r);
+          if (!bestFit || e < bestFit.e) bestFit = { e, v: fr.v, r: fr.r, faces };
+        }
+      }
+      const { v, r, faces } = bestFit;
+      const rms = Math.sqrt(sq(r) / r.length);
+      // (a fit that doesn't match, or a tilt far off what was commanded: not trusted)
+      if (Lynx.debugCubeFit) console.log("cube fit", { tags: faces.length, rms: +rms.toFixed(2), tiltDeg: +((v[3] * 180) / Math.PI).toFixed(2), movedMm: +(Math.hypot(v[0] - rep0.x, v[1] - rep0.y) * 1000).toFixed(1) });
+      if (!(rms < FIT_MAX_PX) || Math.abs(v[3]) > FIT_MAX_TILT || Math.hypot(v[0] - rep0.x, v[1] - rep0.y) > 1.5 * B) return null;
+      return { x: v[0], y: v[1], yaw: v[2], dt: v[3], rms, faces };
+    }
 
     // One still picture's sightings into the map.
     function integrate(dets, snap, now) {
@@ -493,6 +701,25 @@ window.Lynx = window.Lynx || {};
         clusters.forEach((c) => {
           const n = c.length;
           c.rep = { ...c[0], x: c.reduce((m, o) => m + o.x, 0) / n, y: c.reduce((m, o) => m + o.y, 0) / n, h: c.reduce((m, o) => m + o.h, 0) / n };
+          // two or more faces: the whole cube fitted (and the camera's real tilt with it)
+          const fit = fitCube(c, dets, snap, B);
+          if (fit) {
+            c.forEach((o) => {
+              o.x = fit.x;
+              o.y = fit.y;
+              o.yaw = modQuarter(fit.yaw);
+              const f = fit.faces.find((ff) => ff.det === o.det);
+              if (f && !f.top) o.normalYaw = fit.yaw + (f.k * Math.PI) / 2;
+            });
+            c.rep = { ...c.rep, x: fit.x, y: fit.y, yaw: modQuarter(fit.yaw) };
+            // the camera's real tilt at these servo angles: for every overlay
+            // (Lynx.cameraFrame) -- on top of any correction already in this picture's camera
+            const total = (snap.frame.fixRad || 0) + fit.dt;
+            state.tiltFix = { deg: (total * 180) / Math.PI, rms: fit.rms, at: now, tags: fit.faces.length };
+            if (snap.frame.panDeg !== undefined && opts.fixCamera !== false) {
+              Lynx.camTiltFix = { rad: total, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
+            }
+          }
         });
         const free = I.blocks.slice();
         const later = [];
@@ -733,7 +960,7 @@ window.Lynx = window.Lynx || {};
       return out;
     }
 
-    return { start, stop, clear, blocks: list, remembered, transform, pause, state, RATIO, observeForTest: observe, tagPose };
+    return { start, stop, clear, blocks: list, remembered, transform, pause, state, RATIO, observeForTest: observe, integrateForTest: (dets, snap) => integrate(dets, snap, performance.now()), tagPose };
   };
   Lynx.tagMath = { homography, tagPose };
 })(window.Lynx);
