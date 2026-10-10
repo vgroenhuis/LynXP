@@ -51,7 +51,10 @@ Lynx.games = Lynx.games || {};
       rows: Math.max(2, Math.round(+cfg.checkerRows || 14)),
       sq: (+cfg.checkerSquareMm || 20) / 1000,
     };
-    const mid = [((chk.cols - 1) * chk.sq) / 2, ((chk.rows - 1) * chk.sq) / 2];
+    // the board as it stands: maybe turned a quarter (its columns and rows
+    // swapped: labelView) -- upside down needs nothing
+    const dims = (turned) => (turned ? { cols: chk.rows, rows: chk.cols } : { cols: chk.cols, rows: chk.rows });
+    const midOf = (turned) => [((dims(turned).cols - 1) * chk.sq) / 2, ((dims(turned).rows - 1) * chk.sq) / 2];
     const img = document.getElementById("camStream");
     const canvas = document.createElement("canvas");
     const g2 = canvas.getContext("2d", { willReadFrequently: true });
@@ -119,7 +122,7 @@ Lynx.games = Lynx.games || {};
           return;
         }
         const lab = E.labelView(raw, chk.cols, chk.rows);
-        cb({ points: lab.corners, full: lab.absolute, n: raw.length }, w, h);
+        cb({ points: lab.corners, full: lab.absolute, turned: lab.turned, n: raw.length }, w, h);
       });
       return true;
     }
@@ -130,7 +133,7 @@ Lynx.games = Lynx.games || {};
       const pose = S.refinePose(finds.points.map((c) => ({ X: c.col * chk.sq, Y: c.row * chk.sq, u: c.u, v: c.v })), K);
       if (!pose || !(pose.rms < 2)) return null;
       const R = S.rodrigues(pose.r);
-      return { att: CS.attitude(R, pose.t, finds.full ? mid : null), rms: pose.rms, R, t: pose.t, K };
+      return { att: CS.attitude(R, pose.t, finds.full ? midOf(finds.turned) : null), rms: pose.rms, R, t: pose.t, K, turned: !!finds.turned };
     }
 
     // -- the tilt plan ------------------------------------------------------------------------------
@@ -139,8 +142,9 @@ Lynx.games = Lynx.games || {};
     // many of them would be in the picture?
     function tiltPlan(m, w, h) {
       const corners = [];
-      for (let c = 0; c < chk.cols; c++) {
-        for (let r = 0; r < chk.rows; r++) {
+      const d = dims(m.turned);
+      for (let c = 0; c < d.cols; c++) {
+        for (let r = 0; r < d.rows; r++) {
           const X = c * chk.sq;
           const Y = r * chk.sq;
           corners.push([0, 1, 2].map((k) => m.R[k][0] * X + m.R[k][1] * Y + m.t[k]));

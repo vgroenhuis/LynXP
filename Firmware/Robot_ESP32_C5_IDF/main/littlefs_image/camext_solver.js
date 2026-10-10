@@ -290,7 +290,11 @@ window.Lynx = window.Lynx || {};
       p.col -= c0;
       p.row -= r0;
     });
-    return { corners: lab, absolute: spanC === cols && spanR === rows, spanC, spanR };
+    // (the board may stand turned a quarter: cols x rows seen as rows x cols --
+    // whole all the same; the caller then uses the turned layout. Upside
+    // down needs nothing: the numbering follows the picture, not the board.)
+    const turned = cols !== rows && spanC === rows && spanR === cols;
+    return { corners: lab, absolute: (spanC === cols && spanR === rows) || turned, turned, spanC, spanR };
   }
   // A partial view's offset on the board: the one that puts its corners
   // nearest where the model predicts them (within a third of a square).
@@ -381,8 +385,20 @@ window.Lynx = window.Lynx || {};
         spots.push(v.odo);
         s = spots.length - 1;
       }
+      return { ...v, spot: s };
+    });
+    // the board's orientation, from the whole-board pictures: standing turned a
+    // quarter, its columns and rows swap places
+    const turnedVotes = views.reduce((a, v) => {
       const lab = labelView(v.points, opts.cols, opts.rows);
-      return { ...v, spot: s, corners: lab.absolute ? lab.corners : [], partial: lab.absolute ? null : lab };
+      return a + (lab.absolute ? (lab.turned ? 1 : -1) : 0);
+    }, 0);
+    if (turnedVotes > 0) opts = { ...opts, cols: opts.rows, rows: opts.cols };
+    views.forEach((v) => {
+      const lab = labelView(v.points, opts.cols, opts.rows);
+      const whole = lab.absolute && !lab.turned;
+      v.corners = whole ? lab.corners : [];
+      v.partial = whole ? null : lab;
     });
     const full = views.filter((v) => v.corners.length);
     if (full.length < 3) return { error: "Need at least 3 pictures with the whole checkerboard in view" };
@@ -431,6 +447,7 @@ window.Lynx = window.Lynx || {};
       params: Object.fromEntries(CHAIN.map(([n]) => [n, P[n]])), sigma, prior, rms,
       views: kept.length, full: full.length, partial: placed.length, spots: spots.length,
       corners: kept.reduce((a, v) => a + v.corners.length, 0), tags: kept.reduce((a, v) => a + (v.tags || []).length, 0),
+      boardTurned: turnedVotes > 0,
       board: P.board, cube: P.cube,
     };
   }
