@@ -302,6 +302,7 @@ window.Lynx = window.Lynx || {};
         "Save stores it for the current camera resolution. Needs internet once (the tag detector).",
       settings: [
         { key: "calibrate", label: "Calibrate", type: "select", def: "intrinsics", options: [["intrinsics", "1. The lens (intrinsics)"], ["servos", "2. The pan / tilt servos (checkerboard; the robot drives and turns)"], ["extrinsics", "3. The camera's mount: height, tilt (checkerboard + the frame cube on the floor)"]] },
+        { key: "lensOffsetMm", label: "Lens in front of the pan axis (measured; the mount step holds it)", type: "number", unit: "mm", def: 5, min: -20, max: 40, step: 0.5 },
         { key: "target", label: "Calibration target", type: "select", def: "aprilgrid", options: [["aprilgrid", "AprilGrid (Kalibr)"], ["checkerboard", "Checkerboard"]] },
         { key: "checkerCols", label: "Checkerboard: inner corners across (targetCols)", type: "number", def: 13, min: 2, max: 40, step: 1 },
         { key: "checkerRows", label: "Checkerboard: inner corners down (targetRows)", type: "number", def: 14, min: 2, max: 40, step: 1 },
@@ -608,6 +609,38 @@ window.Lynx = window.Lynx || {};
       down += (calib.leanFwdRad || 0) * Math.cos(pan) + (calib.leanLeftRad || 0) * Math.sin(pan);
     }
     return down;
+  };
+
+  // The camera's place and axes in the world for a pose -- the chain the
+  // mount calibration fits (camext_solver.js cameraOf): the chassis's heading
+  // and lean, the pan, the tilt axis (rolled by axisRollRad), the tilt (down:
+  // calib.tiltRad less the tilt servo's angle), the camera's own roll; the
+  // lens offsetM ahead of the pan axis along where it looks. With the page's
+  // smooth aim the pose carries the camera's heading and pose.chassisTheta.
+  // -> {C: [x, y, h] (h without a game's jump), fwd, right, down} (unit vectors)
+  Lynx.cameraFrame = (calib, pose) => {
+    const D2R = Math.PI / 180;
+    let TH = pose.theta;
+    let pan = (pose.servoAngleDeg || 0) * D2R;
+    if (typeof pose.chassisTheta === "number") {
+      pan += pose.theta - pose.chassisTheta;
+      TH = pose.chassisTheta;
+    }
+    const D = calib.tiltRad - (pose.tiltAngleDeg || 0) * D2R;
+    const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+    const Rz = (a) => [[Math.cos(a), -Math.sin(a), 0], [Math.sin(a), Math.cos(a), 0], [0, 0, 1]];
+    const Rx = (a) => [[1, 0, 0], [0, Math.cos(a), -Math.sin(a)], [0, Math.sin(a), Math.cos(a)]];
+    const Rdown = (a) => [[Math.cos(a), 0, Math.sin(a)], [0, 1, 0], [-Math.sin(a), 0, Math.cos(a)]]; // nose down by a
+    let R = mul(Rz(TH), mul(Rdown(calib.leanFwdRad || 0), Rx(-(calib.leanLeftRad || 0))));
+    R = mul(mul(mul(mul(R, Rz(pan)), Rx(calib.axisRollRad || 0)), Rdown(D)), Rx(calib.camRollRad || 0));
+    const fwd = [R[0][0], R[1][0], R[2][0]];
+    const off = calib.offsetM || 0;
+    return {
+      C: [pose.x + off * fwd[0], pose.y + off * fwd[1], calib.heightM + off * fwd[2]],
+      fwd,
+      right: [-R[0][1], -R[1][1], -R[2][1]],
+      down: [-R[0][2], -R[1][2], -R[2][2]],
+    };
   };
 
   // -- camera lens model ---------------------------------------------------------

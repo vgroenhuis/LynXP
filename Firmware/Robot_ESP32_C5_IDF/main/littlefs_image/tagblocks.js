@@ -325,7 +325,7 @@ window.Lynx = window.Lynx || {};
       }
       // the camera as it was for this picture (ar.pose is delayed to match the video)
       const cw = ar.cameraWorld();
-      const snap = { x: cw.x, y: cw.y, h: cw.h, th: ar.camTheta, tilt: ar.tilt, w, hgt: h, t: performance.now() };
+      const snap = { x: cw.x, y: cw.y, h: cw.h, th: ar.camTheta, tilt: ar.tilt, frame: ar.frame, w, hgt: h, t: performance.now() };
       snap.still = still(snap);
       state.stable = snap.still;
       busy = true;
@@ -367,23 +367,19 @@ window.Lynx = window.Lynx || {};
     }
 
     // camera frame (x right, y down, z forward) -> world direction, and back
+    // camera frame [x right, y down, z ahead] <-> world, as the picture was
+    // taken: the full camera model (Lynx.cameraFrame -- lean, rolls; snap.x/y/h
+    // is the lens itself, offset included)
     function frames(snap) {
-      const ct = Math.cos(snap.tilt);
-      const st = Math.sin(snap.tilt);
-      const cth = Math.cos(snap.th);
-      const sth = Math.sin(snap.th);
+      const F = snap.frame;
       return {
         toWorld(v) {
-          const fwd = v[2] * ct - v[1] * st;
-          const down = v[2] * st + v[1] * ct;
-          return [fwd * cth + v[0] * sth, fwd * sth - v[0] * cth, -down];
+          return [0, 1, 2].map((k) => v[0] * F.right[k] + v[1] * F.down[k] + v[2] * F.fwd[k]);
         },
         toCam(p) {
-          const dx = p[0] - snap.x;
-          const dy = p[1] - snap.y;
-          const fwd = dx * cth + dy * sth;
-          const down = snap.h - p[2];
-          return [dx * sth - dy * cth, -fwd * st + down * ct, fwd * ct + down * st];
+          const d = [p[0] - snap.x, p[1] - snap.y, p[2] - snap.h];
+          const dot = (a) => d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+          return [dot(F.right), dot(F.down), dot(F.fwd)];
         },
       };
     }

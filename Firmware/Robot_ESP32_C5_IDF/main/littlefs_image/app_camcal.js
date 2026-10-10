@@ -46,6 +46,7 @@ Lynx.games = Lynx.games || {};
   const LIVE_EVERY_MS = 300;
   const MIN_TAGS = 4;
   const MIN_CORNERS = 12;
+  const MIN_MOUNT_VIEWS = 20; // the mount step won't save from fewer pictures (8 gave nonsense)
 
   Lynx.games.camcal = (ar, cfg, app) => {
     if (cfg.calibrate === "servos") return Lynx.games.camservo(ar, cfg, app); // (step 2: app_camservo.js)
@@ -473,13 +474,18 @@ Lynx.games = Lynx.games || {};
         prior.h = params.cameraHeightMm / 1000;
         prior.mountTilt = params.cameraTiltDeg * D2R;
       }
+      prior.offset = (Number.isFinite(+cfg.lensOffsetMm) ? +cfg.lensOffsetMm : 5) / 1000; // (measured: the setting)
       if (savedLean) {
         prior.leanFwd = (+savedLean.fwdDeg || 0) * D2R;
         prior.leanLeft = (+savedLean.leftDeg || 0) * D2R;
       }
       const res = E.solve(
         views.filter((v) => v.w === w && v.h === h).map((v) => ({ K, pan: v.pan, tilt: v.tilt, odo: v.odo, points: v.raw, tags: v.tags })),
-        { square: chk.sq, cube: cubeM, cols: chk.cols, rows: chk.rows, prior, fixed: ["panOffset", "panGainL", "panGainR", "tiltGainUp", "tiltGainDown"] },
+        { square: chk.sq, cube: cubeM, cols: chk.cols, rows: chk.rows, prior,
+          // the servos are calibrated (step 2) and the lens's offset measured (a setting); the rolls
+          // a degree or two at most -- free, they traded off against each other (+22 / -20 degrees)
+          fixed: ["panOffset", "panGainL", "panGainR", "tiltGainUp", "tiltGainDown", "offset"],
+          sigma: { axisRoll: 1.5 * D2R, camRoll: 2 * D2R } },
       );
       state = "done";
       if (res.error) {
@@ -494,6 +500,10 @@ Lynx.games = Lynx.games || {};
       const r = result;
       if (!params) {
         say("The robot's settings didn't load -- is it reachable?", "#ff9090");
+        return;
+      }
+      if (r.views < MIN_MOUNT_VIEWS) {
+        say(`Only ${r.views} pictures -- take at least ${MIN_MOUNT_VIEWS} (the whole tour) before saving`, "#ff9090");
         return;
       }
       const P = r.params;
@@ -515,6 +525,8 @@ Lynx.games = Lynx.games || {};
           };
           // (cameraTiltDeg is now the tilt to the chassis: the overlays add this lean)
           out.lean = { fwdDeg: +(P.leanFwd / D2R).toFixed(2), leftDeg: +(P.leanLeft / D2R).toFixed(2), from: "mount", at: out.extrinsics.at };
+          // what the overlays and the cube finder use (Lynx.cameraFrame)
+          out.mount = { offsetMm: +(P.offset * 1000).toFixed(1), camRollDeg: +(P.camRoll / D2R).toFixed(2), axisRollDeg: +(P.axisRoll / D2R).toFixed(2), at: out.extrinsics.at };
           return fetch("/appdata/camcal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
         })
         .then(() => {
@@ -645,7 +657,7 @@ Lynx.games = Lynx.games || {};
         const pr = r.prior;
         const mm = (x) => (x * 1000).toFixed(1);
         const dg = (x) => (x / D2R).toFixed(2);
-        lines.push(`height ${mm(P.h)} \u00b1 ${mm(sg.h)} mm (was ${mm(pr.h)}) \u00b7 lens ${mm(P.offset)} \u00b1 ${mm(sg.offset)} mm in front of the tilt axis`);
+        lines.push(`height ${mm(P.h)} \u00b1 ${mm(sg.h)} mm (was ${mm(pr.h)}) \u00b7 lens ${mm(P.offset)} mm ahead of the pan axis (as set)${r.views < MIN_MOUNT_VIEWS ? ` \u00b7 only ${r.views} pictures: too few to save` : ""}`);
         lines.push(`mount tilt ${dg(P.mountTilt)} \u00b1 ${dg(sg.mountTilt)}\u00b0 (was ${dg(pr.mountTilt)})`);
         lines.push(`tilt axis roll ${dg(P.axisRoll)} \u00b1 ${dg(sg.axisRoll)}\u00b0 \u00b7 camera roll ${dg(P.camRoll)} \u00b1 ${dg(sg.camRoll)}\u00b0`);
         lines.push(`robot lean ${dg(P.leanFwd)} ± ${dg(sg.leanFwd)}° forward, ${dg(P.leanLeft)} ± ${dg(sg.leanLeft)}° left${savedLean ? ` (servo step: ${(+savedLean.fwdDeg).toFixed(2)}, ${(+savedLean.leftDeg).toFixed(2)})` : ""}`);

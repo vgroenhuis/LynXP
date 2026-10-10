@@ -218,6 +218,11 @@ window.addEventListener("DOMContentLoaded", () => {
               // the chassis's lean (camcal "lean": the servo / mount calibration; see Lynx.cameraDown)
               leanFwdRad: camcal && camcal.lean ? ((+camcal.lean.fwdDeg || 0) * Math.PI) / 180 : 0,
               leanLeftRad: camcal && camcal.lean ? ((+camcal.lean.leftDeg || 0) * Math.PI) / 180 : 0,
+              // the camera's own roll, the tilt axis's roll, the lens ahead of the pan axis
+              // (camcal "mount": the mount calibration; see Lynx.cameraFrame) -- 5 mm unless measured
+              camRollRad: camcal && camcal.mount ? ((+camcal.mount.camRollDeg || 0) * Math.PI) / 180 : 0,
+              axisRollRad: camcal && camcal.mount ? ((+camcal.mount.axisRollDeg || 0) * Math.PI) / 180 : 0,
+              offsetM: camcal && camcal.mount && Number.isFinite(+camcal.mount.offsetMm) ? +camcal.mount.offsetMm / 1000 : 0.005,
               vfovRad: (data.cameraVerticalFovDeg * Math.PI) / 180, // fallback only -- projection goes through Lynx.lens
               // how the robot turns camera input into angles (see stepAim())
               aim: typeof data.panMaxSpeedDegPerSec !== "number" ? null : {

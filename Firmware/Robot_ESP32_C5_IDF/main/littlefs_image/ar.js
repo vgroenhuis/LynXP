@@ -299,6 +299,7 @@ window.Lynx = window.Lynx || {};
       pose: { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 },
       camTheta: 0,
       tilt: calib.tiltRad,
+      frame: Lynx.cameraFrame(calib, { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 }), // (Lynx.cameraFrame)
       view: null, // {cw, ch, imgW, imgH, scale, offX, offY, f, x, y, w, h, cx, cy}
       hasVideo: false,
       // Virtual elevation of the camera above its real height (m): the ground
@@ -351,16 +352,28 @@ window.Lynx = window.Lynx || {};
       return { right: dx * Math.sin(t) - dy * Math.cos(t), forward: dx * Math.cos(t) + dy * Math.sin(t) };
     };
 
+    // World point -> camera frame [x right, y down, z ahead], through the
+    // full camera model (Lynx.cameraFrame: lean, rolls, the lens's offset).
+    function camPoint(wx, wy, h) {
+      const F = ar.frame;
+      const dx = wx - F.C[0];
+      const dy = wy - F.C[1];
+      const dh = h - (F.C[2] + ar.z);
+      return [
+        dx * F.right[0] + dy * F.right[1] + dh * F.right[2],
+        dx * F.down[0] + dy * F.down[1] + dh * F.down[2],
+        dx * F.fwd[0] + dy * F.fwd[1] + dh * F.fwd[2],
+      ];
+    }
+    ar.camPoint = camPoint;
+
     // World point (x, y on the floor, h meters up) -> screen. Null if behind
     // the camera. ppm = screen pixels per meter at that depth (for sizing).
     ar.project = (wx, wy, h) => {
-      const rel = ar.toCamera(wx, wy);
       const v = ar.view;
-      const vertical = calib.heightM + ar.z - h;
-      const zc = rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt);
+      const [xc, yc, zc] = camPoint(wx, wy, h);
       if (zc < NEAR_M) return null;
-      const yc = vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt);
-      const p = pinhole(rel.right, yc, zc);
+      const p = pinhole(xc, yc, zc);
       return { x: p.x, y: p.y, depth: zc, ppm: (v.f * v.scale) / zc };
     };
 
@@ -370,7 +383,7 @@ window.Lynx = window.Lynx || {};
       p.y >= ar.view.y - margin && p.y <= ar.view.y + ar.view.h + margin;
 
     // Camera position in the world (for 3D distances, e.g. projectile hits).
-    ar.cameraWorld = () => ({ x: ar.pose.x, y: ar.pose.y, h: calib.heightM + ar.z });
+    ar.cameraWorld = () => ({ x: ar.frame.C[0], y: ar.frame.C[1], h: ar.frame.C[2] + ar.z });
 
     // Jump (only from the ground). Returns whether a jump started.
     ar.jump = () => {
@@ -406,11 +419,7 @@ window.Lynx = window.Lynx || {};
     };
 
     // Unit vector of where the camera is looking, in world coordinates.
-    ar.aimVector = () => ({
-      x: Math.cos(ar.camTheta) * Math.cos(ar.tilt),
-      y: Math.sin(ar.camTheta) * Math.cos(ar.tilt),
-      h: -Math.sin(ar.tilt),
-    });
+    ar.aimVector = () => ({ x: ar.frame.fwd[0], y: ar.frame.fwd[1], h: ar.frame.fwd[2] });
 
     // box (optional): the item's axis-aligned extent {frame, f0, f1, r0, r1,
     // h0, h1} in a game's own floor frame, frame.cam = the camera's {f, r, h}
@@ -601,11 +610,9 @@ window.Lynx = window.Lynx || {};
       const v = ar.view;
       const p = ar.project(wx, wy, h);
       if (p && p.x >= 10 && p.x <= v.cw - 10 && p.y >= 10 && p.y <= v.ch - 10) return;
-      const rel = ar.toCamera(wx, wy);
-      const vertical = calib.heightM + ar.z - h;
-      const zc = rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt);
-      let dirX = rel.right;
-      let dirY = vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt);
+      const [cx0, cy0, zc] = camPoint(wx, wy, h);
+      let dirX = cx0;
+      let dirY = cy0;
       if (zc < 0) dirX = (dirX < 0 ? -1 : 1) * Math.hypot(dirX, zc);
       const len = Math.hypot(dirX, dirY);
       if (len < 1e-9) return;
@@ -719,14 +726,9 @@ window.Lynx = window.Lynx || {};
       for (const f of [b.f0, b.f1]) {
         for (const r of [b.r0, b.r1]) {
           const w = toWorld(f, r);
-          const rel = ar.toCamera(w.x, w.y);
           for (const h of [b.h0, b.h1]) {
-            const vertical = calib.heightM + ar.z - h;
-            cs.push({
-              x: rel.right,
-              y: vertical * Math.cos(ar.tilt) - rel.forward * Math.sin(ar.tilt),
-              z: rel.forward * Math.cos(ar.tilt) + vertical * Math.sin(ar.tilt),
-            });
+            const [x, y, z] = camPoint(w.x, w.y, h);
+            cs.push({ x, y, z });
           }
         }
       }
@@ -809,6 +811,7 @@ window.Lynx = window.Lynx || {};
       ar.pose = pose;
       ar.camTheta = pose.theta + (pose.servoAngleDeg * Math.PI) / 180;
       ar.tilt = Lynx.cameraDown(calib, pose);
+      ar.frame = Lynx.cameraFrame(calib, pose);
       updateView();
       const now = performance.now();
       const dt = lastFrameMs === null ? 0 : Math.max(0, Math.min((now - lastFrameMs) / 1000, 0.1));
