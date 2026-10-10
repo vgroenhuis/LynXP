@@ -1100,7 +1100,7 @@ void web_server_init() {
     config.server_port = 80;
     config.stack_size = 8192;
     config.max_open_sockets = 12; // the UI opens ~6 conns per page navigation
-    config.max_uri_handlers = 40; // ~22 here + /ws (ws_broadcast.cpp) + OTA (ota.cpp) + /debug/* (debug_pan.cpp); registrations past this fail silently
+    config.max_uri_handlers = 48; // ~24 here + /ws (ws_broadcast.cpp) + OTA (ota.cpp) + /debug/* (debug_pan.cpp); registrations past this fail silently
     config.lru_purge_enable = true; // reconnect-storm resilience
     config.close_fn = close_session;
     config.send_wait_timeout = 2; // bound the worst case if a peer stalls
@@ -1165,7 +1165,7 @@ void web_server_init() {
     httpd_register_uri_handler(g_server, &poseResetUri);
     httpd_register_uri_handler(g_server, &waypointsGetUri);
     httpd_register_uri_handler(g_server, &waypointsPostUri);
-    static const char *APP_DATA_DOCS[] = {"settings", "scores", "camcal", "tags"}; // "tags": the AprilTag blocks seen (tagblocks.js)
+    static const char *APP_DATA_DOCS[] = {"settings", "scores", "camcal", "tags", "boardcheck"}; // "tags": the AprilTag blocks seen (tagblocks.js); "boardcheck": app_boardcheck.js
     constexpr int APP_DATA_DOC_COUNT = sizeof(APP_DATA_DOCS) / sizeof(APP_DATA_DOCS[0]);
     static char appDataUris[APP_DATA_DOC_COUNT][32];
     for (int i = 0; i < APP_DATA_DOC_COUNT; i++) {
