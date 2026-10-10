@@ -133,6 +133,22 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "sonar", title: "Sonar", better: "higher", format: "points" }],
     },
     {
+      id: "echo",
+      kind: "game",
+      name: "Echo",
+      icon: "\u{1F3B5}",
+      blurb:
+        "Simon on your floor. Four coloured pads light up in a sequence, each with its own note; repeat it by driving " +
+        "onto the pads in the same order and pausing on each. Every round adds a step and the playback gets faster. " +
+        "Touch the wrong pad, or take too long, and it's over.",
+      settings: [
+        { key: "padDistM", label: "Distance from start to each pad", type: "number", unit: "m", def: 0.8, min: 0.4, max: 3, step: 0.1 },
+        { key: "stepTimeS", label: "Time allowed per step", type: "number", unit: "s", def: 8, min: 3, max: 30, step: 1 },
+        { key: "startLen", label: "Starting sequence length", type: "number", def: 1, min: 1, max: 8, step: 1 },
+      ],
+      boards: [{ key: "echo", title: "Echo", better: "higher", format: "points" }],
+    },
+    {
       id: "prisma",
       kind: "game",
       name: "Prisma",
@@ -546,6 +562,10 @@ window.Lynx = window.Lynx || {};
     suspect: (t) => tone(t, "triangle", 520, 780, 0.18, 0.25),
     alarm: (t) => { for (let i = 0; i < 4; i++) tone(t + i * 0.16, "square", i % 2 ? 660 : 880, null, 0.14, 0.28); },
     jump: (t) => tone(t, "square", 300, 900, 0.16, 0.2),
+    echo0: (t) => tone(t, "triangle", 262, null, 0.5, 0.4),
+    echo1: (t) => tone(t, "triangle", 330, null, 0.5, 0.4),
+    echo2: (t) => tone(t, "triangle", 392, null, 0.5, 0.4),
+    echo3: (t) => tone(t, "triangle", 523, null, 0.5, 0.4),
     levelup: (t) => { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(t + i * 0.1, "square", f, null, 0.1, 0.22)); },
     // Short, original chugging riff for a new wave.
     wave: (t) => {
