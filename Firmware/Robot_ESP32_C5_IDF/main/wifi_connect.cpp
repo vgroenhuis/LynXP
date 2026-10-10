@@ -48,6 +48,10 @@ constexpr char AP_SSID_PREFIX[] = "LynXP-";
 constexpr char CAPTIVE_PORTAL_URI[] = "http://192.168.4.1/wifi";
 
 constexpr uint32_t CONNECT_TIMEOUT_MS = 15000;
+// Boot's first try: straight to the access point last connected to (see
+// manager_task()) -- it either answers within a few seconds or the usual
+// scan-and-pick takes over.
+constexpr uint32_t LAST_AP_TIMEOUT_MS = 6000;
 constexpr int64_t AP_START_DELAY_US = 20LL * 1000 * 1000;
 constexpr int64_t AP_STOP_DELAY_US = 10LL * 1000 * 1000;
 constexpr uint32_t RETRY_INTERVAL_MS = 3000;
@@ -107,6 +111,13 @@ char g_pinSsid[33] = "";
 uint8_t g_pinBssid[6] = {};
 uint8_t g_pinChannel = 0;
 bool g_repin = false;                 // just pinned: move onto it if connected elsewhere
+// The access point last connected to (persisted; boot tries it first).
+struct LastAp {
+    char ssid[33];
+    uint8_t bssid[6];
+    uint8_t channel;
+};
+LastAp g_last = {};
 
 bool pin_applies(const char *ssid) {
     Lock lock;
@@ -158,6 +169,12 @@ void apply_radio_policy() {
             g_pinSsid[0] = '\0';
         }
         nvs_get_u8(h, "pinCh", &g_pinChannel);
+        len = sizeof(g_last.ssid);
+        blobLen = sizeof(g_last.bssid);
+        if (nvs_get_str(h, "lastSsid", g_last.ssid, &len) != ESP_OK || nvs_get_blob(h, "lastBssid", g_last.bssid, &blobLen) != ESP_OK ||
+            blobLen != sizeof(g_last.bssid) || nvs_get_u8(h, "lastCh", &g_last.channel) != ESP_OK) {
+            g_last = {};
+        }
         nvs_close(h);
     }
     g_prefer5 = prefer5 != 0;
@@ -372,7 +389,9 @@ bool pick_best(char *outSsid, size_t outLen, const WifiScanEntry **pin5) {
 
 // usePin: join the pinned access point if this is its network (see
 // wifi_pin_ap()); the caller retries with false if that fails.
-bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin = true) {
+// direct: go straight to that access point on its channel (a fast scan of
+// just that channel, a shorter timeout) instead of looking everywhere.
+bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin = true, const LastAp *direct = nullptr) {
     WifiCredential cred;
     if (!wifi_networks_find(ssid, &cred)) return false;
 
@@ -391,7 +410,14 @@ bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin 
     // rather than whichever answers first.
     cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-    if (usePin && pin_applies(cred.ssid)) {
+    if (direct != nullptr) {
+        cfg.sta.scan_method = WIFI_FAST_SCAN;
+        cfg.sta.bssid_set = true;
+        std::memcpy(cfg.sta.bssid, direct->bssid, sizeof(cfg.sta.bssid));
+        cfg.sta.channel = direct->channel;
+        ESP_LOGI(TAG, "  (straight to the access point last used: %02x:%02x:%02x:%02x:%02x:%02x, channel %u)", direct->bssid[0],
+                 direct->bssid[1], direct->bssid[2], direct->bssid[3], direct->bssid[4], direct->bssid[5], direct->channel);
+    } else if (usePin && pin_applies(cred.ssid)) {
         Lock lock;
         cfg.sta.bssid_set = true;
         std::memcpy(cfg.sta.bssid, g_pinBssid, sizeof(cfg.sta.bssid));
@@ -411,7 +437,7 @@ bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin 
     EventBits_t bits = 0;
     if (err == ESP_OK) {
         bits = xEventGroupWaitBits(s_events, BIT_CONNECTED | BIT_DISCONNECTED, pdFALSE, pdFALSE,
-                                   pdMS_TO_TICKS(CONNECT_TIMEOUT_MS));
+                                   pdMS_TO_TICKS(direct != nullptr ? LAST_AP_TIMEOUT_MS : CONNECT_TIMEOUT_MS));
     }
 
     {
@@ -425,13 +451,56 @@ bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin 
     return false;
 }
 
+// After connecting: remember that access point for the next boot (written
+// only when it changed -- spares the flash).
+void remember_connected_ap(const char *ssid) {
+    wifi_ap_record_t info;
+    if (esp_wifi_sta_get_ap_info(&info) != ESP_OK) return;
+    if (std::strcmp(g_last.ssid, ssid) == 0 && std::memcmp(g_last.bssid, info.bssid, sizeof(g_last.bssid)) == 0 &&
+        g_last.channel == info.primary) {
+        return;
+    }
+    copy_str(g_last.ssid, sizeof(g_last.ssid), ssid);
+    std::memcpy(g_last.bssid, info.bssid, sizeof(g_last.bssid));
+    g_last.channel = info.primary;
+    nvs_handle_t h;
+    if (nvs_open("wifinets", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, "lastSsid", g_last.ssid);
+    nvs_set_blob(h, "lastBssid", g_last.bssid, sizeof(g_last.bssid));
+    nvs_set_u8(h, "lastCh", g_last.channel);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 void manager_task(void *) {
     int64_t disconnectedSinceUs = esp_timer_get_time();
     int64_t connectedSinceUs = 0;
     bool scanRequested = false;
+    bool booting = true;
 
     while (true) {
         int64_t now = esp_timer_get_time();
+
+        // Boot: first, straight back to the access point last connected to --
+        // no scan of both bands (seconds, twice: ours, then the driver's own
+        // while joining) when nothing has changed. Not if a network was asked
+        // for, or that one's been forgotten since; the usual scan-and-pick
+        // below follows if it doesn't answer.
+        if (booting && !g_connected) {
+            booting = false;
+            bool asked;
+            {
+                Lock lock;
+                asked = g_preferredSsid[0] != '\0';
+            }
+            if (!asked && g_last.ssid[0] != '\0' && g_last.channel != 0 && wifi_networks_find(g_last.ssid, nullptr)) {
+                const LastAp last = g_last;
+                if (attempt(last.ssid, nullptr, false, &last)) {
+                    connectedSinceUs = esp_timer_get_time();
+                    continue;
+                }
+            }
+        }
 
         if (!g_connected) {
             char target[33] = "";
@@ -457,6 +526,7 @@ void manager_task(void *) {
             // that fails falls back to letting the driver pick any access
             // point of that network.
             if (haveTarget && (attempt(target, pin5) || ((pin5 != nullptr || pin_applies(target)) && attempt(target, nullptr, false)))) {
+                remember_connected_ap(target);
                 connectedSinceUs = esp_timer_get_time();
                 continue;
             }
