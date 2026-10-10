@@ -90,11 +90,10 @@ constexpr int SERVO_PWM_FREQ_HZ = 50;
 // ---------------------------------------------------------------------------
 // QR-display pushbutton
 // ---------------------------------------------------------------------------
-// Plain pulled-up GPIO input, wired to GND -- unlike the bring-up test
-// project, this pin is NOT shared with the onboard RGB LED here: the S3
-// firmware being ported never drove that LED either (NEOPIXEL_PIN was
-// defined but unused there too), so there's nothing to time-multiplex
-// against. The LED stays available for a future feature.
+// Pulled-up GPIO input, wired to GND -- shared with the onboard RGB LED
+// (WS2812), the status light: button.cpp turns the pin into the LED's data
+// output only for the moment a new colour is sent (status_led.cpp), as in
+// the bring-up test project.
 constexpr gpio_num_t QR_BUTTON_PIN = GPIO_NUM_27;
 
 // ---------------------------------------------------------------------------

@@ -41,3 +41,7 @@ TaskHandle_t ws_broadcast_get_poll_task_handle();
 // The stack size (bytes) ws_broadcast_start() actually created the poll
 // task with -- diagnostics_register_tasks() needs this alongside the handle.
 constexpr uint32_t WS_POLL_TASK_STACK_BYTES = 4096;
+
+// How many WebSocket clients (pages) are connected, as of the poll task's
+// last pass (every 20 ms). Safe to call from any task.
+int ws_broadcast_client_count();

@@ -25,6 +25,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "status_led.hpp"
+
 namespace {
 
 const char *TAG = "ota";
@@ -125,12 +127,20 @@ void restore_servos() {
     tilt_servo_set_pulse_us(computeTiltServoPulseUs(currentTiltAngleDeg));
 }
 
+// The status LED flashes cyan while an update is being written (whichever
+// way the handler returns; a successful one restarts first).
+struct UpdatingLed {
+    UpdatingLed() { status_led_set_updating(true); }
+    ~UpdatingLed() { status_led_set_updating(false); }
+};
+
 esp_err_t handle_update_post(httpd_req_t *req) {
     if (!ota_check_basic_auth(req)) {
         ESP_LOGW(TAG, "/update rejected: bad or missing credentials");
         send_unauthorized(req);
         return ESP_OK;
     }
+    UpdatingLed led;
 
     // Stop the robot before touching flash -- esp_ota_write()'s internal
     // erase disables the flash cache on both cores for the duration, and
@@ -475,6 +485,7 @@ esp_err_t handle_update_fs_post(httpd_req_t *req) {
         send_unauthorized(req);
         return ESP_OK;
     }
+    UpdatingLed led;
 
     const esp_partition_t *fsPartition = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "storage");

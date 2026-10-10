@@ -495,6 +495,10 @@ void broadcast_ws(httpd_handle_t server, const char *json, size_t len) {
     }
 }
 
+// WebSocket clients as of the poll task's last pass (status_led.cpp reads it
+// from another task, without touching the HTTP server itself)
+volatile int g_wsClientCount = 0;
+
 int count_ws_clients(httpd_handle_t server) {
     if (server == nullptr) {
         return 0;
@@ -565,7 +569,9 @@ void ws_poll_task(void *arg) {
                 totalConns = (int) fdCount;
             }
         }
-        breadcrumb_mark_core0_with_conns(CORE0_CP_POLL_LOOP_START, totalConns, count_ws_clients(server));
+        const int wsClients = count_ws_clients(server);
+        g_wsClientCount = wsClients;
+        breadcrumb_mark_core0_with_conns(CORE0_CP_POLL_LOOP_START, totalConns, wsClients);
 
         if (lastControlFrameUpdateMs == 0) {
             lastControlFrameUpdateMs = nowMs;
@@ -850,6 +856,10 @@ void servo_history_record(unsigned long nowMs) {
 }
 
 } // namespace
+
+int ws_broadcast_client_count() {
+    return g_wsClientCount;
+}
 
 void ws_broadcast_servo_actual(float *panDeg, float *tiltDeg) {
     *panDeg = currentServoAngleDeg;

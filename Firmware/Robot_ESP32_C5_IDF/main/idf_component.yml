@@ -1,9 +1,9 @@
 ## IDF Component Manager Manifest File
 ##
-## espressif/led_strip is intentionally still not listed -- see
-## board_pins.hpp's RGB LED note (out of scope, S3 firmware never drove it
-## either).
+## espressif/led_strip: the onboard RGB LED as a status light (status_led.cpp,
+## written from button.cpp -- it shares the QR button's pin).
 dependencies:
+  espressif/led_strip: '~3.0'
   idf:
     version: '>=5.5'
   joltwallet/littlefs: '~1.22'
