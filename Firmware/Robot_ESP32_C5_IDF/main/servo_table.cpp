@@ -23,10 +23,34 @@ constexpr const char *KEY_TILT = "tiltTable";
 constexpr const char *KEY_BACKLASH = "backlash";
 constexpr float TURN_DEADBAND_DEG = 0.05f; // smaller steps don't count as turning (noise, re-sends)
 
+// The old table (every 15 degrees) spread over every 5, by straight lines between its points.
+void expand_old(const float *old, ServoTable *t) {
+    for (int i = 0; i < SERVO_TABLE_N; i++) {
+        float x = i * SERVO_TABLE_STEP_DEG / 15.0f;
+        int j = std::min((int) x, SERVO_TABLE_N_OLD - 2);
+        float f = x - j;
+        t->pulseUs[i] = old[j] + f * (old[j + 1] - old[j]);
+    }
+}
+
+struct OldServoTable {
+    bool valid;
+    float pulseUs[SERVO_TABLE_N_OLD];
+};
+
 void load_one(nvs_handle_t h, const char *key, ServoTable *t) {
     ServoTable loaded = {};
     size_t len = sizeof(loaded);
-    if (nvs_get_blob(h, key, &loaded, &len) == ESP_OK && len == sizeof(loaded)) *t = loaded;
+    if (nvs_get_blob(h, key, &loaded, &len) == ESP_OK && len == sizeof(loaded)) {
+        *t = loaded;
+        return;
+    }
+    OldServoTable old = {};
+    len = sizeof(old);
+    if (nvs_get_blob(h, key, &old, &len) == ESP_OK && len == sizeof(old) && old.valid) {
+        expand_old(old.pulseUs, t);
+        t->valid = true;
+    }
 }
 
 } // namespace
@@ -64,19 +88,26 @@ bool servo_table_parse(const char *csv, ServoTable *out) {
         return true;
     }
     ServoTable t = {};
+    float v[SERVO_TABLE_N];
+    int n = 0;
     const char *p = csv;
-    for (int i = 0; i < SERVO_TABLE_N; i++) {
+    while (n < SERVO_TABLE_N) {
         char *end = nullptr;
-        float v = std::strtof(p, &end);
-        if (end == p || !std::isfinite(v) || v < 300.0f || v > 2800.0f) return false;
-        t.pulseUs[i] = v;
+        float x = std::strtof(p, &end);
+        if (end == p || !std::isfinite(x) || x < 300.0f || x > 2800.0f) return false;
+        v[n++] = x;
         p = end;
-        if (i < SERVO_TABLE_N - 1) {
-            if (*p != ',') return false;
-            p++;
-        }
+        if (*p != ',') break;
+        p++;
     }
     if (*p != '\0') return false;
+    if (n == SERVO_TABLE_N) {
+        for (int i = 0; i < n; i++) t.pulseUs[i] = v[i];
+    } else if (n == SERVO_TABLE_N_OLD) {
+        expand_old(v, &t);
+    } else {
+        return false;
+    }
     // one way throughout (a servo turns one way as the pulse grows)
     float dir = t.pulseUs[SERVO_TABLE_N - 1] - t.pulseUs[0];
     for (int i = 1; i < SERVO_TABLE_N; i++) {

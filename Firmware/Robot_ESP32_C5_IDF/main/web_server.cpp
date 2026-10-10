@@ -558,20 +558,20 @@ esp_err_t handle_set(httpd_req_t *req) {
         dirty = true;
     }
     if (hasUser || hasPass) uart_link_credentials_changed(); // the camera guards its /update with the same ones
-    // The servos' calibration tables ("p0,...,p12" for -90..90 every 15 deg, or "none"): own NVS key.
+    // The servos' calibration tables ("p0,...,p36" for -90..90 every 5 deg -- or the old 13, every 15 -- or "none"): own NVS key.
     {
-        char tbuf[200];
+        static char tbuf[420]; // (37 pulses)
         bool tablesChanged = false;
         if (get_query_str(req, "panTable", tbuf, sizeof(tbuf))) {
             if (!servo_table_parse(tbuf, &g_panTable)) {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "panTable: 13 increasing or decreasing pulses (us), or none");
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "panTable: 37 (every 5 deg) or 13 (every 15) increasing or decreasing pulses (us), or none");
                 return ESP_OK;
             }
             tablesChanged = true;
         }
         if (get_query_str(req, "tiltTable", tbuf, sizeof(tbuf))) {
             if (!servo_table_parse(tbuf, &g_tiltTable)) {
-                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "tiltTable: 13 increasing or decreasing pulses (us), or none");
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "tiltTable: 37 (every 5 deg) or 13 (every 15) increasing or decreasing pulses (us), or none");
                 return ESP_OK;
             }
             tablesChanged = true;
@@ -606,7 +606,7 @@ esp_err_t handle_params(httpd_req_t *req) {
     json_escape(breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), core0Esc, sizeof(core0Esc));
     json_escape(breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), core1Esc, sizeof(core1Esc));
     json_escape(bc.lastWsMessageType, wsMsgEsc, sizeof(wsMsgEsc));
-    static char json[2400]; // (static: the HTTP server's one task builds one at a time; off its stack)
+    static char json[3200]; // (static: the HTTP server's one task builds one at a time; off its stack)
     int n = snprintf(json, sizeof(json),
         "{\"loggingEnabled\":%s,\"debugWeb\":%s,\"dataLogRate\":%.1f,\"mode\":%d,"
         "\"logType\":%d,\"logUnit\":%d,\"kp\":%.4f,\"ki\":%.4f,\"kd\":%.4f,"
@@ -654,7 +654,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         userEsc, settings.otaPassword[0] != '\0' ? "true" : "false");
     if (n > 0 && (size_t) n < sizeof(json) && json[n - 1] == '}') {
         // the servos' calibration tables (servo_table.hpp), before the closing brace
-        char panT[160], tiltT[160];
+        static char panT[400], tiltT[400];
         servo_table_json(g_panTable, panT, sizeof(panT));
         servo_table_json(g_tiltTable, tiltT, sizeof(tiltT));
         n = n - 1 + snprintf(json + n - 1, sizeof(json) - (n - 1), ",\"panTableUs\":%s,\"tiltTableUs\":%s,\"panBacklashDeg\":%.2f,\"tiltBacklashDeg\":%.2f}",

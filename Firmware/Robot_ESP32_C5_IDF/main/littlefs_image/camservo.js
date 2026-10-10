@@ -14,7 +14,7 @@
 //     small turns on the way taken out with odometry).
 //   Tilt: at pan 0, the camera's pitch change to the board.
 // New servo pulses then put the servo where it's told: a table of pulses for
-// -90, -75, ..., +90 degrees (servo_table.hpp on the robot -- hobby servos
+// -90, -85, ..., +90 degrees (servo_table.hpp on the robot -- hobby servos
 // aren't linear enough for min / center / max alone), each where the servo
 // really is at that angle: between the measured angles interpolated, past
 // them extended along a line through the outermost few. The tilt's 0 stays:
@@ -48,13 +48,14 @@ window.Lynx = window.Lynx || {};
   }
 
   // the robot's pulse for a commanded angle, and back
-  const TABLE_N = 13;
-  const TABLE_STEP = 15; // degrees, from -90
+  const TABLE_N = 37;
+  const TABLE_STEP = 5; // degrees, from -90 (the robot's table: servo_table.hpp)
   const tableAngles = () => Array.from({ length: TABLE_N }, (_, i) => -90 + i * TABLE_STEP);
   function pulseOf(m, a) {
     if (m.table) {
-      const x = (Math.max(-90, Math.min(90, a)) + 90) / TABLE_STEP;
-      const i = Math.max(0, Math.min(TABLE_N - 2, Math.floor(x)));
+      const n = m.table.length; // (13: an old table, every 15 degrees)
+      const x = (Math.max(-90, Math.min(90, a)) + 90) / (180 / (n - 1));
+      const i = Math.max(0, Math.min(n - 2, Math.floor(x)));
       return m.table[i] + (x - i) * (m.table[i + 1] - m.table[i]);
     }
     return a <= 0 ? m.cenP + (a / m.minA) * (m.minP - m.cenP) : m.cenP + (a / m.maxA) * (m.maxP - m.cenP);

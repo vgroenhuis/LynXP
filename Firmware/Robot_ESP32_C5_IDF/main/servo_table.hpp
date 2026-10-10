@@ -3,7 +3,7 @@
 #include <cstddef>
 
 // Per-servo calibration tables: the pulse that turns the servo to each of
-// -90, -75, ..., +90 degrees, measured by the camera calibration app's servo
+// -90, -85, ..., +90 degrees, measured by the camera calibration app's servo
 // step (app_camservo.js) -- hobby servos aren't linear enough for the
 // min / center / max pulses alone (a robot here was 1.5-1.8 degrees off
 // halfway, ~2 cm at the distance of a block). Between those angles the
@@ -13,8 +13,9 @@
 // Kept apart from the Settings blob (own NVS key): adding fields there
 // bumps its version, which resets every saved setting.
 
-constexpr int SERVO_TABLE_N = 13;          // -90 .. +90 every 15 degrees
-constexpr float SERVO_TABLE_STEP_DEG = 15.0f;
+constexpr int SERVO_TABLE_N = 37;          // -90 .. +90 every 5 degrees (the tilt servo is uneven on a finer scale than 15)
+constexpr float SERVO_TABLE_STEP_DEG = 5.0f;
+constexpr int SERVO_TABLE_N_OLD = 13;      // (tables every 15 degrees: still read, and accepted by /set)
 
 struct ServoTable {
     bool valid;
@@ -28,14 +29,15 @@ extern ServoTable g_tiltTable;
 void servo_tables_load();
 bool servo_tables_save();
 
-// "p0,p1,...,p12" (microseconds, increasing or decreasing throughout) or
-// "none" (no table). False, out unchanged, if malformed.
+// "p0,p1,...,p36" (microseconds, increasing or decreasing throughout) -- or
+// the old 13 every 15 degrees, spread over the 37 -- or "none" (no table).
+// False, out unchanged, if malformed.
 bool servo_table_parse(const char *csv, ServoTable *out);
 
 // The table's pulse for angleDeg (clamped to -90..90).
 float servo_table_pulse(const ServoTable &t, float angleDeg);
 
-// JSON: [p0,...,p12] or null.
+// JSON: [p0,...,p36] or null.
 void servo_table_json(const ServoTable &t, char *out, size_t outLen);
 
 // Backlash: a hobby servo stops short by a fraction of a degree in whichever

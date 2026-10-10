@@ -346,15 +346,17 @@ Lynx.games = Lynx.games || {};
         .catch(() => ({}))
         .then((d) => {
           doc = d || {};
-          const q = new URLSearchParams({ servoMinPulseUs: P.minP, servoCenterPulseUs: P.cenP, servoMaxPulseUs: P.maxP, tiltMinPulseUs: T.minP, tiltMaxPulseUs: T.maxP,
-            panTable: result.panTable.join(","), tiltTable: result.tiltTable.join(",") });
+          // (the tables in their own requests: 37 pulses each don't fit one URL with the rest)
+          const q = new URLSearchParams({ servoMinPulseUs: P.minP, servoCenterPulseUs: P.cenP, servoMaxPulseUs: P.maxP, tiltMinPulseUs: T.minP, tiltMaxPulseUs: T.maxP });
           // the backlash compensation: plus the measured gap's share (BL_GAIN)
           const bl = newBacklash(r);
           if (bl.pan !== null) q.set("panBacklashDeg", bl.pan.toFixed(2));
           if (bl.tilt !== null) q.set("tiltBacklashDeg", bl.tilt.toFixed(2));
           // (the forward lean's change, out of the mount tilt: straight ahead stays as it was)
           if (lean) q.set("cameraTiltDeg", (params.cameraTiltDeg - (lean.fwdDeg - ((doc.lean && +doc.lean.fwdDeg) || 0))).toFixed(2));
-          return fetch(`/set?${q}`);
+          return fetch(`/set?panTable=${result.panTable.join(",")}`)
+            .then((x) => (x.ok ? fetch(`/set?tiltTable=${result.tiltTable.join(",")}`) : x))
+            .then((x) => (x.ok ? fetch(`/set?${q}`) : x));
         })
         .then((x) => {
           if (!x.ok) throw new Error(x.status);
@@ -363,8 +365,7 @@ Lynx.games = Lynx.games || {};
             servos: {
               panZeroDeg: +r.p0Deg.toFixed(2), horizonDeg: +r.horizonDeg.toFixed(2), rollDeg: +r.rollDeg.toFixed(2),
               pan: r.pan.map((p) => [p.cmd, +p.actual.toFixed(2)]), tilt: r.tilt.map((p) => [p.cmd, +p.actual.toFixed(2)]),
-              lean: r.lean, oldPulses: old, newPulses: now, panTable: r.panTable, tiltTable: r.tiltTable,
-              oldPanTable: panMap().table, oldTiltTable: tiltMap().table, at: new Date().toISOString().slice(0, 19),
+              lean: r.lean, oldPulses: old, newPulses: now, at: new Date().toISOString().slice(0, 19), // (the tables: the robot's /params -- too big for this document)
             },
           };
           if (lean) out.lean = { fwdDeg: +lean.fwdDeg.toFixed(2), leftDeg: +lean.leftDeg.toFixed(2), from: "servos", at: out.servos.at };
@@ -439,7 +440,7 @@ Lynx.games = Lynx.games || {};
         lines.push(`ends / middle: pan ${p.servoMinPulseUs}/${p.servoCenterPulseUs}/${p.servoMaxPulseUs} → ${P.minP}/${P.cenP}/${P.maxP} · tilt ${p.tiltMinPulseUs}/${p.tiltCenterPulseUs}/${p.tiltMaxPulseUs} → ${T.minP}/${T.cenP}/${T.maxP}`);
         const worstPan = Math.max(...r.pan.map((q) => Math.abs(q.before)));
         const worstTilt = Math.max(...r.tilt.map((q) => Math.abs(q.before)));
-        lines.push(`the servos were up to ${worstPan.toFixed(1)}° (pan) and ${worstTilt.toFixed(1)}° (tilt) off -- Save puts tables of pulses every 15° in use`);
+        lines.push(`the servos were up to ${worstPan.toFixed(1)}° (pan) and ${worstTilt.toFixed(1)}° (tilt) off -- Save puts tables of pulses every 5° in use`);
       }
       lines.forEach((t, i) => ar.text(t, v.x + 12, v.y + 24 + i * 18, { size: 13, color: i ? "#ffe080" : "#c0f0ff" }));
       if (!run && !samples.length && !result) {
