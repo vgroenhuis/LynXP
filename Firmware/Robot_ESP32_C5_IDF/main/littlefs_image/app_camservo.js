@@ -27,7 +27,7 @@ window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
 
 (function (Lynx) {
-  const PANS = [30, 60, 90, -30, -60, -90]; // deg
+  const PANS = [15, 30, 45, 60, 75, 90, -15, -30, -45, -60, -75, -90]; // deg (every table angle: camservo.js)
   const TILT_STEP = 6; // deg: tilt angles tried, -90..90 in these steps
   const DISTANCES = [0.35, 0.25, 0.17]; // m, camera to board: the tilt sweeps after the one where it starts
   const CLOSEST_M = 0.17; // (the robot's front stays clear of the board)
@@ -80,8 +80,11 @@ Lynx.games = Lynx.games || {};
     let params = null;
     const loadParams = () => fetch("/params", { cache: "no-store" }).then((r) => r.json()).then((p) => (params = p)).catch(() => {});
     loadParams();
-    const panMap = () => ({ minA: params.servoMinAngleDeg, maxA: params.servoMaxAngleDeg, minP: params.servoMinPulseUs, cenP: params.servoCenterPulseUs, maxP: params.servoMaxPulseUs });
-    const tiltMap = () => ({ minA: params.tiltMinAngleDeg, maxA: params.tiltMaxAngleDeg, minP: params.tiltMinPulseUs, cenP: params.tiltCenterPulseUs, maxP: params.tiltMaxPulseUs });
+    // how the robot turns angles into pulses now (its tables, if it has them: servo_table.hpp)
+    const panMap = () => ({ minA: params.servoMinAngleDeg, maxA: params.servoMaxAngleDeg, minP: params.servoMinPulseUs, cenP: params.servoCenterPulseUs, maxP: params.servoMaxPulseUs,
+      table: Array.isArray(params.panTableUs) ? params.panTableUs : null });
+    const tiltMap = () => ({ minA: params.tiltMinAngleDeg, maxA: params.tiltMaxAngleDeg, minP: params.tiltMinPulseUs, cenP: params.tiltCenterPulseUs, maxP: params.tiltMaxPulseUs,
+      table: Array.isArray(params.tiltTableUs) ? params.tiltTableUs : null });
 
     // the robot as it reports itself (odometry; the servos' commanded angles)
     const robot = { x: 0, y: 0, th: 0, pan: 0, tilt: 0, at: -1e9, movedAt: 0 };
@@ -303,7 +306,10 @@ Lynx.games = Lynx.games || {};
       const T = result.newTilt;
       const old = [params.servoMinPulseUs, params.servoCenterPulseUs, params.servoMaxPulseUs, params.tiltMinPulseUs, params.tiltMaxPulseUs];
       const now = [P.minP, P.cenP, P.maxP, T.minP, T.maxP];
-      if (now.some((v, i) => !Number.isFinite(v) || Math.abs(v - old[i]) > 250)) {
+      // every table pulse near what the robot uses for that angle today
+      const angles = CS.tableAngles();
+      const far = (table, map) => table.some((v, i) => !Number.isFinite(v) || Math.abs(v - CS.pulseOf(map, angles[i])) > 250);
+      if (far(result.panTable, panMap()) || far(result.tiltTable, tiltMap())) {
         say("The new pulses are too far from the old ones -- not saved (check the setup and run it again)", "#ff9090");
         return;
       }
@@ -315,7 +321,8 @@ Lynx.games = Lynx.games || {};
         .catch(() => ({}))
         .then((d) => {
           doc = d || {};
-          const q = new URLSearchParams({ servoMinPulseUs: P.minP, servoCenterPulseUs: P.cenP, servoMaxPulseUs: P.maxP, tiltMinPulseUs: T.minP, tiltMaxPulseUs: T.maxP });
+          const q = new URLSearchParams({ servoMinPulseUs: P.minP, servoCenterPulseUs: P.cenP, servoMaxPulseUs: P.maxP, tiltMinPulseUs: T.minP, tiltMaxPulseUs: T.maxP,
+            panTable: result.panTable.join(","), tiltTable: result.tiltTable.join(",") });
           // (the forward lean's change, out of the mount tilt: straight ahead stays as it was)
           if (lean) q.set("cameraTiltDeg", (params.cameraTiltDeg - (lean.fwdDeg - ((doc.lean && +doc.lean.fwdDeg) || 0))).toFixed(2));
           return fetch(`/set?${q}`);
@@ -327,7 +334,8 @@ Lynx.games = Lynx.games || {};
             servos: {
               panZeroDeg: +r.p0Deg.toFixed(2), horizonDeg: +r.horizonDeg.toFixed(2), rollDeg: +r.rollDeg.toFixed(2),
               pan: r.pan.map((p) => [p.cmd, +p.actual.toFixed(2)]), tilt: r.tilt.map((p) => [p.cmd, +p.actual.toFixed(2)]),
-              lean: r.lean, oldPulses: old, newPulses: now, at: new Date().toISOString().slice(0, 19),
+              lean: r.lean, oldPulses: old, newPulses: now, panTable: r.panTable, tiltTable: r.tiltTable,
+              oldPanTable: panMap().table, oldTiltTable: tiltMap().table, at: new Date().toISOString().slice(0, 19),
             },
           };
           if (lean) out.lean = { fwdDeg: +lean.fwdDeg.toFixed(2), leftDeg: +lean.leftDeg.toFixed(2), from: "servos", at: out.servos.at };
@@ -394,9 +402,10 @@ Lynx.games = Lynx.games || {};
         const P = r.newPan;
         const T = r.newTilt;
         const p = params;
-        lines.push(`pan pulses ${p.servoMinPulseUs}/${p.servoCenterPulseUs}/${p.servoMaxPulseUs} → ${P.minP}/${P.cenP}/${P.maxP} · tilt ${p.tiltMinPulseUs}/${p.tiltCenterPulseUs}/${p.tiltMaxPulseUs} → ${T.minP}/${T.cenP}/${T.maxP}`);
-        const worst = Math.max(...r.pan.map((q) => Math.abs(q.after)), ...r.tilt.map((q) => Math.abs(q.after)));
-        lines.push(`with them, the measured angles are within ${worst.toFixed(1)}° of the commanded ones`);
+        lines.push(`ends / middle: pan ${p.servoMinPulseUs}/${p.servoCenterPulseUs}/${p.servoMaxPulseUs} → ${P.minP}/${P.cenP}/${P.maxP} · tilt ${p.tiltMinPulseUs}/${p.tiltCenterPulseUs}/${p.tiltMaxPulseUs} → ${T.minP}/${T.cenP}/${T.maxP}`);
+        const worstPan = Math.max(...r.pan.map((q) => Math.abs(q.before)));
+        const worstTilt = Math.max(...r.tilt.map((q) => Math.abs(q.before)));
+        lines.push(`the servos were up to ${worstPan.toFixed(1)}° (pan) and ${worstTilt.toFixed(1)}° (tilt) off -- Save puts tables of pulses every 15° in use`);
       }
       lines.forEach((t, i) => ar.text(t, v.x + 12, v.y + 24 + i * 18, { size: 13, color: i ? "#ffe080" : "#c0f0ff" }));
       if (!run && !samples.length && !result) {

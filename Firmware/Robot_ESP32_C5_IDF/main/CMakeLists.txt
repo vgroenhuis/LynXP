@@ -23,6 +23,7 @@ idf_component_register(
         "ina260.cpp"
         "button.cpp"
         "status_led.cpp"
+        "servo_table.cpp"
         "qr_display.cpp"
         "web_server.cpp"
         "ws_broadcast.cpp"

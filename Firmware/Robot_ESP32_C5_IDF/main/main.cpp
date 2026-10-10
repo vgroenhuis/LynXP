@@ -6,6 +6,7 @@
 #include "settings.hpp"
 #include "log_task.hpp"
 #include "oled.hpp"
+#include "servo_table.hpp"
 #include "watchdog.hpp"
 #include "breadcrumb.hpp"
 #include "diagnostics.hpp"
@@ -66,6 +67,7 @@ extern "C" void app_main(void) {
     littlefs_init();
     motors_init();
     encoders_init();
+    servo_tables_load(); // the servos' calibration tables (servo_table.hpp), before any pulse is computed
     web_server_recenter_servo(); // see its own doc comment -- must run after settings are loaded, before HTTP bring-up
     log_task_start(); // before control_task_start(): controlModesTick() may submit log lines from tick 1
     control_task_start();

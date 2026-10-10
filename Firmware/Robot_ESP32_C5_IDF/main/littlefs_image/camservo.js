@@ -13,15 +13,18 @@
 //     camera's own frame is the chassis's path seen from the camera (the
 //     small turns on the way taken out with odometry).
 //   Tilt: at pan 0, the camera's pitch change to the board.
-// New servo pulses then put min / center / max where the servo really is at
-// those angles (the robot maps commanded angles to pulses linearly from min
-// to center to max: web_server.cpp computeServoPulseUs). The tilt's center
-// stays: its offset is the camera's mount tilt (cameraTiltDeg).
+// New servo pulses then put the servo where it's told: a table of pulses for
+// -90, -75, ..., +90 degrees (servo_table.hpp on the robot -- hobby servos
+// aren't linear enough for min / center / max alone), each where the servo
+// really is at that angle: between the measured angles interpolated, past
+// them extended along a line through the outermost few. The tilt's 0 stays:
+// its offset is the camera's mount tilt (cameraTiltDeg).
 //
 //   attitude(R, t, mid) -> {yaw, pitch, roll, C, mid}    (pose: board -> camera; mid: the board's middle, board X, Y)
 //   analyze(samples, panMap, tiltMap) -> {pan, tilt, lean: {fwdDeg, leftDeg}, p0Deg, ...} | {error}
 //     samples: {kind: "zero" | "pan" | "tilt", pan, tilt (commanded, deg), x, y, th (odometry, m / rad), att}
-//     maps: {minA, maxA, minP, cenP, maxP} (the robot's settings)
+//     maps: {minA, maxA, minP, cenP, maxP, table} (the robot's settings; table: its pulses
+//     for -90..90 every 15 degrees, or null -- what the measurements were taken with)
 
 window.Lynx = window.Lynx || {};
 
@@ -45,9 +48,44 @@ window.Lynx = window.Lynx || {};
   }
 
   // the robot's pulse for a commanded angle, and back
+  const TABLE_N = 13;
+  const TABLE_STEP = 15; // degrees, from -90
+  const tableAngles = () => Array.from({ length: TABLE_N }, (_, i) => -90 + i * TABLE_STEP);
   function pulseOf(m, a) {
+    if (m.table) {
+      const x = (Math.max(-90, Math.min(90, a)) + 90) / TABLE_STEP;
+      const i = Math.max(0, Math.min(TABLE_N - 2, Math.floor(x)));
+      return m.table[i] + (x - i) * (m.table[i + 1] - m.table[i]);
+    }
     return a <= 0 ? m.cenP + (a / m.minA) * (m.minP - m.cenP) : m.cenP + (a / m.maxA) * (m.maxP - m.cenP);
   }
+  // The table: for each of its angles, the pulse at which the servo really
+  // is there -- interpolated between measured {actual, pulse} pairs.
+  function tableFrom(pairs, keepZero) {
+    const s = pairs.slice().sort((a, b) => a.actual - b.actual);
+    // past the measured range: on from the outermost point at that side's
+    // average rate (from the point nearest 0) -- steadier than the last few
+    // points' own slope, which may sit on a local wiggle
+    const mid = s.reduce((b, p) => (Math.abs(p.actual) < Math.abs(b.actual) ? p : b), s[0]);
+    const rate = (end) => (end.actual !== mid.actual ? (end.pulse - mid.pulse) / (end.actual - mid.actual) : 0);
+    const first = s[0];
+    const last = s[s.length - 1];
+    const at = (A) => {
+      if (A <= first.actual) return first.pulse + (A - first.actual) * rate(first);
+      if (A >= last.actual) return last.pulse + (A - last.actual) * rate(last);
+      let i = 0;
+      while (A > s[i + 1].actual) i++;
+      const a = s[i];
+      const b = s[i + 1];
+      return a.pulse + ((A - a.actual) / (b.actual - a.actual)) * (b.pulse - a.pulse);
+    };
+    const r1 = (x) => Math.round(x * 10) / 10;
+    const t = tableAngles().map((A) => r1(at(A)));
+    if (keepZero !== undefined) t[(TABLE_N - 1) / 2] = keepZero;
+    return t;
+  }
+  // one way throughout (a servo turns one way as the pulse grows)
+  const monotone = (t) => t.every((v, i) => i === 0 || (v - t[i - 1]) * (t[TABLE_N - 1] - t[0]) > 0);
   function angleOf(m, p) {
     return (p - m.cenP) * (m.maxP - m.cenP) >= 0 ? ((p - m.cenP) / (m.maxP - m.cenP)) * m.maxA : ((p - m.cenP) / (m.minP - m.cenP)) * m.minA;
   }
@@ -139,11 +177,16 @@ window.Lynx = window.Lynx || {};
     const tilt = byCommand(tiltPics.map((s) => ({ cmd: s.tilt, actual: (s.att.pitch - e0) / D2R })));
     if (!tilt.some((p) => p.cmd > 0) || !tilt.some((p) => p.cmd < 0)) return { error: "Need tilt pictures up and down" };
     // new pulses, and how far off each measured angle is with them (the mapping is two straight lines)
-    const newPan = fitPulses(panMap, pan.map((p) => ({ actual: p.actual, pulse: pulseOf(panMap, p.cmd) })));
-    let newTilt = fitPulses(tiltMap, tilt.map((p) => ({ actual: p.actual, pulse: pulseOf(tiltMap, p.cmd) })), true);
-    newTilt = { ...newTilt, cenP: tiltMap.cenP };
-    pan.forEach((p) => (p.after = angleOf(newPan, pulseOf(panMap, p.cmd)) - p.actual));
-    tilt.forEach((p) => (p.after = angleOf(newTilt, pulseOf(tiltMap, p.cmd)) - p.actual));
+    // the tables (the tilt's 0 stays where it is: its offset is the mount tilt's)
+    const panTable = tableFrom(pan.map((p) => ({ actual: p.actual, pulse: pulseOf(panMap, p.cmd) })));
+    const tiltTable = tableFrom(tilt.map((p) => ({ actual: p.actual, pulse: pulseOf(tiltMap, p.cmd) })), Math.round(pulseOf(tiltMap, 0) * 10) / 10);
+    if (!monotone(panTable) || !monotone(tiltTable)) return { error: "The measured angles don't line up (a servo turning back and forth?) -- run it again" };
+    // how far off the servos were (what the tables put right)
+    pan.forEach((p) => (p.before = p.actual - p.cmd));
+    tilt.forEach((p) => (p.before = p.actual - p.cmd));
+    // (min / center / max as well: the table's ends and middle)
+    const newPan = { ...panMap, minP: panTable[0], cenP: panTable[(TABLE_N - 1) / 2], maxP: panTable[TABLE_N - 1] };
+    const newTilt = { ...tiltMap, minP: tiltTable[0], cenP: tiltTable[(TABLE_N - 1) / 2], maxP: tiltTable[TABLE_N - 1] };
     const roll = zeros.reduce((a, s) => a + s.att.roll, 0) / zeros.length;
     // The chassis's lean (the pan axis not vertical): panned to p, the camera
     // (facing the board all along) pitches by -fwd cos p - left sin p --
@@ -167,8 +210,8 @@ window.Lynx = window.Lynx || {};
         lean = { fwdDeg: x[1] / D2R, leftDeg: x[2] / D2R, rmsDeg: Math.sqrt(res.reduce((a, r) => a + r * r, 0) / res.length) / D2R };
       }
     }
-    return { pan, tilt, newPan, newTilt, lean, p0Deg: p0 / D2R, horizonDeg: e0 / D2R, rollDeg: roll / D2R, legs: legs.map((l) => ({ p0Deg: l.p0 / D2R, cm: l.cm })) };
+    return { pan, tilt, newPan, newTilt, panTable, tiltTable, lean, p0Deg: p0 / D2R, horizonDeg: e0 / D2R, rollDeg: roll / D2R, legs: legs.map((l) => ({ p0Deg: l.p0 / D2R, cm: l.cm })) };
   }
 
-  Lynx.camServo = { attitude, analyze, pulseOf, angleOf, fitPulses };
+  Lynx.camServo = { attitude, analyze, pulseOf, angleOf, fitPulses, tableFrom, tableAngles };
 })(window.Lynx);

@@ -1,5 +1,6 @@
 #include "web_server.hpp"
 #include "ws_broadcast.hpp"
+#include "servo_table.hpp"
 #include "settings.hpp"
 #include "waypoints.hpp"
 #include "control_modes.hpp"
@@ -343,6 +344,7 @@ float currentTiltAngleDeg = 0.0f;
 // by zero.
 uint16_t computeServoPulseUs(float angleDeg) {
     angleDeg = std::clamp(angleDeg, settings.servoMinAngleDeg, settings.servoMaxAngleDeg);
+    if (g_panTable.valid) return (uint16_t) std::clamp(servo_table_pulse(g_panTable, angleDeg), 0.0f, 19999.0f); // (measured: servo_table.hpp)
     float pulseUs;
     if (angleDeg <= 0.0f) {
         float span = -settings.servoMinAngleDeg;
@@ -360,6 +362,7 @@ uint16_t computeServoPulseUs(float angleDeg) {
 // at 0, max pulse at tiltMaxAngleDeg).
 uint16_t computeTiltServoPulseUs(float angleDeg) {
     angleDeg = std::clamp(angleDeg, settings.tiltMinAngleDeg, settings.tiltMaxAngleDeg);
+    if (g_tiltTable.valid) return (uint16_t) std::clamp(servo_table_pulse(g_tiltTable, angleDeg), 0.0f, 19999.0f);
     float pulseUs;
     if (angleDeg <= 0.0f) {
         float span = -settings.tiltMinAngleDeg;
@@ -555,6 +558,26 @@ esp_err_t handle_set(httpd_req_t *req) {
         dirty = true;
     }
     if (hasUser || hasPass) uart_link_credentials_changed(); // the camera guards its /update with the same ones
+    // The servos' calibration tables ("p0,...,p12" for -90..90 every 15 deg, or "none"): own NVS key.
+    {
+        char tbuf[200];
+        bool tablesChanged = false;
+        if (get_query_str(req, "panTable", tbuf, sizeof(tbuf))) {
+            if (!servo_table_parse(tbuf, &g_panTable)) {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "panTable: 13 increasing or decreasing pulses (us), or none");
+                return ESP_OK;
+            }
+            tablesChanged = true;
+        }
+        if (get_query_str(req, "tiltTable", tbuf, sizeof(tbuf))) {
+            if (!servo_table_parse(tbuf, &g_tiltTable)) {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "tiltTable: 13 increasing or decreasing pulses (us), or none");
+                return ESP_OK;
+            }
+            tablesChanged = true;
+        }
+        if (tablesChanged) servo_tables_save();
+    }
     // Game/app settings no longer live here -- see app_data.hpp (/appdata/*).
     if (dirty) {
         saveSettings();
@@ -574,7 +597,7 @@ esp_err_t handle_params(httpd_req_t *req) {
     json_escape(breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), core0Esc, sizeof(core0Esc));
     json_escape(breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), core1Esc, sizeof(core1Esc));
     json_escape(bc.lastWsMessageType, wsMsgEsc, sizeof(wsMsgEsc));
-    char json[1850];
+    static char json[2400]; // (static: the HTTP server's one task builds one at a time; off its stack)
     int n = snprintf(json, sizeof(json),
         "{\"loggingEnabled\":%s,\"debugWeb\":%s,\"dataLogRate\":%.1f,\"mode\":%d,"
         "\"logType\":%d,\"logUnit\":%d,\"kp\":%.4f,\"ki\":%.4f,\"kd\":%.4f,"
@@ -620,6 +643,13 @@ esp_err_t handle_params(httpd_req_t *req) {
         reasonEsc, core0Esc, core1Esc, wsMsgEsc, (unsigned long) bc.core1TickCountAtLastMark,
         bc.core0TotalConns, bc.core0WsConns,
         userEsc, settings.otaPassword[0] != '\0' ? "true" : "false");
+    if (n > 0 && (size_t) n < sizeof(json) && json[n - 1] == '}') {
+        // the servos' calibration tables (servo_table.hpp), before the closing brace
+        char panT[160], tiltT[160];
+        servo_table_json(g_panTable, panT, sizeof(panT));
+        servo_table_json(g_tiltTable, tiltT, sizeof(tiltT));
+        n = n - 1 + snprintf(json + n - 1, sizeof(json) - (n - 1), ",\"panTableUs\":%s,\"tiltTableUs\":%s}", panT, tiltT);
+    }
     if (n < 0 || (size_t) n >= sizeof(json)) {
         ESP_LOGE(TAG, "/params JSON truncated (%d bytes)", n);
         httpd_resp_send_500(req);
