@@ -861,6 +861,10 @@ int ws_broadcast_client_count() {
     return g_wsClientCount;
 }
 
+unsigned long ws_broadcast_ms_since_drive_command() {
+    return millis_now() - lastDriveCommandMs;
+}
+
 void ws_broadcast_servo_actual(float *panDeg, float *tiltDeg) {
     *panDeg = currentServoAngleDeg;
     *tiltDeg = currentTiltAngleDeg;

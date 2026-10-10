@@ -1,4 +1,5 @@
 #include "wifi_connect.hpp"
+#include "ws_broadcast.hpp"
 #include "wifi_networks.hpp"
 #include "captive_dns.hpp"
 
@@ -52,6 +53,18 @@ constexpr uint32_t CONNECT_TIMEOUT_MS = 15000;
 // manager_task()) -- it either answers within a few seconds or the usual
 // scan-and-pick takes over.
 constexpr uint32_t LAST_AP_TIMEOUT_MS = 6000;
+// Roaming between the access points of one network (iotroam on a campus has
+// many), while connected -- kept rare, since a rescan briefly takes the radio
+// off its channel (a stall in the control link): only on networks known to
+// have several access points, only when the signal is weak, at most once a
+// ROAM_SCAN_INTERVAL, only on that network's known channels, preferably
+// while nobody's driving -- and only moving for a clearly better one.
+constexpr int ROAM_RSSI_DBM = -70;           // the (smoothed) signal below which to look around
+constexpr int ROAM_URGENT_RSSI_DBM = -80;    // below this, don't wait for a quiet moment
+constexpr int ROAM_MARGIN_DB = 8;            // another access point must be this much stronger
+constexpr int64_t ROAM_SCAN_INTERVAL_US = 60LL * 1000 * 1000;
+constexpr unsigned long ROAM_QUIET_MS = 1500; // no drive command for this long
+constexpr size_t NET_APS_MAX = 8;
 constexpr int64_t AP_START_DELAY_US = 20LL * 1000 * 1000;
 constexpr int64_t AP_STOP_DELAY_US = 10LL * 1000 * 1000;
 constexpr uint32_t RETRY_INTERVAL_MS = 3000;
@@ -118,6 +131,16 @@ struct LastAp {
     uint8_t channel;
 };
 LastAp g_last = {};
+// What the scans have shown about each saved network's access points: how
+// many at once (at most), and on which channels (scan bitmaps, see
+// wifi_scan_channel_bitmap_t). Persisted.
+struct NetAps {
+    char ssid[33];
+    uint8_t apCount;
+    uint16_t ch2;
+    uint32_t ch5;
+};
+NetAps g_netAps[NET_APS_MAX] = {};
 
 bool pin_applies(const char *ssid) {
     Lock lock;
@@ -174,6 +197,10 @@ void apply_radio_policy() {
         if (nvs_get_str(h, "lastSsid", g_last.ssid, &len) != ESP_OK || nvs_get_blob(h, "lastBssid", g_last.bssid, &blobLen) != ESP_OK ||
             blobLen != sizeof(g_last.bssid) || nvs_get_u8(h, "lastCh", &g_last.channel) != ESP_OK) {
             g_last = {};
+        }
+        blobLen = sizeof(g_netAps);
+        if (nvs_get_blob(h, "netAps", g_netAps, &blobLen) != ESP_OK || blobLen != sizeof(g_netAps)) {
+            std::memset(g_netAps, 0, sizeof(g_netAps));
         }
         nvs_close(h);
     }
@@ -237,6 +264,148 @@ void stop_ap() {
 volatile int g_debugScanMode = -1; // -1 none, 0 normal, 1 passive, 2 long active
 volatile int g_debugScanChannel = 0; // >0: scan only this channel
 char g_debugInfo[96] = "";
+
+// -- which networks have several access points ---------------------------------
+
+// A channel's bit in the scan bitmaps (0: not a channel we know).
+uint16_t chan_bit2(uint8_t ch) { return ch >= 1 && ch <= 14 ? (uint16_t) (1u << ch) : 0; }
+uint32_t chan_bit5(uint8_t ch) {
+    if (ch >= 36 && ch <= 64 && ch % 4 == 0) return 1u << ((ch - 36) / 4 + 1);
+    if (ch >= 100 && ch <= 144 && ch % 4 == 0) return 1u << ((ch - 100) / 4 + 9);
+    if (ch >= 149 && ch <= 177 && (ch - 149) % 4 == 0) return 1u << ((ch - 149) / 4 + 21);
+    return 0;
+}
+
+NetAps *net_aps_find(const char *ssid) {
+    for (auto &n : g_netAps) {
+        if (n.ssid[0] != '\0' && std::strcmp(n.ssid, ssid) == 0) return &n;
+    }
+    return nullptr;
+}
+
+// Several access points seen for this network: it pays to look for the
+// strongest (at boot, and when the signal gets weak).
+bool multi_ap(const char *ssid) {
+    Lock lock;
+    const NetAps *n = net_aps_find(ssid);
+    return n != nullptr && n->apCount >= 2;
+}
+
+// Learn from a scan's access points (saved networks only); persisted when
+// something changed.
+void learn_aps(const WifiApEntry *aps, size_t n) {
+    bool changed = false;
+    for (size_t i = 0; i < n; i++) {
+        const char *ssid = aps[i].ssid;
+        bool seenBefore = false;
+        for (size_t j = 0; j < i; j++) seenBefore = seenBefore || std::strcmp(aps[j].ssid, ssid) == 0;
+        if (seenBefore || !wifi_networks_find(ssid, nullptr)) continue;
+        uint8_t count = 0;
+        uint16_t ch2 = 0;
+        uint32_t ch5 = 0;
+        for (size_t j = i; j < n; j++) {
+            if (std::strcmp(aps[j].ssid, ssid) != 0) continue;
+            count++;
+            ch2 |= chan_bit2(aps[j].channel);
+            ch5 |= chan_bit5(aps[j].channel);
+        }
+        Lock lock;
+        NetAps *e = net_aps_find(ssid);
+        if (e == nullptr) {
+            for (auto &x : g_netAps) {
+                if (x.ssid[0] == '\0' || !wifi_networks_find(x.ssid, nullptr)) { // (a free slot, or a forgotten network's)
+                    x = {};
+                    copy_str(x.ssid, sizeof(x.ssid), ssid);
+                    e = &x;
+                    break;
+                }
+            }
+            if (e == nullptr) continue;
+        }
+        NetAps before = *e;
+        e->apCount = std::max(e->apCount, count);
+        e->ch2 |= ch2;
+        e->ch5 |= ch5;
+        changed = changed || std::memcmp(&before, e, sizeof(before)) != 0;
+    }
+    if (!changed) return;
+    nvs_handle_t h;
+    if (nvs_open("wifinets", NVS_READWRITE, &h) != ESP_OK) return;
+    {
+        Lock lock;
+        nvs_set_blob(h, "netAps", g_netAps, sizeof(g_netAps));
+    }
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+// One network, only on its known channels: its strongest access point.
+// False if nothing's known about its channels, or none answered.
+bool scan_network(const char *ssid, LastAp *best, int8_t *bestRssi) {
+    uint16_t ch2;
+    uint32_t ch5;
+    {
+        Lock lock;
+        const NetAps *e = net_aps_find(ssid);
+        if (e == nullptr || (e->ch2 == 0 && e->ch5 == 0)) return false;
+        ch2 = e->ch2;
+        ch5 = e->ch5;
+    }
+    uint8_t ssidBuf[33] = {};
+    std::memcpy(ssidBuf, ssid, std::min(std::strlen(ssid), sizeof(ssidBuf) - 1));
+    wifi_scan_config_t cfg = {};
+    cfg.ssid = ssidBuf;
+    cfg.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+    cfg.scan_time.active.min = 60;
+    cfg.scan_time.active.max = 120;
+    cfg.scan_time.passive = SCAN_PASSIVE_MS;
+    cfg.home_chan_dwell_time = WIFI_SCAN_HOME_CHANNEL_DWELL_DEFAULT_TIME;
+    // (bit 0 set = skip that band altogether)
+    cfg.channel_bitmap.ghz_2_channels = ch2 != 0 ? ch2 : 1;
+    cfg.channel_bitmap.ghz_5_channels = ch5 != 0 ? ch5 : 1;
+    {
+        Lock lock;
+        g_scanning = true;
+    }
+    int64_t t0 = esp_timer_get_time();
+    esp_err_t err = esp_wifi_scan_start(&cfg, true);
+    bool found = false;
+    static WifiApEntry aps[SCAN_APS_MAX];
+    size_t apCount = 0;
+    if (err == ESP_OK) {
+        uint16_t n = SCAN_RECORDS_MAX;
+        auto *records = new (std::nothrow) wifi_ap_record_t[SCAN_RECORDS_MAX];
+        if (records != nullptr && esp_wifi_scan_get_ap_records(&n, records) == ESP_OK) {
+            for (uint16_t i = 0; i < n; i++) {
+                if (std::strcmp((const char *) records[i].ssid, ssid) != 0) continue;
+                if (apCount < SCAN_APS_MAX) {
+                    WifiApEntry &a = aps[apCount++];
+                    copy_str(a.ssid, sizeof(a.ssid), ssid);
+                    std::memcpy(a.bssid, records[i].bssid, sizeof(a.bssid));
+                    a.rssi = records[i].rssi;
+                    a.channel = records[i].primary;
+                }
+                if (!found || records[i].rssi > *bestRssi) {
+                    found = true;
+                    *bestRssi = records[i].rssi;
+                    copy_str(best->ssid, sizeof(best->ssid), ssid);
+                    std::memcpy(best->bssid, records[i].bssid, sizeof(best->bssid));
+                    best->channel = records[i].primary;
+                }
+            }
+        }
+        delete[] records;
+    }
+    esp_wifi_clear_ap_list();
+    {
+        Lock lock;
+        g_scanning = false;
+    }
+    ESP_LOGI(TAG, "scan of %s on its channels: %u access points in %lld ms%s", ssid, (unsigned) apCount,
+             (long long) ((esp_timer_get_time() - t0) / 1000), found ? "" : " -- none");
+    if (apCount) learn_aps(aps, apCount);
+    return found;
+}
 
 void do_scan() {
     {
@@ -346,6 +515,7 @@ void do_scan() {
     }
     esp_wifi_clear_ap_list(); // frees the driver's copy even if we didn't read every record
     if (debugMode == 3) esp_wifi_set_band_mode(WIFI_BAND_MODE_AUTO);
+    if (err == ESP_OK) learn_aps(aps, apCount);
 
     Lock lock;
     if (err == ESP_OK) {
@@ -472,6 +642,49 @@ void remember_connected_ap(const char *ssid) {
     nvs_close(h);
 }
 
+// While connected (every ~2 s): on a network with several access points,
+// when the signal has stayed weak, look for a clearly stronger one of the
+// same network and move there. True if it moved (or tried to: on failure the
+// manager reconnects the usual way).
+bool maybe_roam(int64_t connectedSinceUs) {
+    static int64_t s_connection = -1;
+    static float s_rssi = 0;
+    static int64_t s_lastScanUs = -ROAM_SCAN_INTERVAL_US;
+    char current[33];
+    {
+        Lock lock;
+        copy_str(current, sizeof(current), g_connectedSsid);
+    }
+    if (!multi_ap(current) || pin_applies(current)) return false;
+    wifi_ap_record_t info;
+    if (esp_wifi_sta_get_ap_info(&info) != ESP_OK) return false;
+    if (s_connection != connectedSinceUs) { // (a new connection: start afresh)
+        s_connection = connectedSinceUs;
+        s_rssi = info.rssi;
+    }
+    s_rssi += 0.3f * (info.rssi - s_rssi);
+    if (s_rssi > ROAM_RSSI_DBM) return false;
+    int64_t now = esp_timer_get_time();
+    if (now - s_lastScanUs < ROAM_SCAN_INTERVAL_US) return false;
+    if (s_rssi > ROAM_URGENT_RSSI_DBM && ws_broadcast_ms_since_drive_command() < ROAM_QUIET_MS) return false; // (someone's driving: later)
+    s_lastScanUs = now;
+    LastAp better = {};
+    int8_t rssi = 0;
+    if (!scan_network(current, &better, &rssi)) return false;
+    if (std::memcmp(better.bssid, info.bssid, sizeof(info.bssid)) == 0 || rssi < s_rssi + ROAM_MARGIN_DB) {
+        ESP_LOGI(TAG, "roaming: staying (%d dBm here, best %d dBm)", (int) s_rssi, rssi);
+        return false;
+    }
+    ESP_LOGI(TAG, "roaming: %d dBm here -> %02x:%02x:%02x:%02x:%02x:%02x on channel %u at %d dBm", (int) s_rssi, better.bssid[0],
+             better.bssid[1], better.bssid[2], better.bssid[3], better.bssid[4], better.bssid[5], better.channel, rssi);
+    // off the current one first (its disconnect event mustn't end the new attempt early)
+    xEventGroupClearBits(s_events, BIT_DISCONNECTED);
+    esp_wifi_disconnect();
+    xEventGroupWaitBits(s_events, BIT_DISCONNECTED, pdTRUE, pdFALSE, pdMS_TO_TICKS(1000));
+    if (attempt(current, nullptr, false, &better)) remember_connected_ap(current);
+    return true;
+}
+
 void manager_task(void *) {
     int64_t disconnectedSinceUs = esp_timer_get_time();
     int64_t connectedSinceUs = 0;
@@ -494,8 +707,17 @@ void manager_task(void *) {
                 asked = g_preferredSsid[0] != '\0';
             }
             if (!asked && g_last.ssid[0] != '\0' && g_last.channel != 0 && wifi_networks_find(g_last.ssid, nullptr)) {
-                const LastAp last = g_last;
-                if (attempt(last.ssid, nullptr, false, &last)) {
+                LastAp target = g_last;
+                bool go = true;
+                // A network with several access points (and none pinned): the
+                // strongest one here, from a short scan of just that network
+                // on its known channels -- the robot may have been moved.
+                if (multi_ap(target.ssid) && !pin_applies(target.ssid)) {
+                    int8_t rssi = 0;
+                    go = scan_network(g_last.ssid, &target, &rssi);
+                }
+                if (go && attempt(target.ssid, nullptr, false, &target)) {
+                    remember_connected_ap(target.ssid);
                     connectedSinceUs = esp_timer_get_time();
                     continue;
                 }
@@ -548,6 +770,10 @@ void manager_task(void *) {
                                                pdTRUE, pdFALSE, pdMS_TO_TICKS(2000));
         if (bits & BIT_DISCONNECTED) {
             disconnectedSinceUs = esp_timer_get_time();
+            continue;
+        }
+        if (bits == 0 && maybe_roam(connectedSinceUs)) {
+            connectedSinceUs = esp_timer_get_time();
             continue;
         }
         if (bits & BIT_SCAN_REQUEST) do_scan();

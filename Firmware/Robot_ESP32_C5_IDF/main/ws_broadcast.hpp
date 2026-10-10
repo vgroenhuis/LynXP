@@ -45,3 +45,7 @@ constexpr uint32_t WS_POLL_TASK_STACK_BYTES = 4096;
 // How many WebSocket clients (pages) are connected, as of the poll task's
 // last pass (every 20 ms). Safe to call from any task.
 int ws_broadcast_client_count();
+
+// Milliseconds since the last drive command (joystick / goto) arrived -- e.g.
+// to put off a WiFi rescan (a brief stall) until nobody's driving.
+unsigned long ws_broadcast_ms_since_drive_command();
