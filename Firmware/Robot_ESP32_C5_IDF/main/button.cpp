@@ -41,7 +41,8 @@ bool write_led(StatusLedColor c) {
     stripConfig.strip_gpio_num = QR_BUTTON_PIN;
     stripConfig.max_leds = 1;
     stripConfig.led_model = LED_MODEL_WS2812;
-    stripConfig.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB;
+    // RGB, not the usual WS2812 GRB: on this Waveshare board GRB showed red as green and green as red
+    stripConfig.color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB;
     led_strip_rmt_config_t rmtConfig = {};
     rmtConfig.resolution_hz = 10 * 1000 * 1000;
     led_strip_handle_t strip = nullptr;
