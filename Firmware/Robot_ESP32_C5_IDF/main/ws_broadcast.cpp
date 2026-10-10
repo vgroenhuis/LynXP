@@ -1,4 +1,5 @@
 #include "ws_broadcast.hpp"
+#include "servo_table.hpp"
 #include "debug_pan.hpp"
 #include "web_server.hpp"
 #include "control_modes.hpp"
@@ -106,11 +107,14 @@ bool tiltServoIdle = true;
 // there's exactly one place that does so regardless of which code path
 // wants to move a servo (a direct WS command, the auto-follow correction,
 // the idle-cutoff wake-up, or the initial boot write in ws_broadcast_start()).
+// (backlash-compensated: servo_table.hpp)
+BacklashState g_panBacklash = {};
+BacklashState g_tiltBacklash = {};
 void writePanServoPulse() {
-    servo_set_pulse_us(computeServoPulseUs(currentServoAngleDeg));
+    servo_set_pulse_us(computeServoPulseUs(servo_backlash_adjust(&g_panBacklash, currentServoAngleDeg, g_panBacklashDeg)));
 }
 void writeTiltServoPulse() {
-    tilt_servo_set_pulse_us(computeTiltServoPulseUs(currentTiltAngleDeg));
+    tilt_servo_set_pulse_us(computeTiltServoPulseUs(servo_backlash_adjust(&g_tiltBacklash, currentTiltAngleDeg, g_tiltBacklashDeg)));
 }
 
 // Opt-in CPU/memory diagnostics broadcast, mirroring gotoDiagnosticsEnabled's

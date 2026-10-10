@@ -37,3 +37,21 @@ float servo_table_pulse(const ServoTable &t, float angleDeg);
 
 // JSON: [p0,...,p12] or null.
 void servo_table_json(const ServoTable &t, char *out, size_t outLen);
+
+// Backlash: a hobby servo stops short by a fraction of a degree in whichever
+// direction it was turning (pan measured 1.5 degrees between arriving from
+// the left and from the right). backlashDeg = where it ends up turning toward
+// + less where it ends up turning toward - (degrees; measured by the servo
+// step, app_camservo.js); the command is shifted by half of it against the
+// way the servo last turned, so it ends up in the same place either way.
+// Persisted with the tables (servo_tables_save()).
+extern float g_panBacklashDeg;
+extern float g_tiltBacklashDeg;
+
+struct BacklashState {
+    bool started;
+    float last;   // the last angle asked for
+    int dir;      // the way it last turned: +1, -1 (0: not yet)
+};
+// The angle to command for angleDeg, given how the servo turned so far.
+float servo_backlash_adjust(BacklashState *s, float angleDeg, float backlashDeg);

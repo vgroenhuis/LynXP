@@ -576,6 +576,15 @@ esp_err_t handle_set(httpd_req_t *req) {
             }
             tablesChanged = true;
         }
+        float b;
+        if (get_query_float(req, "panBacklashDeg", &b)) {
+            g_panBacklashDeg = std::clamp(b, -5.0f, 5.0f);
+            tablesChanged = true;
+        }
+        if (get_query_float(req, "tiltBacklashDeg", &b)) {
+            g_tiltBacklashDeg = std::clamp(b, -5.0f, 5.0f);
+            tablesChanged = true;
+        }
         if (tablesChanged) servo_tables_save();
     }
     // Game/app settings no longer live here -- see app_data.hpp (/appdata/*).
@@ -648,7 +657,8 @@ esp_err_t handle_params(httpd_req_t *req) {
         char panT[160], tiltT[160];
         servo_table_json(g_panTable, panT, sizeof(panT));
         servo_table_json(g_tiltTable, tiltT, sizeof(tiltT));
-        n = n - 1 + snprintf(json + n - 1, sizeof(json) - (n - 1), ",\"panTableUs\":%s,\"tiltTableUs\":%s}", panT, tiltT);
+        n = n - 1 + snprintf(json + n - 1, sizeof(json) - (n - 1), ",\"panTableUs\":%s,\"tiltTableUs\":%s,\"panBacklashDeg\":%.2f,\"tiltBacklashDeg\":%.2f}",
+                             panT, tiltT, g_panBacklashDeg, g_tiltBacklashDeg);
     }
     if (n < 0 || (size_t) n >= sizeof(json)) {
         ESP_LOGE(TAG, "/params JSON truncated (%d bytes)", n);

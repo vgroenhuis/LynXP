@@ -11,6 +11,8 @@
 
 ServoTable g_panTable = {};
 ServoTable g_tiltTable = {};
+float g_panBacklashDeg = 0.0f;
+float g_tiltBacklashDeg = 0.0f;
 
 namespace {
 
@@ -18,6 +20,8 @@ const char *TAG = "servo_table";
 constexpr const char *NVS_NAMESPACE = "robot";
 constexpr const char *KEY_PAN = "panTable";
 constexpr const char *KEY_TILT = "tiltTable";
+constexpr const char *KEY_BACKLASH = "backlash";
+constexpr float TURN_DEADBAND_DEG = 0.05f; // smaller steps don't count as turning (noise, re-sends)
 
 void load_one(nvs_handle_t h, const char *key, ServoTable *t) {
     ServoTable loaded = {};
@@ -32,7 +36,14 @@ void servo_tables_load() {
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return;
     load_one(h, KEY_PAN, &g_panTable);
     load_one(h, KEY_TILT, &g_tiltTable);
+    float b[2] = {};
+    size_t len = sizeof(b);
+    if (nvs_get_blob(h, KEY_BACKLASH, b, &len) == ESP_OK && len == sizeof(b) && std::isfinite(b[0]) && std::isfinite(b[1])) {
+        g_panBacklashDeg = b[0];
+        g_tiltBacklashDeg = b[1];
+    }
     nvs_close(h);
+    ESP_LOGI(TAG, "backlash: pan %.2f, tilt %.2f deg", g_panBacklashDeg, g_tiltBacklashDeg);
     ESP_LOGI(TAG, "pan table %s, tilt table %s", g_panTable.valid ? "in use" : "none", g_tiltTable.valid ? "in use" : "none");
 }
 
@@ -40,7 +51,9 @@ bool servo_tables_save() {
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return false;
     bool ok = nvs_set_blob(h, KEY_PAN, &g_panTable, sizeof(g_panTable)) == ESP_OK &&
-              nvs_set_blob(h, KEY_TILT, &g_tiltTable, sizeof(g_tiltTable)) == ESP_OK && nvs_commit(h) == ESP_OK;
+              nvs_set_blob(h, KEY_TILT, &g_tiltTable, sizeof(g_tiltTable)) == ESP_OK;
+    float b[2] = {g_panBacklashDeg, g_tiltBacklashDeg};
+    ok = ok && nvs_set_blob(h, KEY_BACKLASH, b, sizeof(b)) == ESP_OK && nvs_commit(h) == ESP_OK;
     nvs_close(h);
     return ok;
 }
@@ -91,4 +104,19 @@ void servo_table_json(const ServoTable &t, char *out, size_t outLen) {
         n += std::snprintf(out + n, outLen - n, "%s%.1f", i ? "," : "", t.pulseUs[i]);
     }
     if (n < outLen) std::snprintf(out + n, outLen - n, "]");
+}
+
+float servo_backlash_adjust(BacklashState *s, float angleDeg, float backlashDeg) {
+    if (!s->started) {
+        s->started = true;
+        s->last = angleDeg;
+        s->dir = 0;
+    } else if (angleDeg > s->last + TURN_DEADBAND_DEG) {
+        s->dir = 1;
+        s->last = angleDeg;
+    } else if (angleDeg < s->last - TURN_DEADBAND_DEG) {
+        s->dir = -1;
+        s->last = angleDeg;
+    }
+    return angleDeg - s->dir * backlashDeg / 2.0f;
 }
