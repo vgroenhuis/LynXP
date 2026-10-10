@@ -50,6 +50,7 @@ Lynx.games = Lynx.games || {};
 
   Lynx.games.camcal = (ar, cfg, app) => {
     if (cfg.calibrate === "servos") return Lynx.games.camservo(ar, cfg, app); // (step 2: app_camservo.js)
+    if (cfg.calibrate === "check") return Lynx.games.boardcheck(ar, cfg, app); // (step 4: app_boardcheck.js)
     const S = Lynx.camcalSolver;
     const extr = cfg.calibrate === "extrinsics";
     const general = (app && app.general) || {};

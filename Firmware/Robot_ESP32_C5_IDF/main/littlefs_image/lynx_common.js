@@ -301,7 +301,7 @@ window.Lynx = window.Lynx || {};
         "the robot drives a tour around it and photographs it so it lands all over the picture, then fits the lens. " +
         "Save stores it for the current camera resolution. Needs internet once (the tag detector).",
       settings: [
-        { key: "calibrate", label: "Calibrate", type: "select", def: "intrinsics", options: [["intrinsics", "1. The lens (intrinsics)"], ["servos", "2. The pan / tilt servos (checkerboard; the robot drives and turns)"], ["extrinsics", "3. The camera's mount: height, tilt (checkerboard + the frame cube on the floor)"]] },
+        { key: "calibrate", label: "Calibrate", type: "select", def: "intrinsics", options: [["intrinsics", "1. The lens (intrinsics)"], ["servos", "2. The pan / tilt servos (checkerboard; the robot drives and turns)"], ["extrinsics", "3. The camera's mount: height, tilt (checkerboard + the frame cube on the floor)"], ["check", "4. Check: the checkerboard drawn over the video"]] },
         { key: "lensOffsetMm", label: "Lens in front of the pan axis (measured; the mount step holds it)", type: "number", unit: "mm", def: 5, min: -20, max: 40, step: 0.5 },
         { key: "lensUpMm", label: "Lens above the tilt axis (measured -- 0: the tilt axis crosses the optical axis; -1: the mount step finds it)", type: "number", unit: "mm", def: 0, min: -1, max: 60, step: 0.5 },
         { key: "target", label: "Calibration target", type: "select", def: "aprilgrid", options: [["aprilgrid", "AprilGrid (Kalibr)"], ["checkerboard", "Checkerboard"]] },
