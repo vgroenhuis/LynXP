@@ -5,6 +5,14 @@
 // projectiles aimed at where the camera WAS -- so physically driving
 // sideways dodges them -- and health/ammo pickups lie on the floor, so you
 // have to actually drive over them.
+//
+// Doom's arsenal, in its slots (1-7, Tab / LB / RB; a slot's key again picks
+// its other weapon): 1 fist / chainsaw (close up), 2 pistol, 3 shotgun / super
+// shotgun, 4 chaingun, 5 rocket launcher, 6 plasma rifle, 7 BFG 9000. Pistol
+// and shotguns hit at once; rockets, plasma and the BFG's ball fly (see
+// weapons_kit.js) -- rockets blow up where they land, you too if you're close;
+// the BFG takes a moment to charge. New weapons lie on the floor in later
+// waves, rockets and cells come with them.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -151,7 +159,91 @@ Lynx.games = Lynx.games || {};
   const CHAINGUN_PICK_PAL = { k: "#101010", g: "#808080", l: "#c0c0c0" };
   const CHAINGUN_PICK = ["kkkkkkkkkkkk", "kggglgggglgk", "kllllllllllk", "kggglgggglgk", "kkkkkggkkkkk", ".....kgk....", ".....kkk...."];
 
-  const GUN_PAL = { k: "#141414", g: "#6a6a6a", l: "#a8a8a8", s: "#c88a5a", d: "#8a5a34", w: "#7a4a1e" };
+  const GUN_PAL = { k: "#141414", g: "#6a6a6a", l: "#a8a8a8", s: "#c88a5a", d: "#8a5a34", w: "#7a4a1e", r: "#c02818", c: "#40c0ff", n: "#30e040" };
+  const FIST = [
+    "....kkkkkk....",
+    "...kssssssk...",
+    "..kssdsdsdsk..",
+    "..ksssssssssk.",
+    "..kssdsdsdssk.",
+    "..ksssssssssk.",
+    "...kssssssk...",
+    "...kssssssdk..",
+    "..kssssssssdk.",
+    ".kssssssssssdk",
+    ".kssssssssssdk",
+  ];
+  const CHAINSAW = [
+    ".....klk.....",
+    "....kglgk....",
+    "....kglgk....",
+    "....kglgk....",
+    "....kglgk....",
+    "....kglgk....",
+    "..kgggggggk..",
+    "..kwwwwwwwk..",
+    "..kwrrrrrwk..",
+    "..kwwwwwwwk..",
+    ".kssssssssssk",
+    "ksssssssssssk",
+  ];
+  const SUPER_SHOTGUN = [
+    "......kkk.kkk......",
+    "......klk.klk......",
+    "......kgk.kgk......",
+    "......kgk.kgk......",
+    ".....kglgkglgk.....",
+    ".....kgggkgggk.....",
+    ".....kwwwwwwwk.....",
+    ".....kwwwwwwwk.....",
+    "...ksskgggggkssk...",
+    "..kssssssssssssdk..",
+    ".kssssssssssssssdk.",
+    ".kssssssssssssssdk.",
+  ];
+  const ROCKET_LAUNCHER = [
+    "....kkkkkkk....",
+    "...kgggggggk...",
+    "...kglllllgk...",
+    "...kgggggggk...",
+    "...kglllllgk...",
+    "...kgggggggk...",
+    "..kkgggggggkk..",
+    "..kgglllllggk..",
+    ".ksskgggggkssk.",
+    "ksssssssssssssk",
+    "ksssssssssssssk",
+  ];
+  const PLASMA_RIFLE = [
+    "....kkkkkkk....",
+    "....kcclcck....",
+    "....kcclcck....",
+    "...kgggggggk...",
+    "...kgcccccgk...",
+    "...kgcclccgk...",
+    "...kgcccccgk...",
+    "..kgggggggggk..",
+    ".ksskgggggkssk.",
+    "ksssssssssssssk",
+    "ksssssssssssssk",
+  ];
+  const BFG = [
+    ".....kkkkkkk.....",
+    "....knnnnnnnk....",
+    "...knnnlllnnnk...",
+    "...knnlllllnnk...",
+    "...knnnlllnnnk...",
+    "..kgggggggggggk..",
+    "..kglglglglglgk..",
+    "..kgggggggggggk..",
+    ".ksskgggggggkssk.",
+    "ksssssssssssssssk",
+    "ksssssssssssssssk",
+  ];
+  const ROCKETS_PAL = { k: "#101010", g: "#5a6a3a", r: "#c02818", y: "#e0b030" };
+  const ROCKETS = ["..kk..kk..", ".krrkkrrk.", ".kggkkggk.", ".kggkkggk.", ".kggkkggk.", ".kyykkyyk.", "..kk..kk.."];
+  const CELLS_PAL = { k: "#101010", c: "#3080e0", w: "#c0f0ff" };
+  const CELLS = ["kkkkkkkk", "kccccwck", "kccccwck", "kccwccck", "kcwwwcck", "kccwccck", "kccccwck", "kkkkkkkk"];
   const PISTOL = [
     ".....kkk.....",
     ".....klk.....",
@@ -253,17 +345,32 @@ Lynx.games = Lynx.games || {};
     pinky: { hp: 60, speed: 0.26, heightM: 0.28, score: 150, keepAway: null },
     caco: { hp: 100, speed: 0.08, heightM: 0.3, score: 300, keepAway: [1.2, 2.0], floatM: 0.18 },
   };
-  const WEAPONS = [
-    null,
-    { name: "PISTOL", ammo: "bullets", cooldown: 0.4, pellets: 1, spread: 0.004, dmg: [9, 15], sound: "pistol" },
-    { name: "SHOTGUN", ammo: "shells", cooldown: 1.0, pellets: 7, spread: 0.06, dmg: [6, 10], sound: "shotgun" },
-    { name: "CHAINGUN", ammo: "bullets", cooldown: 0.11, pellets: 1, spread: 0.02, dmg: [8, 13], sound: "chaingun" },
-  ];
+  const ROCKET_STOPS = [[0, "rgba(255,255,210,1)"], [0.35, "rgba(255,170,40,0.95)"], [0.75, "rgba(255,60,10,0.6)"], [1, "rgba(255,30,0,0)"]];
+  const PLASMA_BLUE = [[0, "rgba(235,250,255,1)"], [0.4, "rgba(80,160,255,0.9)"], [1, "rgba(40,60,255,0)"]];
+  const BFG_GREEN = [[0, "rgba(240,255,240,1)"], [0.4, "rgba(80,255,80,0.9)"], [1, "rgba(0,160,0,0)"]];
+  // kind: "melee" (close up), "hitscan" (hits at once), "projectile" (flies: weapons_kit.js).
+  // use: ammo per shot. hud: the weapon's height on screen (fraction of the view).
+  const WEAPONS = {
+    fist: { slot: 1, name: "FIST", kind: "melee", cooldown: 0.55, dmg: [6, 18], range: 0.42, hud: 0.2, sound: "swing", hitSound: "punch" },
+    chainsaw: { slot: 1, name: "CHAINSAW", kind: "melee", cooldown: 0.12, dmg: [4, 9], range: 0.4, hud: 0.24, sound: "saw", hitSound: "saw" },
+    pistol: { slot: 2, name: "PISTOL", kind: "hitscan", ammo: "bullets", use: 1, cooldown: 0.4, pellets: 1, spread: 0.004, dmg: [9, 15], hud: 0.19, sound: "pistol" },
+    shotgun: { slot: 3, name: "SHOTGUN", kind: "hitscan", ammo: "shells", use: 1, cooldown: 1.0, pellets: 7, spread: 0.06, dmg: [6, 10], hud: 0.24, sound: "shotgun" },
+    ssg: { slot: 3, name: "SUPER SHOTGUN", kind: "hitscan", ammo: "shells", use: 2, cooldown: 1.4, pellets: 20, spread: 0.11, dmg: [6, 10], hud: 0.24, sound: "ssg" },
+    chaingun: { slot: 4, name: "CHAINGUN", kind: "hitscan", ammo: "bullets", use: 1, cooldown: 0.11, pellets: 1, spread: 0.02, dmg: [8, 13], hud: 0.22, sound: "chaingun" },
+    rocket: { slot: 5, name: "ROCKET LAUNCHER", kind: "projectile", ammo: "rockets", use: 1, cooldown: 0.8, speed: 1.6, r: 0.03, dmg: [30, 50],
+      splash: { r: 0.5, dmg: 50 }, stops: ROCKET_STOPS, hud: 0.24, sound: "rocket" },
+    plasma: { slot: 6, name: "PLASMA RIFLE", kind: "projectile", ammo: "cells", use: 1, cooldown: 0.1, speed: 3.5, r: 0.02, dmg: [8, 18], stops: PLASMA_BLUE, hud: 0.22, sound: "plasma" },
+    bfg: { slot: 7, name: "BFG 9000", kind: "projectile", ammo: "cells", use: 40, cooldown: 1.6, charge: 0.7, speed: 1.2, r: 0.07, dmg: [100, 150],
+      splash: { r: 1.1, dmg: 180, self: false, sound: "bfgBoom", stops: BFG_GREEN }, stops: BFG_GREEN, hud: 0.26, sound: "bfg" },
+  };
+  const ORDER = ["fist", "chainsaw", "pistol", "shotgun", "ssg", "chaingun", "rocket", "plasma", "bfg"];
+  // weapons lying on the floor at the start of a wave, and the ammo they come with
+  const WEAPON_DROPS = { 2: "chainsaw", 3: "chaingun", 4: "ssg", 5: "rocket", 6: "plasma", 8: "bfg" };
+  const WEAPON_AMMO = { chaingun: ["bullets", 20], ssg: ["shells", 8], rocket: ["rockets", 5], plasma: ["cells", 40], bfg: ["cells", 40] };
+  const MAX_AMMO = { bullets: 200, shells: 50, rockets: 50, cells: 300 };
   const PICKUP_RADIUS_M = 0.2;
   const PLAYER_HIT_RADIUS_M = 0.1;
   const BITE_RANGE_M = 0.3;
-  const MAX_BULLETS = 200;
-  const MAX_SHELLS = 50;
 
   const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -285,7 +392,13 @@ Lynx.games = Lynx.games || {};
       shells: Lynx.sprite(SHELLS, SHELLS_PAL),
       armor: Lynx.sprite(ARMOR, ARMOR_PAL),
       chaingun: Lynx.sprite(CHAINGUN_PICK, CHAINGUN_PICK_PAL),
-      guns: [null, Lynx.sprite(PISTOL, GUN_PAL), Lynx.sprite(SHOTGUN, GUN_PAL), Lynx.sprite(CHAINGUN, GUN_PAL)],
+      rockets: Lynx.sprite(ROCKETS, ROCKETS_PAL),
+      cells: Lynx.sprite(CELLS, CELLS_PAL),
+      guns: {
+        fist: Lynx.sprite(FIST, GUN_PAL), chainsaw: Lynx.sprite(CHAINSAW, GUN_PAL), pistol: Lynx.sprite(PISTOL, GUN_PAL),
+        shotgun: Lynx.sprite(SHOTGUN, GUN_PAL), ssg: Lynx.sprite(SUPER_SHOTGUN, GUN_PAL), chaingun: Lynx.sprite(CHAINGUN, GUN_PAL),
+        rocket: Lynx.sprite(ROCKET_LAUNCHER, GUN_PAL), plasma: Lynx.sprite(PLASMA_RIFLE, GUN_PAL), bfg: Lynx.sprite(BFG, GUN_PAL),
+      },
       faces: {
         ok: Lynx.sprite(FACE_BASE, FACE_PAL),
         hurt: Lynx.sprite(faceVariant("hurt"), FACE_PAL),
@@ -294,7 +407,10 @@ Lynx.games = Lynx.games || {};
         ouch: Lynx.sprite(faceVariant("ouch"), FACE_PAL),
       },
     };
-    const PICKUP_HEIGHT = { medkit: 0.07, bullets: 0.06, shells: 0.06, armor: 0.08, chaingun: 0.06 };
+    // (the new weapons lie on the floor as their own picture)
+    ["chainsaw", "ssg", "rocket", "plasma", "bfg"].forEach((k) => (sprites["w_" + k] = sprites.guns[k]));
+    const PICKUP_HEIGHT = { medkit: 0.07, bullets: 0.06, shells: 0.06, armor: 0.08, chaingun: 0.06, rockets: 0.06, cells: 0.06,
+      w_chainsaw: 0.09, w_ssg: 0.09, w_rocket: 0.09, w_plasma: 0.09, w_bfg: 0.1 };
 
     let state = "title"; // title | playing | intermission | dead
     let stateTime = 0;
@@ -304,19 +420,22 @@ Lynx.games = Lynx.games || {};
     let enemies, shots, pickups, effects, spawnQueue;
     let wave, score, kills;
     let cooldown = 0;
+    let bfgCharge = 0; // the BFG charging: seconds to its shot
     let firePressed = false;
     let muzzle = 0;
     let hurtFlash = 0;
     let pickupFlash = 0;
     let faceTimer = 0;
     let faceKind = "ok";
+    let pickupMsg = null; // {text, t}
     let bob = 0;
     let lastPose = null;
 
     Lynx.bestScore("demons").then((b) => (best = b));
 
     function reset() {
-      p = { health: 100, armor: 0, bullets: 50, shells: 8, weapon: 1, owned: [false, true, true, false] };
+      p = { health: 100, armor: 0, bullets: 50, shells: 8, rockets: 0, cells: 0, weapon: "pistol", owned: { fist: true, pistol: true, shotgun: true } };
+      bfgCharge = 0;
       enemies = [];
       shots = [];
       pickups = [];
@@ -344,7 +463,10 @@ Lynx.games = Lynx.games || {};
       // Supplies each wave -- on the floor nearby, so you have to go get them.
       dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.5, 1.2), p.health < 60 ? "medkit" : "bullets");
       dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.6, 1.4), "shells");
-      if (wave === 3) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.5, 1.0), "chaingun");
+      const w = WEAPON_DROPS[wave];
+      if (w && !p.owned[w]) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.5, 1.0), w === "chaingun" ? "chaingun" : "w_" + w);
+      if (p.owned.rocket) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.6, 1.4), "rockets");
+      if (p.owned.plasma || p.owned.bfg) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.6, 1.4), "cells");
       if (wave >= 2 && wave % 2 === 0) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.8, 1.6), "armor");
     }
 
@@ -387,21 +509,41 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- shooting ------------------------------------------------------------------
+    const hasAmmo = (id) => !WEAPONS[id].ammo || p[WEAPONS[id].ammo] >= WEAPONS[id].use;
+    // the rockets, plasma and the BFG's ball; the fist and the chainsaw
+    const kit = Lynx.weaponKit(ar, {
+      targets: () => enemies.filter((e) => e.state === "alive").map((e) => {
+        const d = ENEMY[e.type];
+        return { obj: e, x: e.x, y: e.y, h0: d.floatM || 0, h1: (d.floatM || 0) + d.heightM, r: d.heightM * 0.35 };
+      }),
+      hit: (e, dmg) => e.state === "alive" && hurtEnemy(e, dmg),
+      hurtPlayer: (f) => damagePlayer(45 * f), // (your own rocket)
+    });
+
     function tryFire() {
       const w = WEAPONS[p.weapon];
-      if (cooldown > 0) return;
-      if (p[w.ammo] <= 0) {
+      if (cooldown > 0 || bfgCharge > 0) return;
+      if (!hasAmmo(p.weapon)) {
         Lynx.sfx.play("click");
         cooldown = 0.3;
-        // Out of ammo: fall back to whatever still has some.
-        const alt = [1, 2, 3].find((i) => p.owned[i] && p[WEAPONS[i].ammo] > 0);
-        if (alt) p.weapon = alt;
+        // Out of ammo: the best weapon that still has some (like Doom).
+        const alt = ORDER.slice().reverse().find((id) => p.owned[id] && hasAmmo(id) && id !== "bfg" && WEAPONS[id].kind !== "melee");
+        p.weapon = alt || (p.owned.chainsaw ? "chainsaw" : "fist");
         return;
       }
-      p[w.ammo]--;
+      if (w.ammo) p[w.ammo] -= w.use;
       cooldown = w.cooldown;
+      if (w.kind === "melee") {
+        kit.melee({ range: w.range, cone: 0.6, dmg: w.dmg, kind: p.weapon, sound: w.sound, hitSound: w.hitSound });
+        return;
+      }
       muzzle = 0.08;
       Lynx.sfx.play(w.sound);
+      if (w.kind === "projectile") {
+        if (w.charge) bfgCharge = w.charge; // (the ball leaves when it's charged: update())
+        else kit.fireProjectile({ speed: w.speed, r: w.r, dmg: w.dmg, splash: w.splash, stops: w.stops });
+        return;
+      }
       const v = ar.view;
       const hits = new Map();
       // Aim assist: a shot that lands this close to a demon (screen pixels)
@@ -441,7 +583,12 @@ Lynx.games = Lynx.games || {};
         kills++;
         score += ENEMY[e.type].score;
         Lynx.sfx.play("die");
-        if (Math.random() < 0.3) dropPickup({ x: e.x, y: e.y }, Math.random() < 0.4 ? "medkit" : Math.random() < 0.6 ? "bullets" : "shells");
+        if (Math.random() < 0.3) {
+          const kinds = ["medkit", "medkit", "bullets", "bullets", "shells"];
+          if (p.owned.rocket) kinds.push("rockets");
+          if (p.owned.plasma || p.owned.bfg) kinds.push("cells");
+          dropPickup({ x: e.x, y: e.y }, kinds[Math.floor(Math.random() * kinds.length)]);
+        }
       } else {
         Lynx.sfx.play("pain");
         // Getting shot makes them flinch -- delays their next attack a bit.
@@ -453,15 +600,23 @@ Lynx.games = Lynx.games || {};
       Lynx.sfx.unlock();
       if (state === "title" || (state === "dead" && stateTime > 1.5)) {
         reset();
+        kit.clear();
         startWave();
         return;
       }
       firePressed = true;
     });
     Lynx.onAction("weapon", (which) => {
+      if (bfgCharge > 0) return;
       if (which === "next") switchNext();
       else if (which === "prev") switchNext(-1);
-      else if (p.owned[which]) p.weapon = which;
+      else {
+        // a slot: its (next) weapon you have
+        const inSlot = ORDER.filter((id) => WEAPONS[id].slot === which && p.owned[id]);
+        if (!inSlot.length) return;
+        const i = inSlot.indexOf(p.weapon);
+        p.weapon = inSlot[(i + 1) % inSlot.length];
+      }
     });
 
     Lynx.touchButtons().add("\u{1F52B} Weapon", () => switchNext());
@@ -472,8 +627,10 @@ Lynx.games = Lynx.games || {};
       Lynx.touchButtons().add("\u2912 Jump", () => Lynx.jumpAction());
     }
     function switchNext(step = 1) {
-      for (let i = 1; i <= 3; i++) {
-        const cand = ((((p.weapon - 1 + step * i) % 3) + 3) % 3) + 1;
+      const n = ORDER.length;
+      const at = ORDER.indexOf(p.weapon);
+      for (let i = 1; i <= n; i++) {
+        const cand = ORDER[(((at + step * i) % n) + n) % n];
         if (p.owned[cand]) {
           p.weapon = cand;
           return;
@@ -489,6 +646,7 @@ Lynx.games = Lynx.games || {};
       hurtFlash = Math.max(0, hurtFlash - dt * 1.2);
       pickupFlash = Math.max(0, pickupFlash - dt * 1.5);
       faceTimer = Math.max(0, faceTimer - dt);
+      if (pickupMsg) pickupMsg.t += dt;
       if (faceTimer === 0) faceKind = "ok";
 
       // Weapon bob follows how fast the robot is actually moving.
@@ -498,6 +656,16 @@ Lynx.games = Lynx.games || {};
       }
       lastPose = { x: ar.pose.x, y: ar.pose.y };
 
+      kit.update(dt);
+      if (bfgCharge > 0) {
+        bfgCharge -= dt;
+        if (bfgCharge <= 0) {
+          const w = WEAPONS.bfg;
+          bfgCharge = 0;
+          kit.fireProjectile({ speed: w.speed, r: w.r, dmg: w.dmg, splash: w.splash, stops: w.stops });
+          muzzle = 0.15;
+        }
+      }
       // Holding fire keeps shooting at each weapon's own rate, like Doom.
       if ((state === "playing" || state === "intermission") && (firePressed || Lynx.input.fireHeld)) tryFire();
       firePressed = false;
@@ -625,13 +793,18 @@ Lynx.games = Lynx.games || {};
         if (k.kind === "medkit") {
           if (p.health >= 100) return true; // leave it for later
           p.health = Math.min(100, p.health + 25);
-        } else if (k.kind === "bullets") p.bullets = Math.min(MAX_BULLETS, p.bullets + 20);
-        else if (k.kind === "shells") p.shells = Math.min(MAX_SHELLS, p.shells + 4);
+        } else if (k.kind === "bullets") p.bullets = Math.min(MAX_AMMO.bullets, p.bullets + 20);
+        else if (k.kind === "shells") p.shells = Math.min(MAX_AMMO.shells, p.shells + 4);
+        else if (k.kind === "rockets") p.rockets = Math.min(MAX_AMMO.rockets, p.rockets + 5);
+        else if (k.kind === "cells") p.cells = Math.min(MAX_AMMO.cells, p.cells + 40);
         else if (k.kind === "armor") p.armor = Math.min(200, p.armor + 50);
-        else if (k.kind === "chaingun") {
-          p.owned[3] = true;
-          p.weapon = 3;
-          p.bullets = Math.min(MAX_BULLETS, p.bullets + 20);
+        else if (k.kind === "chaingun" || k.kind.startsWith("w_")) {
+          const id = k.kind === "chaingun" ? "chaingun" : k.kind.slice(2);
+          p.owned[id] = true;
+          if (bfgCharge <= 0) p.weapon = id;
+          const am = WEAPON_AMMO[id];
+          if (am) p[am[0]] = Math.min(MAX_AMMO[am[0]], p[am[0]] + am[1]);
+          pickupMsg = { text: `You got the ${WEAPONS[id].name}!`, t: 0 };
         }
         pickupFlash = 0.3;
         faceKind = "grin";
@@ -709,6 +882,7 @@ Lynx.games = Lynx.games || {};
         ar.queue(pr.depth, () => ar.glow(pr.x, pr.y, r, FIRE_STOPS, 1 - f.t / 0.5));
       });
 
+      kit.drawWorld();
       pickups.forEach((k) => {
         const spr = sprites[k.kind];
         const hover = 0.02 + Math.sin(k.phase) * 0.01;
@@ -737,6 +911,7 @@ Lynx.games = Lynx.games || {};
           enemies.forEach((e) => e.state === "alive" && blips.push({ x: e.x, y: e.y, color: "#ff4030", r: e.type === "caco" ? 4 : 3 }));
           pickups.forEach((k) => blips.push({ x: k.x, y: k.y, color: k.kind === "medkit" ? "#ffffff" : "#ffd040", r: 2.5 }));
           shots.forEach((s) => blips.push({ x: s.x, y: s.y, color: "#ffa000", r: 2 }));
+          blips.push(...kit.blips());
           ar.radar(blips, spawnR + 0.8);
         }
         ar.crosshair("rgba(255,255,255,0.9)", 10, 3);
@@ -749,12 +924,17 @@ Lynx.games = Lynx.games || {};
       const barY = v.y + v.h - barH;
       if (state !== "title") {
         const gun = sprites.guns[p.weapon];
-        const gh = v.h * (p.weapon === 2 ? 0.24 : p.weapon === 3 ? 0.22 : 0.19);
+        const wd = WEAPONS[p.weapon];
+        const gh = v.h * wd.hud;
         const gw = (gh * gun.width) / gun.height;
-        const kick = cooldown > 0 ? Math.max(0, cooldown / WEAPONS[p.weapon].cooldown - 0.6) * gh * 0.3 : 0;
-        const gx = v.cx - gw / 2 + Math.sin(bob) * v.w * 0.012;
-        const gy = barY - gh + Math.abs(Math.cos(bob)) * gh * 0.05 + kick + (state === "dead" ? stateTime * gh : 0);
-        if (muzzle > 0) ar.glow(v.cx, gy - gh * 0.05, gh * 0.35, FIRE_STOPS);
+        let kick = cooldown > 0 ? Math.max(0, cooldown / wd.cooldown - 0.6) * gh * 0.3 : 0;
+        let shake = 0;
+        if (p.weapon === "fist" && cooldown > 0) kick = -Math.sin((1 - cooldown / wd.cooldown) * Math.PI) * gh * 0.35; // (a punch: up and back)
+        if (p.weapon === "chainsaw" && (Lynx.input.fireHeld || cooldown > 0)) shake = (Math.random() - 0.5) * gh * 0.05;
+        const gx = v.cx - gw / 2 + Math.sin(bob) * v.w * 0.012 + shake;
+        const gy = barY - gh + Math.abs(Math.cos(bob)) * gh * 0.05 + kick + shake - (bfgCharge > 0 ? Math.random() * gh * 0.03 : 0) + (state === "dead" ? stateTime * gh : 0);
+        if (bfgCharge > 0) ar.glow(v.cx, gy, gh * 0.6 * (1 - bfgCharge / WEAPONS.bfg.charge), BFG_GREEN);
+        if (muzzle > 0 && wd.kind !== "melee") ar.glow(v.cx, gy - gh * 0.05, gh * 0.35, wd.stops || FIRE_STOPS);
         ctx.save();
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(gun, gx, gy, gw, gh);
@@ -785,13 +965,15 @@ Lynx.games = Lynx.games || {};
         ar.text(txt, cell.x + cell.w / 2, barY + barH * 0.58, { size: bigSize, align: "center", color, font: "Impact, 'Arial Black', sans-serif", weight: "normal" });
       const label = (txt, cell) => ar.text(txt, cell.x + cell.w / 2, barY + barH * 0.9, { size: labelSize, align: "center", color: "#d8d0c0" });
       const w = WEAPONS[p.weapon];
-      digit(String(p[w.ammo]), cells[0]);
+      digit(w.ammo ? String(p[w.ammo]) : "", cells[0]);
       label("AMMO", cells[0]);
       digit(`${Math.ceil(p.health)}%`, cells[1]);
       label("HEALTH", cells[1]);
-      [1, 2, 3].forEach((i) => {
-        ar.text(String(i), cells[2].x + cells[2].w * (0.25 + (i - 1) * 0.25), barY + barH * 0.52, {
-          size: barH * 0.3, align: "center", color: p.weapon === i ? "#ffe040" : p.owned[i] ? "#f0e8d0" : "#6a6258", outline: false,
+      // ARMS, like Doom's: 2 3 4 / 5 6 7, lit when you have a weapon in that slot
+      [2, 3, 4, 5, 6, 7].forEach((slot, i) => {
+        const has = ORDER.some((id) => WEAPONS[id].slot === slot && p.owned[id]);
+        ar.text(String(slot), cells[2].x + cells[2].w * (0.25 + (i % 3) * 0.25), barY + barH * (i < 3 ? 0.3 : 0.62), {
+          size: barH * 0.26, align: "center", color: w.slot === slot ? "#ffe040" : has ? "#f0e8d0" : "#6a6258", outline: false,
         });
       });
       label("ARMS", cells[2]);
@@ -810,17 +992,20 @@ Lynx.games = Lynx.games || {};
       label("ARMOR", cells[4]);
       ar.text(`WAVE ${wave}   KILLS ${kills}`, cells[5].x + 10, barY + barH * 0.38, { size: labelSize * 1.2, color: "#f0e8d0" });
       ar.text(`SCORE ${score}`, cells[5].x + 10, barY + barH * 0.75, { size: labelSize * 1.5, color: "#ffd040" });
-      ar.text(`${w.name}  bullets ${p.bullets}  shells ${p.shells}`, barX + 4, barY - 6, { size: labelSize, color: "#e8e0d0", alpha: 0.9 });
+      ar.text(`${w.name}  bullets ${p.bullets}  shells ${p.shells}${p.owned.rocket ? `  rockets ${p.rockets}` : ""}${p.owned.plasma || p.owned.bfg ? `  cells ${p.cells}` : ""}`,
+        barX + 4, barY - 6, { size: labelSize, color: "#e8e0d0", alpha: 0.9 });
+      if (pickupMsg && pickupMsg.t < 2.5) ar.text(pickupMsg.text, v.cx, v.y + v.h * 0.3, { size: 20, align: "center", color: "#ffe040", alpha: Math.min(1, 2.5 - pickupMsg.t) });
 
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("DOOM", "Press FIRE to start  (Z / Space / \u{1F525} button)");
-        ar.text("WASD drive · arrows / Q E look · 1-3 or Tab weapons · drive over pickups", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text("WASD drive · arrows / Q E look · 1-7 or Tab weapons · drive over pickups", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd040" });
       } else if (state === "intermission") {
         ar.banner(`WAVE ${wave} CLEARED`, `+${500 * wave} bonus · next wave in ${Math.max(0, Math.ceil(4 - stateTime))}`, { color: "#ffd040" });
       } else if (state === "playing" && stateTime < 2.5) {
-        ar.banner(`WAVE ${wave}`, wave === 3 ? "Chaingun dropped nearby!" : "", { alpha: Math.min(1, 2.5 - stateTime) });
+        const drop = WEAPON_DROPS[wave];
+        ar.banner(`WAVE ${wave}`, drop && pickups.some((k) => k.kind === drop || k.kind === "w_" + drop) ? `${WEAPONS[drop].name} dropped nearby!` : "", { alpha: Math.min(1, 2.5 - stateTime) });
       } else if (state === "dead") {
         ar.flash("#600000", Math.min(0.5, stateTime * 0.3));
         ar.banner("YOU DIED", `Score ${score} · wave ${wave} · ${kills} kills`);
@@ -837,8 +1022,15 @@ Lynx.games = Lynx.games || {};
 
     return {
       actionLabel: "\u{1F525} Fire",
+      // From the browser console, like the original's cheat: every weapon, full ammo.
+      idkfa: () => {
+        ORDER.forEach((id) => (p.owned[id] = true));
+        Object.keys(MAX_AMMO).forEach((k) => (p[k] = MAX_AMMO[k]));
+        p.armor = 200;
+      },
       // Read-only snapshot for debugging from the browser console.
-      snapshot: () => ({ state, wave, score, kills, health: p.health, weapon: p.weapon, bullets: p.bullets,
+      snapshot: () => ({ state, wave, score, kills, health: p.health, weapon: p.weapon, bullets: p.bullets, shells: p.shells, rockets: p.rockets, cells: p.cells,
+        owned: Object.keys(p.owned), kit: kit.snapshot(),
         enemies: enemies.map((e) => ({ type: e.type, x: +e.x.toFixed(2), y: +e.y.toFixed(2), hp: Math.round(e.hp), state: e.state })) }),
     };
   };

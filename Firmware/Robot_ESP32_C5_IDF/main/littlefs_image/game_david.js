@@ -1,7 +1,12 @@
 // David -- shoot open the crates standing on the floor around the robot:
-// the golden one in each level holds a new, better pistol (water pistol ->
-// laser -> double pistol -> lightning gun -> rainbow cannon), the others
-// coins or a heart. Monsters crawl toward you; clear every crate and every
+// the golden one in each level holds a new weapon (water pistol -> wooden
+// sword -> bow -> laser pistol -> bombs -> double pistol -> lightning gun ->
+// rainbow cannon), the others coins or a heart. Each plays differently: the
+// sword only reaches what's right in front of you (and knocks it back), bow
+// arrows fall (aim above), bombs roll along the floor to where you aim and go
+// off when you press fire again (or by themselves) -- the blast opens crates
+// too, and catches you if you're close. A wooden shield (hold X / gamepad B /
+// the button) stops monsters that run into it while it has energy. Monsters crawl toward you; clear every crate and every
 // monster to finish the level. (Made for a Dutch player, first with Dutch
 // texts; now English like the other games.)
 
@@ -14,12 +19,17 @@ Lynx.games = Lynx.games || {};
   const INVULNERABLE_S = 1.5;
   const MAX_HEARTS = 9;
 
+  // kind: "gun" (hits at once, where the crosshair is), "sword" (close up),
+  // "bow" (arrows fly and fall), "bomb" (rolls, then goes off) -- see weapons_kit.js
   const WEAPONS = [
-    { name: "Water pistol", dmg: 1, cooldown: 0.45, pellets: 1, color: "#40b0ff", sound: "squirt" },
-    { name: "Laser pistol", dmg: 2, cooldown: 0.35, pellets: 1, color: "#ff3040", sound: "laser" },
-    { name: "Double pistol", dmg: 2, cooldown: 0.35, pellets: 2, color: "#ffd020", sound: "pistol" },
-    { name: "Lightning gun", dmg: 2, cooldown: 0.14, pellets: 1, color: "#a0f0ff", sound: "zap", auto: true },
-    { name: "Rainbow cannon", dmg: 6, cooldown: 0.5, pellets: 1, color: "rainbow", sound: "rainbow", splashM: 0.5 },
+    { name: "Water pistol", kind: "gun", dmg: 1, cooldown: 0.45, pellets: 1, color: "#40b0ff", sound: "squirt" },
+    { name: "Wooden sword", kind: "sword", dmg: 3, cooldown: 0.45, color: "#c8a060", icon: "\u{1F5E1}" },
+    { name: "Bow & arrow", kind: "bow", dmg: 4, cooldown: 0.8, color: "#e8d8a8", icon: "\u{1F3F9}" },
+    { name: "Laser pistol", kind: "gun", dmg: 2, cooldown: 0.35, pellets: 1, color: "#ff3040", sound: "laser" },
+    { name: "Bombs", kind: "bomb", dmg: 8, cooldown: 0.35, color: "#ff8040", icon: "\u{1F4A3}", splashM: 0.5 },
+    { name: "Double pistol", kind: "gun", dmg: 2, cooldown: 0.35, pellets: 2, color: "#ffd020", sound: "pistol" },
+    { name: "Lightning gun", kind: "gun", dmg: 2, cooldown: 0.14, pellets: 1, color: "#a0f0ff", sound: "zap", auto: true },
+    { name: "Rainbow cannon", kind: "gun", dmg: 6, cooldown: 0.5, pellets: 1, color: "rainbow", sound: "rainbow", splashM: 0.5 },
   ];
   const RAINBOW = ["#ff3030", "#ff9020", "#ffe020", "#40e040", "#30a0ff", "#a040ff"];
 
@@ -192,6 +202,7 @@ Lynx.games = Lynx.games || {};
     }
 
     function newGame() {
+      kit.clear();
       level = 1;
       score = 0;
       hearts = cfg.hearts || 5;
@@ -229,9 +240,52 @@ Lynx.games = Lynx.games || {};
       return best;
     }
 
-    function tryFire() {
+    // -- the kit's weapons (sword, bow, bombs) and the shield ------------------------------------
+    const isCrate = (o) => o.golden !== undefined;
+    const kit = Lynx.weaponKit(ar, {
+      targets: () => [
+        ...crates.filter((c) => !c.open).map((c) => ({ obj: c, x: c.x, y: c.y, h0: 0, h1: CRATE_M, r: CRATE_M * 0.5 })),
+        ...monsters.filter((m) => m.alive).map((m) => {
+          const d = MONSTER[m.type];
+          return { obj: m, x: m.x, y: m.y, h0: d.fly, h1: d.fly + d.heightM, r: d.heightM * 0.45 };
+        }),
+      ],
+      hit: (o, dmg, info) => {
+        const n = Math.max(1, Math.round(dmg));
+        if (isCrate(o)) {
+          if (!o.open) hitCrate(o, n);
+          return;
+        }
+        if (!o.alive) return;
+        if (info.kind === "melee" || info.kind === "blast") {
+          o.x += info.dx * (info.kind === "melee" ? 0.3 : 0.2); // knocked back
+          o.y += info.dy * (info.kind === "melee" ? 0.3 : 0.2);
+        }
+        hitMonster(o, n);
+      },
+      hurtPlayer: (f) => f > 0.3 && loseHeart(),
+    });
+    Lynx.onAction("shield", () => {}); // (X / gamepad B raise it)
+
+    function tryFire(pressed) {
       if (cooldown > 0) return;
       const w = WEAPONS[weapon];
+      if (w.kind === "sword") {
+        cooldown = w.cooldown;
+        kit.melee({ range: 0.45, cone: 0.7, dmg: w.dmg, kind: "sword" });
+        return;
+      }
+      if (w.kind === "bow") {
+        cooldown = w.cooldown;
+        kit.fireArrow({ dmg: w.dmg });
+        return;
+      }
+      if (w.kind === "bomb") {
+        if (!pressed) return; // (one bomb -- or one bang -- per press)
+        cooldown = w.cooldown;
+        kit.bomb({ fuse: 5, speed: 0.6, splash: { r: w.splashM, dmg: w.dmg } });
+        return;
+      }
       cooldown = w.cooldown;
       Lynx.sfx.play(w.sound);
       const v = ar.view;
@@ -326,11 +380,29 @@ Lynx.games = Lynx.games || {};
       else if (which - 1 < owned) weapon = which - 1;
     });
     Lynx.touchButtons().add("\u{1F52B} Switch", () => (weapon = (weapon + 1) % owned));
+    Lynx.touchButtons().addHold("\u{1F6E1} Shield", () => Lynx.shieldAction("touch", true), () => Lynx.shieldAction("touch", false));
     // Optional virtual jumping (off by default): spring over crawling
     // monsters (bats fly too high for that).
     if (cfg.jump) {
       Lynx.onAction("jump", () => state === "playing" && (ar.jump(), true));
       Lynx.touchButtons().add("\u2912 Jump", () => Lynx.jumpAction());
+    }
+
+    function loseHeart() {
+      if (invulnerable > 0 || state !== "playing") return;
+      hearts--;
+      invulnerable = INVULNERABLE_S;
+      hurtFlash = 0.5;
+      Lynx.sfx.play("hurt");
+      if (hearts > 0) return;
+      state = "over";
+      stateTime = 0;
+      rankMsg = "";
+      Lynx.sfx.play("lose");
+      Lynx.submitScore("david", score).then((rank) => {
+        rankMsg = rank ? `#${rank} on this robot's scoreboard!` : "";
+        if (rank === 1) best = score;
+      });
     }
 
     // -- update ----------------------------------------------------------------------------
@@ -341,6 +413,8 @@ Lynx.games = Lynx.games || {};
       if (message) message.t += dt;
       tracers.forEach((t) => (t.t += dt));
       tracers = tracers.filter((t) => t.t < 0.12);
+      kit.update(dt);
+      kit.updateShield(dt, Lynx.input.shieldHeld && state === "playing");
       debris.forEach((d) => {
         d.t += dt;
         d.x += d.vx * dt;
@@ -360,7 +434,7 @@ Lynx.games = Lynx.games || {};
 
       invulnerable = Math.max(0, invulnerable - dt);
       const w = WEAPONS[weapon];
-      if (firePressed || (w.auto && Lynx.input.fireHeld)) tryFire();
+      if (firePressed || (w.auto && Lynx.input.fireHeld)) tryFire(firePressed);
       firePressed = false;
 
       spawnQueue = spawnQueue.filter((s) => {
@@ -388,23 +462,12 @@ Lynx.games = Lynx.games || {};
         m.y += ((dy / d) + (dx / d) * side) * speed * dt;
         const jumpedOver = ar.feet() > def.fly + def.heightM * 0.7;
         if (d < TOUCH_M + (m.type === "boss" ? 0.1 : 0) && invulnerable === 0 && !jumpedOver) {
-          hearts--;
-          invulnerable = INVULNERABLE_S;
-          hurtFlash = 0.5;
-          Lynx.sfx.play("hurt");
+          // the shield, up and facing it: it bounces off
+          if (!kit.blocks(m.x, m.y)) loseHeart();
+          else m.hit = 0.3;
           // knocked back after biting
           m.x -= (dx / d) * 0.6;
           m.y -= (dy / d) * 0.6;
-          if (hearts <= 0) {
-            state = "over";
-            stateTime = 0;
-            rankMsg = "";
-            Lynx.sfx.play("lose");
-            Lynx.submitScore("david", score).then((rank) => {
-              rankMsg = rank ? `#${rank} on this robot's scoreboard!` : "";
-              if (rank === 1) best = score;
-            });
-          }
         }
       });
       monsters = monsters.filter((m) => m.alive);
@@ -495,6 +558,11 @@ Lynx.games = Lynx.games || {};
           ar.ctx.fill();
           return;
         }
+        if (l.kind === "weapon" && WEAPONS[l.index].icon) {
+          ar.glow(p.x, p.y, s * 1.6, [[0, "rgba(255,255,255,0.8)"], [1, "rgba(255,255,255,0)"]]);
+          ar.text(WEAPONS[l.index].icon, p.x, p.y + s * 0.5, { size: s * 1.5, align: "center" });
+          return;
+        }
         const img = l.kind === "heart" ? sprites.heart : sprites.pistols[l.index];
         const w = s * (l.kind === "heart" ? 1 : 1.6);
         const h = (w * img.height) / img.width;
@@ -506,6 +574,7 @@ Lynx.games = Lynx.games || {};
     function drawGun() {
       const v = ar.view;
       const w = WEAPONS[weapon];
+      if (w.kind !== "gun") return kit.drawHand(w.kind, { ready: 1 - cooldown / w.cooldown, color: w.kind === "sword" ? "#e0c890" : undefined });
       const img = sprites.pistols[weapon];
       const gw = Math.min(v.w * 0.22, 180);
       const gh = (gw * img.height) / img.width;
@@ -549,6 +618,7 @@ Lynx.games = Lynx.games || {};
       crates.forEach(drawCrate);
       monsters.forEach(drawMonster);
       loot.forEach(drawLoot);
+      kit.drawWorld();
       puffs.forEach((p) => {
         const pr = ar.project(p.x, p.y, p.h);
         if (pr) ar.glow(pr.x, pr.y, (p.big ? 0.4 : 0.15) * pr.ppm * (0.5 + p.t * 2), [[0, "rgba(255,255,255,0.9)"], [0.5, "rgba(200,255,200,0.5)"], [1, "rgba(200,255,200,0)"]], 1 - p.t / 0.5);
@@ -565,11 +635,13 @@ Lynx.games = Lynx.games || {};
           const blips = [];
           crates.forEach((c) => !c.open && blips.push({ x: c.x, y: c.y, color: c.golden ? "#ffd84a" : "#c88a3c", r: 3 }));
           monsters.forEach((m) => blips.push({ x: m.x, y: m.y, color: m.type === "boss" ? "#d060ff" : "#ff4040", r: m.type === "boss" ? 5 : 3.5 }));
+          blips.push(...kit.blips());
           ar.radar(blips, areaM + 0.8);
         }
         ar.crosshair("rgba(0,0,0,0.6)", 19, 5);
         ar.crosshair("#ffffff", 17, 6);
         drawGun();
+        kit.drawShield("wood");
       }
 
       ar.flash("#ff0000", hurtFlash * 0.6);
@@ -585,7 +657,7 @@ Lynx.games = Lynx.games || {};
         const monstersLeft = monsters.length + spawnQueue.length;
         ar.text(`LEVEL ${level}`, v.x + 14, v.y + 66, { size: 18, color: "#ffd84a" });
         ar.text(`crates ${cratesLeft} · monsters ${monstersLeft}`, v.x + 14, v.y + 88, { size: 14 });
-        ar.text(WEAPONS[weapon].name, v.x + v.w - 14, v.y + 66, { size: 16, align: "right", color: WEAPONS[weapon].color === "rainbow" ? "#ffe020" : WEAPONS[weapon].color });
+        ar.text(`${weapon + 1} ${WEAPONS[weapon].name}`, v.x + v.w - 14, v.y + 66, { size: 16, align: "right", color: WEAPONS[weapon].color === "rainbow" ? "#ffe020" : WEAPONS[weapon].color });
       }
 
       if (message && message.t < 2.2 && state !== "title" && state !== "over") {
@@ -594,7 +666,7 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("DAVID", "Press FIRE to start", { color: "#ffd84a" });
-        ar.text("Shoot the crates open · the golden crate holds a new gun · beat the monsters", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text("Shoot the crates open · the golden crate holds a new weapon · beat the monsters · hold X / B: shield", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "over") {
         ar.flash("#000", 0.45);
@@ -611,11 +683,12 @@ Lynx.games = Lynx.games || {};
 
     return {
       actionLabel: "\u{1F52B} Fire",
+      giveAll: () => (owned = WEAPONS.length), // (from the browser console: every weapon)
       snapshot: () => ({
         state, level, score, hearts, weapon: WEAPONS[weapon].name, owned,
         crates: crates.map((c) => ({ x: +c.x.toFixed(2), y: +c.y.toFixed(2), hp: c.hp, golden: c.golden, open: c.open })),
         monsters: monsters.map((m) => ({ type: m.type, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp })),
-        loot: loot.length, queued: spawnQueue.length,
+        loot: loot.length, queued: spawnQueue.length, kit: kit.snapshot(),
       }),
     };
   };

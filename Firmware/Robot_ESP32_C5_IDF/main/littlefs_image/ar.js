@@ -906,6 +906,36 @@ window.Lynx = window.Lynx || {};
         bar.appendChild(b);
         return b;
       },
+      // A button held down (e.g. a shield): onDown when pressed, onUp when let go.
+      addHold(label, onDown, onUp) {
+        const b = document.createElement("button");
+        b.className = "cam-overlay-btn";
+        b.textContent = label;
+        let downNow = false;
+        const up = (e) => {
+          if (!downNow) return;
+          downNow = false;
+          if (e) e.stopPropagation();
+          onUp();
+        };
+        b.addEventListener("pointerdown", (e) => {
+          if (e.pointerType === "mouse" && e.button !== 0) return;
+          e.stopPropagation();
+          e.preventDefault();
+          Lynx.sfx.unlock();
+          try {
+            b.setPointerCapture(e.pointerId); // (still ours if the finger slides off)
+          } catch (err) {
+            // fine without
+          }
+          downNow = true;
+          onDown();
+        });
+        ["pointerup", "pointercancel", "lostpointercapture"].forEach((ev) => b.addEventListener(ev, up));
+        b.addEventListener("click", (e) => e.stopPropagation());
+        bar.appendChild(b);
+        return b;
+      },
     };
   };
 })(window.Lynx);

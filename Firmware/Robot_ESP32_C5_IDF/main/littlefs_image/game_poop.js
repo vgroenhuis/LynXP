@@ -4,6 +4,11 @@
 // and they stop the robot itself (the game filters the drive commands, like
 // the Temple's walls do), so you have to find a way to a clear line of fire.
 // Levels 5 and 10 end with a giant poop.
+// Weapons (1-4, Tab / LB / RB, the Switch button): water gun; bow (arrows
+// fall: aim above the poop); toilet brush (close up, knocks them back); bombs
+// (roll along the floor to where you aim, fire again to set one off -- or it
+// goes off by itself; walls stop the blast). The toilet lid is a shield
+// (hold X / gamepad B / the button): poops that run into it bounce off.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -18,12 +23,13 @@ Lynx.games = Lynx.games || {};
   const CLEAR = 0.22; // the robot's centre keeps this far from a wall's line
   const STOP_LOOKAHEAD_S = 0.3; // where the robot will be when a stop command lands
   const FIRE_COOLDOWN = 0.28;
-  const WEAPONS = ["Water gun", "Bow & arrow"];
+  const WEAPONS = ["Water gun", "Bow & arrow", "Toilet brush", "Bombs"];
   const BOW_COOLDOWN = 0.75;
   const BOW_DAMAGE = 3;
-  const ARROW_SPEED = 3.5; // m/s
-  const ARROW_G = 3; // m/s² -- the arrow falls, so aim above the poop
-  const ARROW_LEN = 0.12;
+  const BRUSH_COOLDOWN = 0.45;
+  const BRUSH_DAMAGE = 2;
+  const BOMB_COOLDOWN = 0.35;
+  const BOMB_SPLASH = { r: 0.45, dmg: 6 };
 
   const DIFFICULTY = {
     easy: { speed: 0.7, hp: 0.7, spawn: 1.4 },
@@ -165,7 +171,6 @@ Lynx.games = Lynx.games || {};
     let hearts = cfg.hearts || 5;
     let cooldown = 0;
     let weapon = 0; // index into WEAPONS
-    let arrows = []; // {x, y, h, vx, vy, vh, stuck (seconds since it stopped, or -1 while flying)}
     let firePressed = false;
     let invulnerable = 0;
     let hurtFlash = 0;
@@ -227,7 +232,7 @@ Lynx.games = Lynx.games || {};
     }
 
     function newGame() {
-      arrows = [];
+      kit.clear();
       level = startLevelNo;
       score = 0;
       hearts = cfg.hearts || 5;
@@ -280,59 +285,55 @@ Lynx.games = Lynx.games || {};
       return hit;
     }
 
-    // The arrow leaves the camera along the aim vector and then flies a
-    // parabola: gravity pulls it down (see stepArrows).
-    function fireArrow() {
-      const c = ar.cameraWorld();
-      const a = ar.aimVector();
-      arrows.push({ x: c.x + a.x * 0.05, y: c.y + a.y * 0.05, h: c.h - 0.03 + a.h * 0.05, vx: a.x * ARROW_SPEED, vy: a.y * ARROW_SPEED, vh: a.h * ARROW_SPEED, stuck: -1 });
-      Lynx.sfx.play("laser");
-    }
-
-    function stepArrows(dt) {
-      arrows.forEach((r) => {
-        if (r.stuck >= 0) {
-          r.stuck += dt;
-          return;
-        }
-        // small sub-steps so a fast arrow can't skip over a poop or a wall
-        const steps = Math.max(1, Math.ceil((ARROW_SPEED * dt) / 0.03));
-        const h = dt / steps;
-        for (let i = 0; i < steps && r.stuck < 0; i++) {
-          r.vh -= ARROW_G * h;
-          r.x += r.vx * h;
-          r.y += r.vy * h;
-          r.h += r.vh * h;
-          if (r.h <= 0) {
-            r.h = 0;
-            r.stuck = 0;
-            break;
-          }
-          if (r.h < WALL_H && walls.some((w) => nearestOnWall(w, r.x, r.y).d < WALL_R + 0.02)) {
-            r.stuck = 0;
-            Lynx.sfx.play("knock");
-            break;
-          }
-          const m = poops.find((q) => {
-            if (!q.alive) return false;
-            const k = KIND[q.type];
-            return Math.hypot(q.x - r.x, q.y - r.y) < k.heightM * 0.45 + 0.02 && r.h > -0.01 && r.h < k.heightM + 0.02;
-          });
-          if (m) {
-            r.stuck = 1e9; // gone
-            hitPoopBy(m, BOW_DAMAGE);
-          }
-        }
-        if (Math.hypot(r.x - ar.pose.x, r.y - ar.pose.y) > areaM + 3) r.stuck = 1e9;
+    // -- the kit's weapons: arrows, the brush, bombs, the lid ----------------------------------
+    // Does the segment (x0, y0)-(x1, y1) cross a wall (or pass within its thickness)?
+    function wallBetween(x0, y0, x1, y1) {
+      return walls.some((w) => {
+        const cr = (ax, ay, bx, by, cx, cy) => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+        const d1 = cr(w.x0, w.y0, w.x1, w.y1, x0, y0);
+        const d2 = cr(w.x0, w.y0, w.x1, w.y1, x1, y1);
+        const d3 = cr(x0, y0, x1, y1, w.x0, w.y0);
+        const d4 = cr(x0, y0, x1, y1, w.x1, w.y1);
+        if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+        return nearestOnWall(w, x1, y1).d < WALL_R;
       });
-      arrows = arrows.filter((r) => r.stuck < 1.5);
     }
+    const kit = Lynx.weaponKit(ar, {
+      targets: () => poops.filter((m) => m.alive).map((m) => ({ obj: m, x: m.x, y: m.y, h0: 0, h1: KIND[m.type].heightM, r: KIND[m.type].heightM * 0.45 })),
+      hit: (m, dmg, info) => {
+        if (!m.alive) return;
+        if (info.kind === "melee" || info.kind === "blast") {
+          // knocked back (not through a wall)
+          const push = info.kind === "melee" ? 0.25 : 0.15;
+          if (!wallBetween(m.x, m.y, m.x + info.dx * push, m.y + info.dy * push)) {
+            m.x += info.dx * push;
+            m.y += info.dy * push;
+          }
+        }
+        hitPoopBy(m, Math.max(1, Math.round(dmg)));
+      },
+      wallAt: (x, y, h) => h < WALL_H && walls.some((w) => nearestOnWall(w, x, y).d < WALL_R + 0.02),
+      blocked: wallBetween,
+      hurtPlayer: (f) => f > 0.3 && loseHeart(),
+    });
+    Lynx.onAction("shield", () => {}); // (X / gamepad B raise the lid)
 
-    function tryFire() {
+    function tryFire(pressed) {
       if (cooldown > 0) return;
       if (weapon === 1) {
         cooldown = BOW_COOLDOWN;
-        fireArrow();
+        kit.fireArrow({ dmg: BOW_DAMAGE });
+        return;
+      }
+      if (weapon === 2) {
+        cooldown = BRUSH_COOLDOWN;
+        kit.melee({ range: 0.45, cone: 0.7, dmg: BRUSH_DAMAGE, kind: "brush" });
+        return;
+      }
+      if (weapon === 3) {
+        if (!pressed) return; // (one bomb -- or one bang -- per press)
+        cooldown = BOMB_COOLDOWN;
+        kit.bomb({ fuse: 5, speed: 0.6, splash: BOMB_SPLASH });
         return;
       }
       cooldown = FIRE_COOLDOWN;
@@ -402,6 +403,7 @@ Lynx.games = Lynx.games || {};
       cooldown = Math.min(cooldown, 0.2);
     });
     Lynx.touchButtons().add("\u{1F3F9} Switch", () => (weapon = (weapon + 1) % WEAPONS.length));
+    Lynx.touchButtons().addHold("\u{1F6E1} Lid", () => Lynx.shieldAction("touch", true), () => Lynx.shieldAction("touch", false));
     // Optional virtual jumping (off by default): hop over small poops.
     if (cfg.jump) {
       Lynx.onAction("jump", () => state === "playing" && (ar.jump(), true));
@@ -474,6 +476,15 @@ Lynx.games = Lynx.games || {};
       });
     }
 
+    function loseHeart() {
+      if (invulnerable > 0 || state !== "playing") return;
+      hearts--;
+      invulnerable = INVULNERABLE_S;
+      hurtFlash = 0.5;
+      Lynx.sfx.play("hurt");
+      if (hearts <= 0) endGame();
+    }
+
     function movePoop(m, dt) {
       const k = KIND[m.type];
       m.phase += dt * 6;
@@ -522,7 +533,8 @@ Lynx.games = Lynx.games || {};
       if (message) message.t += dt;
       tracers.forEach((t) => (t.t += dt));
       tracers = tracers.filter((t) => t.t < 0.12);
-      stepArrows(dt);
+      kit.update(dt);
+      kit.updateShield(dt, Lynx.input.shieldHeld && state === "playing");
       debris.forEach((d) => {
         d.t += dt;
         d.x += d.vx * dt;
@@ -549,7 +561,7 @@ Lynx.games = Lynx.games || {};
       if (state !== "playing") return;
 
       invulnerable = Math.max(0, invulnerable - dt);
-      if (firePressed || Lynx.input.fireHeld) tryFire();
+      if (firePressed || Lynx.input.fireHeld) tryFire(firePressed);
       firePressed = false;
 
       spawnQueue = spawnQueue.filter((s) => {
@@ -565,13 +577,11 @@ Lynx.games = Lynx.games || {};
         const d = movePoop(m, dt);
         const jumpedOver = ar.feet() > k.heightM * 0.7;
         if (d < TOUCH_M + (m.type === "boss" ? 0.1 : 0) && invulnerable === 0 && !jumpedOver) {
-          hearts--;
-          invulnerable = INVULNERABLE_S;
-          hurtFlash = 0.5;
-          Lynx.sfx.play("hurt");
+          // the lid, up and facing it: it bounces off
+          if (!kit.blocks(m.x, m.y)) loseHeart();
+          else m.hit = 0.3;
           m.x -= ((ar.pose.x - m.x) / d) * 0.6; // knocked back
           m.y -= ((ar.pose.y - m.y) / d) * 0.6;
-          if (hearts <= 0) endGame();
         }
       });
       poops = poops.filter((m) => m.alive);
@@ -648,75 +658,10 @@ Lynx.games = Lynx.games || {};
       });
     }
 
-    // Arrows in flight (a shaft with a head and fletching, drawn in depth order
-    // with the sprites) and stuck in the floor or a wall.
-    function drawArrow(r) {
-      const sp = Math.hypot(r.vx, r.vy, r.vh) || 1;
-      // (a stuck arrow keeps pointing the way it was flying)
-      const tail = { x: r.x - (r.vx / sp) * ARROW_LEN, y: r.y - (r.vy / sp) * ARROW_LEN, h: r.h - (r.vh / sp) * ARROW_LEN };
-      const a = ar.project(r.x, r.y, r.h);
-      const b = ar.project(tail.x, tail.y, tail.h);
-      if (!a || !b) return;
-      ar.queue(a.depth, () => {
-        const c = ar.ctx;
-        c.save();
-        c.globalAlpha = r.stuck >= 0 ? Math.max(0, 1 - r.stuck / 1.5) : 1;
-        c.lineCap = "round";
-        c.strokeStyle = "#e8d8a8";
-        c.lineWidth = Math.max(1.5, 0.006 * a.ppm);
-        c.beginPath();
-        c.moveTo(a.x, a.y);
-        c.lineTo(b.x, b.y);
-        c.stroke();
-        c.strokeStyle = "#e84040"; // fletching
-        c.lineWidth = Math.max(2, 0.012 * a.ppm);
-        c.beginPath();
-        c.moveTo(b.x, b.y);
-        c.lineTo(b.x + (a.x - b.x) * 0.2, b.y + (a.y - b.y) * 0.2);
-        c.stroke();
-        c.fillStyle = "#c0c0c8"; // head
-        c.beginPath();
-        c.arc(a.x, a.y, Math.max(1.5, 0.007 * a.ppm), 0, 2 * Math.PI);
-        c.fill();
-        c.restore();
-      });
-    }
-
-    function drawBow() {
-      const v = ar.view;
-      const c = ar.ctx;
-      const s = Math.min(v.w * 0.12, 110);
-      const bx = v.cx + v.w * 0.14;
-      const by = v.y + v.h - s * 0.9;
-      const pull = cooldown > 0 ? 0 : 1; // string is slack while "reloading"
-      c.save();
-      c.lineCap = "round";
-      c.strokeStyle = "#6a4020";
-      c.lineWidth = 6;
-      c.beginPath();
-      c.moveTo(bx, by - s);
-      c.quadraticCurveTo(bx - s * 0.7, by, bx, by + s);
-      c.stroke();
-      c.strokeStyle = "#f0e8d0";
-      c.lineWidth = 2;
-      c.beginPath();
-      c.moveTo(bx, by - s);
-      c.lineTo(bx + s * 0.15 * pull, by);
-      c.lineTo(bx, by + s);
-      c.stroke();
-      if (pull) { // an arrow nocked, pointing at the crosshair
-        c.strokeStyle = "#e8d8a8";
-        c.lineWidth = 3;
-        c.beginPath();
-        c.moveTo(bx + s * 0.15, by);
-        c.lineTo(bx - s * 0.9, by - s * 0.25);
-        c.stroke();
-      }
-      c.restore();
-    }
-
     function drawGun() {
-      if (weapon === 1) return drawBow();
+      if (weapon === 1) return kit.drawHand("bow", { ready: cooldown > 0 ? 0 : 1 });
+      if (weapon === 2) return kit.drawHand("brush");
+      if (weapon === 3) return kit.drawHand("bomb", { ready: 1 - cooldown / BOMB_COOLDOWN });
       const v = ar.view;
       const img = sprites.gun;
       const gw = Math.min(v.w * 0.22, 180);
@@ -748,7 +693,7 @@ Lynx.games = Lynx.games || {};
     function draw() {
       const v = ar.view;
       pillars.forEach(drawPillar);
-      arrows.forEach(drawArrow);
+      kit.drawWorld();
       poops.forEach(drawPoop);
       loot.forEach(drawLoot);
       puffs.forEach((p) => {
@@ -764,11 +709,13 @@ Lynx.games = Lynx.games || {};
           const blips = [];
           pillars.forEach((p) => blips.push({ x: p.x, y: p.y, color: "#9a9aa6", r: 4 }));
           poops.forEach((m) => blips.push({ x: m.x, y: m.y, color: m.type === "boss" ? "#d060ff" : m.type === "golden" ? "#ffd84a" : "#c88a3c", r: m.type === "boss" ? 5 : 3.5 }));
+          blips.push(...kit.blips());
           ar.radar(blips, areaM + 0.8);
         }
         ar.crosshair("rgba(0,0,0,0.6)", 19, 5);
         ar.crosshair("#ffffff", 17, 6);
         drawGun();
+        kit.drawShield("lid");
       }
 
       ar.flash("#ff0000", hurtFlash * 0.6);
@@ -781,7 +728,7 @@ Lynx.games = Lynx.games || {};
       if (state !== "title") {
         ar.text(`LEVEL ${level}/${levelSet.length}`, v.x + 14, v.y + 66, { size: 18, color: "#ffd84a" });
         ar.text(`poops ${poops.length + spawnQueue.length}`, v.x + 14, v.y + 88, { size: 14 });
-        ar.text(WEAPONS[weapon], v.x + v.w - 14, v.y + 66, { size: 16, align: "right", color: "#e8d8a8" });
+        ar.text(`${weapon + 1} ${WEAPONS[weapon]}`, v.x + v.w - 14, v.y + 66, { size: 16, align: "right", color: "#e8d8a8" });
       }
 
       if (message && message.t < 2.2 && state !== "title" && state !== "over") {
@@ -790,7 +737,7 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("POOP SHOOTER", "Press FIRE to start", { color: "#c88a3c" });
-        ar.text(`${levelSet.length} levels, each with walls · walls stop your shots and the robot · bow arrows drop: aim high`, v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text(`${levelSet.length} levels, each with walls · walls stop your shots and the robot · bow arrows drop: aim high · 1-4 weapons · hold X / B: lid shield`, v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "over" || state === "won") {
         ar.flash("#000", 0.45);
@@ -811,7 +758,7 @@ Lynx.games = Lynx.games || {};
         state, level, score, hearts,
         pillars: pillars.map((p) => ({ x: +p.x.toFixed(2), y: +p.y.toFixed(2) })),
         poops: poops.map((m) => ({ type: m.type, x: +m.x.toFixed(2), y: +m.y.toFixed(2), hp: m.hp })),
-        weapon: WEAPONS[weapon], arrows: arrows.map((r) => ({ x: +r.x.toFixed(2), y: +r.y.toFixed(2), h: +r.h.toFixed(3), stuck: r.stuck >= 0 })), loot: loot.length, queued: spawnQueue.length,
+        weapon: WEAPONS[weapon], kit: kit.snapshot(), loot: loot.length, queued: spawnQueue.length,
       }),
     };
   };

@@ -9,6 +9,7 @@
 //   Z / Ctrl     fire / action (hold = auto)   1-3     pick weapon
 //   Space        jump in games with jumping,   Tab     next weapon
 //                else fire / action (like gamepad A; J jumps too)
+//   X (held)     raise the shield (games that have one; gamepad B)
 //   C            camera action (games that have one, e.g. the knight:
 //                the robot goes round behind the character; gamepad Y)
 //   M            Free drive: switch between the default and the robot drive
@@ -20,7 +21,8 @@
 // controller): left stick drives/strafes, right stick turns/tilts the
 // camera (D-pad too), RT / X / Start fire, A jumps (B too) in games with
 // jumping and fires otherwise (also on title/game-over screens, to start),
-// LB / RB previous / next weapon, LT held = half speed. Both inputs add up,
+// LB / RB previous / next weapon, LT held = half speed, B held = shield (in
+// games with one; otherwise B jumps like A). Both inputs add up,
 // so either can be used any time.
 //
 // Drive/look commands use exactly the same messages as the joysticks
@@ -335,10 +337,14 @@ window.Lynx = window.Lynx || {};
   const held = new Set();
   let heartbeat = null;
   let lastSent = { j1: 0, j2: 0, rot: 0, tilt: 0 };
-  const listeners = { fire: [], weapon: [], jump: [], camera: [] };
+  const listeners = { fire: [], weapon: [], jump: [], camera: [], shield: [] };
 
   Lynx.onAction = (name, cb) => listeners[name].push(cb);
-  Lynx.clearActions = () => Object.values(listeners).forEach((l) => (l.length = 0));
+  Lynx.clearActions = () => {
+    Object.values(listeners).forEach((l) => (l.length = 0));
+    shieldBy.clear();
+    if (Lynx.input) Lynx.input.shieldHeld = false;
+  };
   Lynx.fireAction = () => listeners.fire.forEach((cb) => cb());
   // Virtual jump (Space / J, gamepad A/B, or a game's touch button) -- only games
   // that support it listen. A listener returns whether jumping applies right
@@ -350,7 +356,20 @@ window.Lynx = window.Lynx || {};
   Lynx.cameraAction = () => listeners.camera.forEach((cb) => cb());
   // True while Space / the on-screen action button is held -- for
   // automatic weapons. Presses still go through fireAction() too.
-  Lynx.input = { fireHeld: false };
+  Lynx.input = { fireHeld: false, shieldHeld: false };
+  // Shield (held: X, gamepad B, a game's touch button) -- games with one
+  // register Lynx.onAction("shield", cb) (cb(held) on every change) and read
+  // Lynx.input.shieldHeld.
+  const shieldBy = new Set();
+  Lynx.shieldAction = (source, held) => {
+    if (held) shieldBy.add(source);
+    else shieldBy.delete(source);
+    const now = shieldBy.size > 0;
+    if (now === Lynx.input.shieldHeld) return;
+    Lynx.input.shieldHeld = now;
+    listeners.shield.forEach((cb) => cb(now));
+  };
+  const hasShield = () => listeners.shield.length > 0;
 
   function axis(neg, pos) {
     return (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0);
@@ -440,6 +459,10 @@ window.Lynx = window.Lynx || {};
         listeners.weapon.forEach((cb) => cb(Number(e.code.slice(5))));
         return;
       }
+      if (e.code === "KeyX") {
+        if (!e.repeat) Lynx.shieldAction("key", true);
+        return;
+      }
       if (e.code === "KeyJ") {
         if (!e.repeat) Lynx.jumpAction();
         return;
@@ -470,6 +493,7 @@ window.Lynx = window.Lynx || {};
         if (e.code === "Space") spaceFires = false;
         updateFireHeld();
       }
+      if (e.code === "KeyX") Lynx.shieldAction("key", false);
       if (held.delete(e.code)) computeAndSend(false);
     });
     // Letting go of everything if focus leaves mid-press -- otherwise the
@@ -478,6 +502,7 @@ window.Lynx = window.Lynx || {};
       fireKeysDown.clear();
       spaceFires = false;
       Lynx.input.fireHeld = false;
+      Lynx.shieldAction("key", false);
       if (held.size === 0) return;
       held.clear();
       computeAndSend(false);
@@ -541,6 +566,7 @@ window.Lynx = window.Lynx || {};
     Object.assign(pad, { j1: 0, j2: 0, rot: 0, tilt: 0, slow: false });
     if (padFireHeld) Lynx.input.fireHeld = false;
     padFireHeld = false;
+    Lynx.shieldAction("pad", false);
     prevPressed = [];
     computeAndSend(false);
   }
@@ -594,7 +620,9 @@ window.Lynx = window.Lynx || {};
     }
     if (justDown(BTN.RB)) listeners.weapon.forEach((cb) => cb("next"));
     if (justDown(BTN.LB)) listeners.weapon.forEach((cb) => cb("prev"));
-    if (justDown(BTN.B)) Lynx.jumpAction(); // the old jump button, still works
+    // B: the shield where there is one, else the old jump button
+    if (hasShield()) Lynx.shieldAction("pad", down(BTN.B));
+    else if (justDown(BTN.B)) Lynx.jumpAction();
     if (justDown(BTN.Y)) Lynx.cameraAction();
     if (justDown(BTN.BACK)) Lynx.control.toggleDriveMode();
     prevPressed = pressed;

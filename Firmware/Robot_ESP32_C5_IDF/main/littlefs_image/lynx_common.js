@@ -34,7 +34,8 @@ window.Lynx = window.Lynx || {};
       icon: "\u{1F479}",
       blurb:
         "Doom-style shooter in your own room. Imps, pinkies and cacodemons close in from all sides; " +
-        "shoot them with pistol, shotgun and chaingun, and physically drive over health and ammo to pick them up. " +
+        "fight them with Doom's arsenal -- fist and chainsaw up close, pistol, shotgun and super shotgun, chaingun, rocket launcher, " +
+        "plasma rifle and the BFG 9000 (new weapons lie on the floor in later waves) -- and physically drive over health and ammo to pick them up. " +
         "Dodge fireballs by actually driving out of the way.",
       settings: [
         { key: "difficulty", label: "Difficulty", type: "select", def: "hmp",
@@ -54,9 +55,9 @@ window.Lynx = window.Lynx || {};
       name: "David",
       icon: "\u{1F4E6}",
       blurb:
-        "Shoot open the crates on the floor: the golden one always holds a new, better gun " +
-        "(water pistol, laser pistol, double pistol, lightning gun, rainbow cannon). Use them to beat the monsters " +
-        "and get through as many levels as you can!",
+        "Shoot open the crates on the floor: the golden one always holds a new weapon -- water pistol, wooden sword (up close), " +
+        "bow (arrows fall: aim above), laser pistol, bombs (they roll to where you aim; fire again to blow them up), double pistol, " +
+        "lightning gun, rainbow cannon. Hold X / gamepad B for your shield. Beat the monsters and get through as many levels as you can!",
       settings: [
         // the option keys stay Dutch (stored settings use them); the game started out in Dutch
         { key: "difficulty", label: "Difficulty", type: "select", def: "normaal",
@@ -78,7 +79,8 @@ window.Lynx = window.Lynx || {};
       blurb:
         "Shoot the poops that crawl toward you. Ten levels, every one with long stone walls: the poops have to walk around them, " +
         "they stop your shots -- and they stop the robot too, so you have to drive around them to find a clear line of fire. " +
-        "Two weapons: a water gun and a bow -- arrows fall with gravity, so aim a bit above the poop. " +
+        "Weapons: a water gun, a bow (arrows fall with gravity, so aim a bit above the poop), a toilet brush for up close, " +
+        "and bombs that roll to where you aim (fire again to blow them up; walls stop the blast). Hold X / gamepad B for the toilet-lid shield. " +
         "A giant poop waits in levels 5 and 10; golden poops are worth a lot.",
       settings: [
         { key: "startLevel", label: "Start at level", type: "number", def: 1, min: 1, max: 10, step: 1 },
@@ -504,6 +506,19 @@ window.Lynx = window.Lynx || {};
     knock: (t) => { noise(t, 0.08, "lowpass", 700, 1, 0.7); tone(t, "sine", 180, 90, 0.06, 0.3); },
     crate: (t) => { noise(t, 0.35, "lowpass", 900, 0.8, 0.9, 120); tone(t, "square", 140, 60, 0.12, 0.3); },
     boing: (t) => tone(t, "sine", 180, 520, 0.18, 0.35),
+    // weapons_kit.js and the shooters' other weapons
+    twang: (t) => { tone(t, "triangle", 220, 140, 0.25, 0.35); noise(t, 0.05, "bandpass", 1800, 3, 0.25); },
+    throw: (t) => noise(t, 0.2, "bandpass", 900, 1.5, 0.3, 300),
+    swing: (t) => noise(t, 0.16, "bandpass", 1200, 1.2, 0.4, 400),
+    punch: (t) => { noise(t, 0.1, "lowpass", 600, 1, 0.8); tone(t, "sine", 120, 50, 0.1, 0.45); },
+    saw: (t) => { tone(t, "sawtooth", 95, 110, 0.13, 0.3); noise(t, 0.12, "bandpass", 2400, 2, 0.25); },
+    ssg: (t) => { noise(t, 0.6, "lowpass", 2600, 0.5, 1.0, 120); tone(t, "sawtooth", 90, 35, 0.25, 0.5); },
+    rocket: (t) => { noise(t, 0.5, "bandpass", 700, 1.2, 0.6, 250); tone(t, "sawtooth", 80, 50, 0.3, 0.25); },
+    plasma: (t) => { tone(t, "square", 1300, 500, 0.07, 0.18); tone(t, "sine", 2200, 900, 0.05, 0.12); },
+    bfg: (t) => { tone(t, "sawtooth", 120, 900, 0.7, 0.3); tone(t, "square", 60, 600, 0.7, 0.15); },
+    bfgBoom: (t) => { noise(t, 1.2, "lowpass", 2500, 0.7, 1.0, 60); tone(t, "sine", 70, 25, 0.9, 0.6); [523, 784, 1047].forEach((f, i) => tone(t + i * 0.05, "triangle", f, f / 3, 0.6, 0.15)); },
+    clang: (t) => { [880, 1320, 1760].forEach((f, i) => tone(t, "triangle", f, f * 0.97, 0.3 - i * 0.07, 0.25 - i * 0.05)); noise(t, 0.05, "highpass", 3000, 1, 0.3); },
+    shieldUp: (t) => tone(t, "triangle", 400, 600, 0.08, 0.15),
     // a clock: tick and tock alternate (the Temple's timed gates)
     tick: (t) => { tone(t, "square", 2400, 1800, 0.025, 0.18); noise(t, 0.02, "highpass", 4000, 1, 0.2); },
     tock: (t) => { tone(t, "square", 1500, 1100, 0.03, 0.18); noise(t, 0.025, "highpass", 2500, 1, 0.2); },
