@@ -1129,6 +1129,48 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// GET /capture: one JPEG -- the next frame the camera takes after the
+// request (not one from before it: a still taken just after the camera
+// turned shows where it points now). For measuring from single pictures
+// without holding a /stream slot. Main server (port 80), CORS like /stream.
+static esp_err_t capture_handler(httpd_req_t *req) {
+    xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
+    uint32_t seq0 = s_frame_seq;
+    xSemaphoreGive(s_frame_mutex);
+    int64_t give_up_us = esp_timer_get_time() + 2000000;
+    uint8_t *copy = NULL;
+    size_t len = 0;
+    int64_t ts_us = 0;
+    while (esp_timer_get_time() < give_up_us) {
+        xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
+        if (s_frame_seq != seq0 && s_frame_buf && s_frame_len) {
+            copy = heap_caps_malloc(s_frame_len, MALLOC_CAP_SPIRAM);
+            if (copy) {
+                memcpy(copy, s_frame_buf, s_frame_len);
+                len = s_frame_len;
+                ts_us = s_frame_ts_us;
+            }
+            xSemaphoreGive(s_frame_mutex);
+            break;
+        }
+        xSemaphoreGive(s_frame_mutex);
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    if (!copy) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        return httpd_resp_sendstr(req, "No frame from the camera");
+    }
+    char ts[24];
+    snprintf(ts, sizeof(ts), "%lld", (long long) ts_us);
+    httpd_resp_set_type(req, "image/jpeg");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "X-Frame-Timestamp-Us", ts);
+    esp_err_t res = httpd_resp_send(req, (const char *) copy, len);
+    free(copy);
+    return res;
+}
+
 // Two separate servers, like the official Espressif camera example: /stream
 // clients are long-lived (until they disconnect), which would tie up
 // sockets that index/settings/control/status need if they all shared one
@@ -1141,6 +1183,7 @@ static void start_camera_server(void) {
     httpd_config_t main_config = HTTPD_DEFAULT_CONFIG();
     main_config.server_port = 80;
     main_config.stack_size = 8192;
+    main_config.max_uri_handlers = 12; // (the default 8 is one too few with /capture)
 
     httpd_uri_t index_uri = {"/", HTTP_GET, index_handler, NULL};
     httpd_uri_t settings_uri = {"/settings", HTTP_GET, settings_handler, NULL};
@@ -1148,6 +1191,7 @@ static void start_camera_server(void) {
     httpd_uri_t status_uri = {"/status", HTTP_GET, status_handler, NULL};
     httpd_uri_t diag_uri = {"/diag", HTTP_GET, diag_handler, NULL};
     httpd_uri_t diag_page_uri = {"/diag.html", HTTP_GET, diag_page_handler, NULL};
+    httpd_uri_t capture_uri = {"/capture", HTTP_GET, capture_handler, NULL};
     httpd_uri_t update_uri = {"/update", HTTP_POST, update_handler, NULL};
     httpd_uri_t update_options_uri = {"/update", HTTP_OPTIONS, update_options_handler, NULL};
     main_config.recv_wait_timeout = 10; // an upload pauses briefly while flash sectors erase
@@ -1161,6 +1205,7 @@ static void start_camera_server(void) {
         httpd_register_uri_handler(s_main_httpd, &status_uri);
         httpd_register_uri_handler(s_main_httpd, &diag_uri);
         httpd_register_uri_handler(s_main_httpd, &diag_page_uri);
+        httpd_register_uri_handler(s_main_httpd, &capture_uri);
     }
 
     httpd_config_t stream_config = HTTPD_DEFAULT_CONFIG();
