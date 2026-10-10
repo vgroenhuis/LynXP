@@ -1,1 +1,4 @@
 scripts/
+
+# Office / SolidWorks lock files (~$Part.SLDPRT while it is open)
+~$*
