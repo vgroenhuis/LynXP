@@ -525,6 +525,11 @@ window.Lynx = window.Lynx || {};
     const FIT_MAX_PX = 2.5; // a whole-cube fit worse than this (RMS) isn't used
     const FIT_MAX_TILT = (5 * Math.PI) / 180; // nor one that needs the camera tilted more than this
     const TILT_FIX_GAIN = 0.3; // each still picture moves the camera's tilt correction this share toward what it measures
+    // The camera's heading (pan) from the cubes on the map: only cubes seen
+    // there this often, agreeing within PAN_AGREE, a correction up to PAN_FIX_MAX
+    const PAN_MIN_N = 4;
+    const PAN_AGREE = (1.5 * Math.PI) / 180;
+    const PAN_FIX_MAX = (6 * Math.PI) / 180;
 
     // -- the whole-cube fit -----------------------------------------------------------
     // A cube's tags' corners in the picture for (x, y, yaw) and the camera
@@ -920,6 +925,7 @@ window.Lynx = window.Lynx || {};
       const floorCubes = []; // the fitted cubes standing on the floor
       const byId = new Map();
       obs.forEach((o) => (byId.has(o.id) ? byId.get(o.id).push(o) : byId.set(o.id, [o])));
+      const groups = []; // per tag ID: its clusters (cubes) in this picture, fitted
       for (const [id, list] of byId) {
         const I = info(id);
         const B = (I.cm || Math.round(list[0].B * 100)) / 100;
@@ -979,6 +985,56 @@ window.Lynx = window.Lynx || {};
         I.blocks.sort((a, b) => (b.present - a.present) || b.seen - a.seen);
         I.blocks = I.blocks.filter((b, k) => !I.blocks.slice(0, k).some((a) => sameCube(a, b, B)));
         if (!single.has(id)) I.count = Math.min(I.count, Math.max(I.blocks.length, clusters.length));
+        groups.push({ id, I, B, clusters });
+      }
+      // The camera's real heading: the hobby pan servo is off by different
+      // amounts at different angles (a dead zone, bends the servo table
+      // doesn't model). Cubes on the map, fitted confidently in this picture,
+      // all seem turned about the pan axis by the same angle when it's off:
+      // that angle, from two cubes agreeing (or the frame cube), corrects the
+      // camera (Lynx.camTiltFix.pan, smoothed like the tilt) -- and this
+      // picture's sightings at once, so the map doesn't drift toward the error.
+      // (No absolute reference: the camera made to agree with the map.)
+      const pc = snap.body ? [snap.body.x, snap.body.y] : [snap.x, snap.y]; // the pan axis
+      const bear = (p) => Math.atan2(p.y - pc[1], p.x - pc[0]);
+      const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+      const panVotes = [];
+      groups.forEach(({ id, I, B, clusters }) =>
+        clusters.forEach((c) => {
+          if (!((c.conf || 0) >= CONF_MED)) return;
+          const b = I.blocks.find((bb) => bb.present && bb.ok && bb.n >= PAN_MIN_N && sameCube(bb, c.rep, B));
+          if (!b || Math.hypot(b.x - pc[0], b.y - pc[1]) < 0.12) return;
+          panVotes.push({ d: wrap(bear(b) - bear(c.rep)), w: c.conf, frame: single.has(id) });
+        }),
+      );
+      let panMeas = null;
+      if (panVotes.length && snap.frame.panDeg !== undefined && opts.fixCamera !== false) {
+        const med = panVotes.map((v) => v.d).sort((a, b) => a - b)[Math.floor(panVotes.length / 2)];
+        const ok = panVotes.filter((v) => Math.abs(v.d - med) < PAN_AGREE);
+        const W = ok.reduce((a, v) => a + v.w, 0);
+        const d = ok.reduce((a, v) => a + v.d * v.w, 0) / (W || 1);
+        const meas = (snap.frame.fixPan || 0) + d;
+        if ((ok.length >= 2 || ok.some((v) => v.frame)) && Math.abs(meas) <= PAN_FIX_MAX) {
+          panMeas = meas;
+          const c = Math.cos(d);
+          const s = Math.sin(d);
+          const rot = (o) => {
+            const dx = o.x - pc[0];
+            const dy = o.y - pc[1];
+            o.x = pc[0] + dx * c - dy * s;
+            o.y = pc[1] + dx * s + dy * c;
+            o.yaw = modQuarter(o.yaw + d);
+            if (typeof o.normalYaw === "number") o.normalYaw += d;
+          };
+          groups.forEach((g) =>
+            g.clusters.forEach((cl) => {
+              cl.forEach(rot);
+              rot(cl.rep);
+            }),
+          );
+        }
+      }
+      for (const { id, I, B, clusters } of groups) {
         const free = I.blocks.slice();
         const later = [];
         clusters.forEach((c) => {
@@ -1041,6 +1097,13 @@ window.Lynx = window.Lynx || {};
       // turn made the overlays jump up and down. Smoothed on from the last
       // correction at new servo angles too, so turning the camera doesn't
       // make the floor jump either.
+      const prevFix = Lynx.camTiltFix;
+      let panFix = prevFix ? prevFix.pan || 0 : 0;
+      if (panMeas !== null) panFix = prevFix ? panFix + TILT_FIX_GAIN * (panMeas - panFix) : panMeas;
+      if (panMeas !== null && !tiltVotes.length) {
+        Lynx.camTiltFix = { rad: 0, roll: 0, ...(prevFix || {}), pan: panFix, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
+        state.tiltFix = { ...(state.tiltFix || {}), panDeg: (panFix * 180) / Math.PI, panCubes: panVotes.length, at: now };
+      }
       if (tiltVotes.length && snap.frame.panDeg !== undefined && opts.fixCamera !== false) {
         const W = tiltVotes.reduce((a, v) => a + v.w, 0);
         let meas = tiltVotes.reduce((a, v) => a + v.rad * v.w, 0) / W;
@@ -1056,10 +1119,10 @@ window.Lynx = window.Lynx || {};
           const measRoll = (snap.frame.fixRoll || 0) + ff.dr;
           roll = prev ? roll + TILT_FIX_GAIN * (measRoll - roll) : measRoll;
         }
-        Lynx.camTiltFix = { rad, roll, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
+        Lynx.camTiltFix = { rad, roll, pan: panFix, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
         const spread = tiltVotes.length > 1 ? Math.max(...tiltVotes.map((v) => v.rad)) - Math.min(...tiltVotes.map((v) => v.rad)) : 0;
         state.tiltFix = {
-          deg: (rad * 180) / Math.PI, rollDeg: (roll * 180) / Math.PI, cubes: tiltVotes.length, spreadDeg: (spread * 180) / Math.PI, at: now,
+          deg: (rad * 180) / Math.PI, rollDeg: (roll * 180) / Math.PI, panDeg: (panFix * 180) / Math.PI, panCubes: panVotes.length, cubes: tiltVotes.length, spreadDeg: (spread * 180) / Math.PI, at: now,
           floor: ff ? { cubes: ff.n, rms: ff.rms, rollSigmaDeg: (ff.sdr * 180) / Math.PI, rollOk: ff.rollOk } : null,
         };
       }

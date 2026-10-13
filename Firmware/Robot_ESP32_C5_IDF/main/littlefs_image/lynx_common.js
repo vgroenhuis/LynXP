@@ -660,6 +660,8 @@ window.Lynx = window.Lynx || {};
     const fixHere = !!fx;
     const fixRad = fixHere ? fx.rad : 0;
     const fixRoll = fixHere ? fx.roll || 0 : 0; // (the floor as the cubes standing on it show it: tagblocks.js)
+    const fixPan = fixHere ? fx.pan || 0 : 0; // (the cubes on the map, all seeming turned: tagblocks.js)
+    pan += fixPan;
     const D = calib.tiltRad - tiltDeg * D2R - fixRad;
     const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
     const Rz = (a) => [[Math.cos(a), -Math.sin(a), 0], [Math.sin(a), Math.cos(a), 0], [0, 0, 1]];
@@ -688,9 +690,10 @@ window.Lynx = window.Lynx || {};
       tiltDeg,
       fixRad,
       fixRoll,
+      fixPan,
     };
   };
-  // {rad (tilt, up), roll (about the optical axis), panDeg, tiltDeg (the servo angles it was measured at)} or null
+  // {rad (tilt, up), roll (about the optical axis), pan (left), panDeg, tiltDeg (the servo angles it was measured at)} or null
   Lynx.camTiltFix = null;
 
   // -- camera lens model ---------------------------------------------------------

@@ -509,8 +509,9 @@ window.addEventListener("DOMContentLoaded", () => {
   // servo tables don't model): the page's command, the robot's estimate
   // (the command one servo lag ago, with the backlash compensation), and the
   // cubes' measurement of the camera's real tilt and roll (Lynx.camTiltFix:
-  // the floor as the cubes standing on it show it). A pan error can't be
-  // told from a chassis heading error by the cubes: not shown.
+  // the floor as the cubes standing on it show it) and pan (the cubes on the
+  // map all seeming turned -- relative to the map, which may itself be
+  // turned a little: no absolute reference for pan but the frame cube).
   (function setupAnglesReadout() {
     const btn = document.createElement("button");
     btn.className = "cam-overlay-btn";
@@ -532,14 +533,15 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       const fx = Lynx.camTiltFix;
       const fixTilt = fx ? fx.rad * D : null;
+      const fixPan = fx ? (fx.pan || 0) * D : null;
       const pan = s.actPan ?? s.cmdPan;
       const tilt = s.actTilt ?? s.cmdTilt;
       box.textContent =
         `                 pan     tilt\n` +
         `command      ${deg(s.cmdPan)}  ${deg(s.cmdTilt)}\n` +
         `servo est.   ${deg(s.actPan)}  ${deg(s.actTilt)}\n` +
-        `from cubes   ${deg(null)}  ${deg(fixTilt)}\n` +
-        `actual est.  ${deg(pan)}  ${deg(fixTilt === null ? tilt : tilt + fixTilt)}\n` +
+        `from cubes   ${deg(fixPan)}  ${deg(fixTilt)}\n` +
+        `actual est.  ${deg(fixPan === null ? pan : pan + fixPan)}  ${deg(fixTilt === null ? tilt : tilt + fixTilt)}\n` +
         (fx
           ? `camera roll from cubes ${deg((fx.roll || 0) * D).trim()}\n(measured at pan ${fx.panDeg.toFixed(0)}\u00b0, tilt ${fx.tiltDeg.toFixed(0)}\u00b0, ${Math.round((performance.now() - fx.at) / 1000)} s ago)`
           : "no cube measurement yet");
