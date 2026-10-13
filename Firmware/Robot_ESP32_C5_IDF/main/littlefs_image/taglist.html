@@ -54,7 +54,7 @@
     function render(doc) {
       const json = JSON.stringify(doc);
       if (json === last) return;
-      if (document.activeElement && document.activeElement.classList.contains("tags-max")) return; // (typing in a limit)
+      if (document.activeElement && (document.activeElement.classList.contains("tags-max") || document.activeElement.classList.contains("tags-size"))) return; // (typing in a limit or a size)
       last = json;
       // the frame cube (24-29) is one row, under 24: its most recently seen entry
       // (older saves listed its faces separately)
@@ -75,10 +75,14 @@
         const name = id === 24 ? `24–29 <span class="tags-frame">frame cube</span>` : FRAME[id] ? `${id} <span class="tags-frame">frame ${FRAME[id]}</span>` : `${id}`;
         // how many cubes with this tag really exist (empty: no limit) -- the frame cube is one
         const exist = id === 24 ? "1" : `<input class="tags-max" type="number" min="1" max="20" step="1" data-id="${id}" value="${t.max || ""}" placeholder="any" title="How many cubes with this tag really exist: no more are tracked (the ones seen longest ago go)">`;
-        return `<tr><td>${name}</td><td class="num">${(t.blocks || []).length || t.count || 0}</td><td class="num">${exist}</td><td class="num">${t.cm} cm</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
+        // the cube's size: measured to the cm from the first cube standing on the floor (sensitive to the camera
+        // calibration), or set here -- then it stays (empty: measured again). The frame cube's is a setting.
+        const size = id === 24 ? `${t.cm} cm` : `<input class="tags-size" type="number" min="1" max="20" step="1" data-id="${id}" value="${t.cm || ""}" placeholder="auto" title="The cube's side in cm. ${t.user ? "Set by hand: it stays. Empty it to measure it again." : "Measured; type the real size to set it."}"> cm${t.user ? " <span class='tags-dim' title='set by hand'>✎</span>" : ""}`;
+        return `<tr><td>${name}</td><td class="num">${(t.blocks || []).length || t.count || 0}</td><td class="num">${exist}</td><td class="num">${size}</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
       });
       body.innerHTML = `<table class="tags-table"><thead><tr><th>Tag</th><th class="num">Cubes</th><th class="num">Exist</th><th class="num">Size</th><th>Where (x, y, z cm)</th><th>Last seen</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
       body.querySelectorAll(".tags-max").forEach((el) => el.addEventListener("change", () => setMax(+el.dataset.id, Math.round(+el.value) || 0)));
+      body.querySelectorAll(".tags-size").forEach((el) => el.addEventListener("change", () => setSize(+el.dataset.id, Math.round(+el.value) || 0)));
     }
     // A tag's limit: saved on the robot (detecting pages pick it up at their next
     // save); here and now, its cubes beyond it go -- the ones seen longest ago.
@@ -96,6 +100,32 @@
               t.count = t.blocks.length;
             }
           } else delete t.max;
+          return fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
+        })
+        .then(() => {
+          last = "";
+          if (document.activeElement) document.activeElement.blur();
+          load();
+        });
+    }
+    // A tag's size by hand (cm, 1-20; 0: back to measuring it): the cubes' places go
+    // (they were worked out with the old size), and pages detecting cubes right
+    // now change to it at their next save.
+    function setSize(id, cmSize) {
+      fetch("/appdata/tags", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          const t = d && d.tags && d.tags[id];
+          if (!t) return null;
+          if (cmSize >= 1 && cmSize <= 20) {
+            t.cm = cmSize;
+            t.user = 1;
+          } else {
+            t.cm = 0;
+            delete t.user;
+          }
+          t.blocks = [];
+          t.count = 0;
           return fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) });
         })
         .then(() => {

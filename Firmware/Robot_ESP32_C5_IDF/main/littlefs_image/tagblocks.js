@@ -53,6 +53,9 @@
 // separate tags), and the hobby tilt servo's 1-2 degrees of error -- ~2 cm
 // on the floor at 30 cm -- comes out with it: state.tiltFix.
 //
+// A size set by hand on the Tags page (doc entry "user": 1) beats every
+// estimate: running pages pick it up at their next save, and never change it.
+//
 // Remembered (opts.persist): each tag's size, how many cubes carry it and
 // where they were last seen go to the robot's "tags" document (/appdata/tags,
 // shown on the Tags page) -- sizes as soon as they're known, places at most
@@ -221,7 +224,7 @@ window.Lynx = window.Lynx || {};
         Object.entries(d.tags).forEach(([id, t]) => {
           if (alias.has(+id) && alias.get(+id) !== +id) return; // (another one's face: filed under the first)
           const I = info(+id);
-          if (!I.fixed && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
+          if ((!I.fixed || t.user) && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
           I.max = t.max > 0 ? t.max : 0;
           // its cubes where they were last seen -- not shown until seen again, but
           // a sighting overlapping one of them is that cube (same instance, same count)
@@ -254,9 +257,19 @@ window.Lynx = window.Lynx || {};
           alias.forEach((first, t) => t !== first && delete out.tags[t]);
           let changed = sizesChanged;
           for (const I of ids.values()) {
+            const old = out.tags[I.id];
+            // a size set by hand and then cleared (Tags page): measured again from here on
+            if (old && !old.user && !old.cm && I.fixed && !(I.id in fixed)) {
+              Object.assign(I, { cm: 0, guess: 0, votes: new Map(), votesN: 0, fixed: false });
+              I.blocks.forEach((b) => (b.n = 0));
+            }
+            // a size set by hand (Tags page) is the size: this page changes to it, and keeps it
+            if (old && old.user && old.cm >= MIN_CM && old.cm <= MAX_CM) {
+              if (I.cm !== old.cm) I.blocks.forEach((b) => (b.n = 0)); // (positions were scaled for the old size)
+              Object.assign(I, { cm: old.cm, fixed: true });
+            }
             const cm = I.cm;
             if (!cm) continue;
-            const old = out.tags[I.id];
             I.max = old && old.max > 0 ? old.max : 0;
             applyLimit(I);
             // every cube with this tag, where it was last seen: [x, y, z, here (1) or
@@ -268,6 +281,7 @@ window.Lynx = window.Lynx || {};
             // (the count is the cubes with a known place -- each one listed)
             const t = { cm, count: single.has(I.id) ? 1 : blocks.length, at: here.length ? Date.now() : old ? old.at : Date.now(), blocks };
             if (I.max) t.max = I.max;
+            if (old && old.user) t.user = 1;
             const ob = (old && old.blocks) || [];
             // (places count as changed only beyond a cm)
             const moved = ob.length !== blocks.length || blocks.some((b, k) => b[3] !== ob[k][3] || Math.hypot(b[0] - ob[k][0], b[1] - ob[k][1], b[2] - ob[k][2]) > 0.01);
@@ -960,7 +974,7 @@ window.Lynx = window.Lynx || {};
       return out;
     }
 
-    return { start, stop, clear, blocks: list, remembered, transform, pause, state, RATIO, observeForTest: observe, integrateForTest: (dets, snap) => integrate(dets, snap, performance.now()), tagPose };
+    return { start, stop, clear, blocks: list, remembered, transform, pause, state, RATIO, observeForTest: observe, integrateForTest: (dets, snap) => integrate(dets, snap, performance.now()), persistForTest: () => persist(Infinity), infoForTest: (id) => info(id), tagPose };
   };
   Lynx.tagMath = { homography, tagPose };
 })(window.Lynx);
