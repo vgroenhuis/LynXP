@@ -963,7 +963,7 @@ window.Lynx = window.Lynx || {};
             return;
           }
           if (!b.ok || !B) return;
-          if (expectVisible(b, B, snap)) {
+          if (expectVisible(b, B, snap, dets)) {
             b.miss++;
             if (b.miss >= MISS_N && b.present) {
               // gone from where it was: remembered there (thin magenta) -- not
@@ -1006,13 +1006,13 @@ window.Lynx = window.Lynx || {};
       b.move = null;
     }
 
-    function present() {
+    function present(remembered = false) {
       const out = [];
       for (const I of ids.values()) {
         const cm = I.cm || I.guess;
         if (!cm) continue;
         I.blocks.forEach((b) => {
-          if (b.present && b.ok) {
+          if ((b.present || remembered) && b.ok) {
             b.B = cm / 100;
             out.push(b);
           }
@@ -1023,12 +1023,24 @@ window.Lynx = window.Lynx || {};
 
     // Would this block's tag be found in this picture? Some face with a tag
     // turned toward the camera (well within what's detected), big enough,
-    // inside the picture, in range, and not behind another block.
-    function expectVisible(b, B, snap) {
+    // inside the picture, in range, and none of it behind another block
+    // (one on the map, even one not seen lately -- or one whose tag is seen
+    // in this picture right where the face would be: a cube in front not on
+    // the map yet) or the robot's own body.
+    function expectVisible(b, B, snap, dets = []) {
       const F = frames(snap);
       const half = B / 2;
       const tag = B * RATIO;
-      const others = present().filter((o) => o !== b);
+      const others = present(true).filter((o) => o !== b);
+      const myId = b.id; // (its tag: the group's first, for the frame cube)
+      const idOf = (d) => (alias.has(d.id) ? alias.get(d.id) : d.id);
+      const boxes = dets
+        .filter((d) => idOf(d) !== myId)
+        .map((d) => {
+          const xs = d.corners.map((q) => q.x);
+          const ys = d.corners.map((q) => q.y);
+          return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+        });
       const normals = [[0, 0, 1]];
       for (let k = 0; k < 4; k++) normals.push([Math.cos(b.yaw + k * QUARTER), Math.sin(b.yaw + k * QUARTER), 0]);
       return normals.some((n) => {
@@ -1045,10 +1057,25 @@ window.Lynx = window.Lynx || {};
         if (px < EXPECT_MIN_PX) return false;
         const m = px * (0.71 + EDGE_QUIET) + EDGE_MIN_PX + 4; // (a turned tag's corner and its quiet zone: see integrate's edge filter)
         if (pr.u < m || pr.v < m || pr.u > snap.w - m || pr.v > snap.hgt - m) return false;
-        // nothing (no other block, nor a block standing on this face) between it and the camera
-        const p = [fc[0] + n[0] * 0.003, fc[1] + n[1] * 0.003, fc[2] + n[2] * 0.003];
-        if (others.some((o) => segmentHitsBlock([snap.x, snap.y, snap.h], p, o))) return false;
-        return !(snap.body && segmentHitsRobot([snap.x, snap.y, snap.h], p, snap.body));
+        // nothing (no other block, nor a block standing on this face) between
+        // any of it (its middle and corners, the quiet zone's) and the camera
+        const up = n[2] > 0.5 ? [Math.cos(b.yaw), Math.sin(b.yaw), 0] : [0, 0, 1];
+        const a = [n[1] * up[2] - n[2] * up[1], n[2] * up[0] - n[0] * up[2], n[0] * up[1] - n[1] * up[0]];
+        const r = half * 0.95;
+        const pts = [[0, 0], [-1, -1], [-1, 1], [1, -1], [1, 1]].map(([i, j]) => [0, 1, 2].map((k) => fc[k] + n[k] * 0.003 + (a[k] * i + up[k] * j) * r));
+        const cam = [snap.x, snap.y, snap.h];
+        for (const q of pts) {
+          if (others.some((o) => segmentHitsBlock(cam, q, o, 0.005))) return false;
+          if (snap.body && segmentHitsRobot(cam, q, snap.body)) return false;
+        }
+        // another cube's tag seen over it (in front of it, or it'd be seen too)
+        const uv = pts.map((q) => {
+          const c = F.toCam(q);
+          return Lynx.lens.project(c[0], c[1], c[2], snap.w, snap.hgt);
+        });
+        if (uv.some((x) => !x)) return false;
+        const fb = [Math.min(...uv.map((x) => x.u)), Math.min(...uv.map((x) => x.v)), Math.max(...uv.map((x) => x.u)), Math.max(...uv.map((x) => x.v))];
+        return !boxes.some((bx) => bx[0] < fb[2] && bx[2] > fb[0] && bx[1] < fb[3] && bx[3] > fb[1]);
       });
     }
 
@@ -1079,13 +1106,13 @@ window.Lynx = window.Lynx || {};
       }
       return true;
     }
-    function segmentHitsBlock(a, p, o) {
+    function segmentHitsBlock(a, p, o, grow = 0) {
       const c = Math.cos(o.yaw);
       const s = Math.sin(o.yaw);
       const loc = (q) => [(q[0] - o.x) * c + (q[1] - o.y) * s, -(q[0] - o.x) * s + (q[1] - o.y) * c, q[2] - o.h];
       const A = loc(a);
       const P = loc(p);
-      const hb = o.B / 2;
+      const hb = o.B / 2 + grow;
       let t0 = 0;
       let t1 = 1;
       for (let i = 0; i < 3; i++) {
@@ -1166,7 +1193,7 @@ window.Lynx = window.Lynx || {};
       return out;
     }
 
-    return { start, stop, clear, blocks: list, remembered, transform, pause, state, RATIO, observeForTest: observe, integrateForTest: (dets, snap) => integrate(dets, snap, performance.now()), persistForTest: () => persist(Infinity), infoForTest: (id) => info(id), tagPose };
+    return { start, stop, clear, blocks: list, remembered, transform, pause, state, RATIO, observeForTest: observe, integrateForTest: (dets, snap) => integrate(dets, snap, performance.now()), persistForTest: () => persist(Infinity), infoForTest: (id) => info(id), expectForTest: (id, snap, dets) => info(id).blocks.map((b) => expectVisible(b, (info(id).cm || info(id).guess) / 100, snap, dets)), tagPose };
   };
   Lynx.tagMath = { homography, tagPose };
 })(window.Lynx);
