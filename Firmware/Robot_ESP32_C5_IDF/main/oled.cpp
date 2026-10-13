@@ -214,9 +214,14 @@ void flush() {
 // The panel has no reset line wired, so it relies on its own power-on reset.
 // On a cold start from the power bank the supply can still be ramping when
 // the first init commands go out, leaving the display dark until the next
-// warm reset. Re-sending the configuration once, a second in -- long after
-// the supply has settled -- catches it once it's actually awake.
-constexpr int64_t REINIT_AT_MS[] = {1000};
+// warm reset (it happened with a single re-send at 1 s: the panel woke
+// later). And a panel whose supply dips mid-run (servos, motors) can lose
+// its setup and stay dark: only the pages whose content changed are sent
+// otherwise. So the configuration is re-sent at these times after boot and
+// then every REINIT_EVERY_MS for good -- invisible on a panel that's running
+// (see wake_panel()).
+constexpr int64_t REINIT_AT_MS[] = {1000, 2000, 4000, 8000, 15000};
+constexpr int64_t REINIT_EVERY_MS = 10000;
 
 // Same configuration as nopnop2002/ssd1306's i2c_init() (128x64, not
 // flipped), minus its leading "display off" -- so on a panel that's already
@@ -249,13 +254,17 @@ void oled_task_body(void *arg) {
     (void) arg;
     const int64_t startMs = now_ms();
     size_t reinitsDone = 0;
+    int64_t lastReinitMs = startMs;
     while (true) {
         watchdog_oled_heartbeat(); // the health watchdog's starvation canary
 
-        if (reinitsDone < sizeof(REINIT_AT_MS) / sizeof(REINIT_AT_MS[0]) && now_ms() - startMs >= REINIT_AT_MS[reinitsDone]) {
+        const int64_t sinceBoot = now_ms() - startMs;
+        const bool early = reinitsDone < sizeof(REINIT_AT_MS) / sizeof(REINIT_AT_MS[0]);
+        if ((early && sinceBoot >= REINIT_AT_MS[reinitsDone]) || (!early && now_ms() - lastReinitMs >= REINIT_EVERY_MS)) {
             wake_panel();
             std::memset(s_sentValid, 0, sizeof(s_sentValid)); // resend every page
-            reinitsDone++;
+            if (early) reinitsDone++;
+            lastReinitMs = now_ms();
         }
         if (s_paused) {
             vTaskDelay(RENDER_PERIOD);
