@@ -504,6 +504,69 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
+  // Camera angles readout (Menu panel): where the camera really points, as
+  // far as it's known. Per servo (they differ -- dead zones and bends the
+  // servo tables don't model): the page's command, the robot's estimate
+  // (the command one servo lag ago, with the backlash compensation), and the
+  // cubes' measurement of the camera's real tilt and roll (Lynx.camTiltFix:
+  // the floor as the cubes standing on it show it). A pan error can't be
+  // told from a chassis heading error by the cubes: not shown.
+  (function setupAnglesReadout() {
+    const btn = document.createElement("button");
+    btn.className = "cam-overlay-btn";
+    btn.textContent = "\u{1F4D0} Camera angles";
+    const stick = document.getElementById("camStickReadoutBtn");
+    stick.parentNode.insertBefore(btn, stick.nextSibling);
+    const box = document.createElement("div");
+    box.style.cssText = "position:absolute;right:12px;bottom:12px;z-index:30;padding:8px 10px;border-radius:8px;background:rgba(0,0,0,0.7);color:#e8f4ff;font:13px/1.45 ui-monospace,Consolas,monospace;white-space:pre;pointer-events:none;display:none";
+    document.querySelector(".cam-fullscreen").appendChild(box);
+    const KEY = "lynx.cam.anglesReadout";
+    let timer = null;
+    const deg = (v) => (typeof v === "number" && isFinite(v) ? (v >= 0 ? "+" : "") + v.toFixed(1) + "\u00b0" : "--").padStart(7);
+    const D = 180 / Math.PI;
+    const render = () => {
+      const s = Lynx.lastServo;
+      if (!s) {
+        box.textContent = "No pose from the robot yet";
+        return;
+      }
+      const fx = Lynx.camTiltFix;
+      const fixTilt = fx ? fx.rad * D : null;
+      const pan = s.actPan ?? s.cmdPan;
+      const tilt = s.actTilt ?? s.cmdTilt;
+      box.textContent =
+        `                 pan     tilt\n` +
+        `command      ${deg(s.cmdPan)}  ${deg(s.cmdTilt)}\n` +
+        `servo est.   ${deg(s.actPan)}  ${deg(s.actTilt)}\n` +
+        `from cubes   ${deg(null)}  ${deg(fixTilt)}\n` +
+        `actual est.  ${deg(pan)}  ${deg(fixTilt === null ? tilt : tilt + fixTilt)}\n` +
+        (fx
+          ? `camera roll from cubes ${deg((fx.roll || 0) * D).trim()}\n(measured at pan ${fx.panDeg.toFixed(0)}\u00b0, tilt ${fx.tiltDeg.toFixed(0)}\u00b0, ${Math.round((performance.now() - fx.at) / 1000)} s ago)`
+          : "no cube measurement yet");
+    };
+    const show = (on) => {
+      clearInterval(timer);
+      timer = null;
+      box.style.display = on ? "block" : "none";
+      if (on) {
+        render();
+        timer = setInterval(render, 200);
+      }
+      try {
+        localStorage.setItem(KEY, on ? "1" : "0");
+      } catch (e) {}
+    };
+    btn.addEventListener("click", () => {
+      btn.blur();
+      show(!timer);
+    });
+    let was = false;
+    try {
+      was = localStorage.getItem(KEY) === "1";
+    } catch (e) {}
+    if (was) show(true);
+  })();
+
   // Free drive's drive mode switch (also M / gamepad Back): the default
   // (camera frame) or the robot mode (chassis frame, see controls.js).
   function setupDriveModeButton() {
@@ -1009,6 +1072,8 @@ function lerpPose(a, b, t) {
 // using it made the overlays swing while the real camera held still.
 // Older firmware only sends the commands.
 function servoAngles(m) {
+  // (for the camera angles readout: the commands and the robot's estimate)
+  Lynx.lastServo = { cmdPan: m.servoAngleDeg, cmdTilt: m.tiltAngleDeg, actPan: m.panActDeg, actTilt: m.tiltActDeg, at: performance.now() };
   return {
     servoAngleDeg: m.panActDeg ?? m.servoAngleDeg ?? 0,
     tiltAngleDeg: m.tiltActDeg ?? m.tiltAngleDeg ?? 0,
