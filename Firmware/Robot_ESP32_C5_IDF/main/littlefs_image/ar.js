@@ -367,6 +367,20 @@ window.Lynx = window.Lynx || {};
     }
     ar.camPoint = camPoint;
 
+    // The same through the calibrated lens (its barrel distortion, Lynx.lens):
+    // for overlays that must sit on what the video shows -- cube outlines, the
+    // calibration check. Null behind the lens or over LENS_MAX_OFF_AXIS off its
+    // axis (where the distortion model folds back toward the middle).
+    const LENS_MAX_OFF_AXIS = (65 * Math.PI) / 180;
+    ar.projectLens = (wx, wy, h) => {
+      const v = ar.view;
+      const [xc, yc, zc] = camPoint(wx, wy, h);
+      if (zc < NEAR_M || Math.atan2(Math.hypot(xc, yc), zc) > LENS_MAX_OFF_AXIS) return null;
+      const p = Lynx.lens.project(xc, yc, zc, v.imgW, v.imgH);
+      if (!p) return null;
+      return { x: v.offX + p.u * v.scale, y: v.offY + p.v * v.scale, depth: zc, ppm: (p.scale * v.scale) / zc };
+    };
+
     // World point (x, y on the floor, h meters up) -> screen. Null if behind
     // the camera. ppm = screen pixels per meter at that depth (for sizing).
     ar.project = (wx, wy, h) => {

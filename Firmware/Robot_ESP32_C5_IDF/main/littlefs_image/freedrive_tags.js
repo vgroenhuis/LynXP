@@ -105,7 +105,7 @@ window.Lynx = window.Lynx || {};
   function startRun() {
     const general = (app && app.general) || {};
     const ar = Lynx.createAr(calib);
-    const w = Lynx.world3d(ar, { textures: false });
+    const w = Lynx.world3d(ar, { textures: false, lens: true }); // (outlines on the video: through the lens)
     w.setAnchor({ x: 0, y: 0, th: 0 });
     const frame = { samples: [], appliedAt: -1e9, note: null, noteAt: -1e9, seenAt: -1e9, progress: 0 };
     const tb = Lynx.tagBlocks(ar, {

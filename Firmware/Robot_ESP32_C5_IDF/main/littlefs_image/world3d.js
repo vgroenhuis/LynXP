@@ -8,7 +8,10 @@
 // they're textured (ar.texturedQuad maps each piece affinely), and queued on
 // ar.queue with their extents, so ar.flush can order them exactly.
 //
-// Lynx.world3d(ar) -> {
+// opts.lens: project through the calibrated lens (ar.projectLens) -- overlays
+// that must sit on the video (cube outlines); games keep the pinhole.
+//
+// Lynx.world3d(ar, opts) -> {
 //   setAnchor(a), anchor(), toWorld(f, r), toLocal(x, y), w3(f, r, h),
 //   camLocal() -> {f, r, h}, camZ(f, r, h), project(f, r, h),
 //   polyScreen(points [[f, r, h]...], seg), fillPoly(pts, fill, stroke, width),
@@ -29,6 +32,7 @@ window.Lynx = window.Lynx || {};
   const TEX_PPM = 256 / 0.6; // texture pixels per meter, as the Temple
 
   Lynx.world3d = (ar, opts = {}) => {
+    const proj = opts.lens && ar.projectLens ? ar.projectLens : ar.project;
     const near = Math.max(opts.near || NEAR, 0.042);
     const texturesOn = opts.textures !== false && typeof Lynx.texture === "function" && !!ar.texturedQuad;
     let anchor = { x: 0, y: 0, th: 0 };
@@ -61,7 +65,7 @@ window.Lynx = window.Lynx || {};
     const project = (f, r, h) => {
       if (camZ(f, r, h) < near) return null;
       const w = toWorld(f, r);
-      return ar.project(w.x, w.y, h);
+      return proj(w.x, w.y, h);
     };
 
     // Local polygon -> screen polygon, clipped at the near plane (edges cut
@@ -92,7 +96,7 @@ window.Lynx = window.Lynx || {};
       const out = [];
       clipped.forEach((p) => {
         const w = toWorld(p[0], p[1]);
-        const s = ar.project(w.x, w.y, Math.max(p[2], -10));
+        const s = proj(w.x, w.y, Math.max(p[2], -10));
         if (s) out.push(s);
       });
       return out.length >= 3 ? out : null;

@@ -179,7 +179,7 @@ Lynx.games = Lynx.games || {};
       // the board where the camera model puts it
       let drawn = [];
       if (board) {
-        drawn = board.corners.map((p) => ar.project(p[0], p[1], p[2]));
+        drawn = board.corners.map((p) => (ar.projectLens || ar.project)(p[0], p[1], p[2])); // (through the lens: on the video)
         g.save();
         g.strokeStyle = "rgba(255,80,220,0.55)";
         g.lineWidth = 1;
