@@ -80,7 +80,17 @@ window.Lynx = window.Lynx || {};
   const MIN_FACING_COS = 0.5; // tags seen more than 60 degrees off-axis are skipped
   const CONFIRM_N = 2; // sightings for a block from weak detections...
   const STRONG_MARGIN = 40; // ...one is enough with a decision margin this good (or a tag36h11 tag)
-  const MOVE_N = 2; // a block counts as moved after this many sightings elsewhere (in agreement)
+  const MOVE_N = 2; // a block counts as moved after this many sightings elsewhere (in agreement) -- of medium confidence
+  // A tag whose quiet zone (the white border round it, ~1/6 of its width on a
+  // 75% tag) isn't wholly inside the picture is cut off by the edge -- the
+  // detector makes up the rest, and the pose comes out wrong: not used.
+  const EDGE_QUIET = 0.17; // of the tag's side
+  const EDGE_MIN_PX = 4;
+  // How much a sighting is believed: a whole-cube fit (two faces or more)
+  // that fits well, one tag with a clear code, any other.
+  const CONF_HIGH = 1;
+  const CONF_MED = 0.4;
+  const CONF_LOW = 0.25;
   const MISS_N = 4; // still pictures running without a block that should be in them: it's gone
   const STILL_MS = 400; // the camera counts as still after this long without moving...
   const STILL_M = 0.003; // ...more than this
@@ -673,7 +683,15 @@ window.Lynx = window.Lynx || {};
     }
 
     // One still picture's sightings into the map.
-    function integrate(dets, snap, now) {
+    function integrate(detsIn, snap, now) {
+      // (tags cut off by the picture's edge out: see EDGE_QUIET)
+      const dets = detsIn.filter((d) => {
+        const c = d.corners;
+        let side = 0;
+        for (let i = 0; i < 4; i++) side += Math.hypot(c[i].x - c[(i + 1) % 4].x, c[i].y - c[(i + 1) % 4].y) / 4;
+        const m = Math.max(EDGE_MIN_PX, EDGE_QUIET * side);
+        return c.every((p) => p.x >= m && p.y >= m && p.x <= snap.w - m && p.y <= snap.hgt - m);
+      });
       const obs = dets.map((d) => observe(d, snap)).filter(Boolean);
       if (opts.onStill) opts.onStill(obs, snap);
       // size votes first (a size change restarts that ID's averages)
@@ -719,6 +737,8 @@ window.Lynx = window.Lynx || {};
           c.rep = { ...c[0], x: c.reduce((m, o) => m + o.x, 0) / n, y: c.reduce((m, o) => m + o.y, 0) / n, h: c.reduce((m, o) => m + o.h, 0) / n };
           // two or more faces: the whole cube fitted (and the camera's real tilt with it)
           const fit = fitCube(c, dets, snap, B);
+          c.forEach((o) => (o.conf = fit ? (fit.rms < 1.2 ? CONF_HIGH : CONF_MED) : o.strong ? CONF_MED : CONF_LOW));
+          c.conf = Math.max(...c.map((o) => o.conf));
           if (fit) {
             c.forEach((o) => {
               o.x = fit.x;
@@ -778,7 +798,12 @@ window.Lynx = window.Lynx || {};
           const mv = cand.move;
           if (mv && mv.level === o.level && Math.hypot(mv.x - o.x, mv.y - o.y) < 0.4 * B) mv.n++;
           else cand.move = { x: o.x, y: o.y, level: o.level, n: 1 };
-          if (!cand.present || o.strong || cand.move.n >= MOVE_N) {
+          // only as sure as the sightings: a good whole-cube fit at once, a
+          // clear single tag twice in agreement, anything else three times
+          // (or once, clear, where the cube is known to be gone from where it was)
+          const conf = c.conf || CONF_LOW;
+          const need = conf >= CONF_HIGH ? 1 : conf >= CONF_MED ? MOVE_N : MOVE_N + 1;
+          if ((!cand.present && conf >= CONF_MED) || cand.move.n >= need) {
             Object.assign(cand, { x: o.x, y: o.y, h: o.h, level: o.level, yaw: o.yaw, n: 0, present: true, miss: 0, move: null });
             c.forEach((oo) => update(cand, oo, now));
             seen.add(cand);
@@ -841,7 +866,9 @@ window.Lynx = window.Lynx || {};
     }
 
     function update(b, o, now) {
-      const a = Math.max(0.15, 1 / (b.n + 1)); // a running average (newer counts more once there's a history)
+      // a running average (newer counts more once there's a history), a weak
+      // sighting (one tag, a poor fit) counting less
+      const a = b.n === 0 ? 1 : Math.max(0.15, 1 / (b.n + 1)) * (o.conf || CONF_LOW);
       b.x += (o.x - b.x) * a;
       b.y += (o.y - b.y) * a;
       b.h += (o.h - b.h) * a; // the center's height, as seen
