@@ -469,29 +469,45 @@ window.Lynx = window.Lynx || {};
       const B = cm / 100;
       const s = B * RATIO;
       if (Math.hypot(...p.t) * s > MAX_RANGE_M) return null;
-      const pos = [snap.x + tu[0] * s, snap.y + tu[1] * s, snap.h + tu[2] * s];
+      let pos = [snap.x + tu[0] * s, snap.y + tu[1] * s, snap.h + tu[2] * s];
       const half = B / 2;
       let x;
       let y;
       let ch;
       let yaw;
+      let ux = 0;
+      let uy = 0;
       if (face === "top") {
-        x = pos[0];
-        y = pos[1];
-        ch = pos[2] - half;
         const e = F.toWorld(p.r1);
         yaw = Math.atan2(e[1], e[0]);
       } else {
         const l = Math.hypot(nw[0], nw[1]);
-        const ux = nw[0] / l;
-        const uy = nw[1] / l;
-        x = pos[0] - ux * half;
-        y = pos[1] - uy * half;
-        ch = pos[2];
+        ux = nw[0] / l;
+        uy = nw[1] / l;
         yaw = Math.atan2(uy, ux);
       }
+      const place = () => {
+        x = pos[0] - ux * half;
+        y = pos[1] - uy * half;
+        ch = pos[2] - (face === "top" ? half : 0);
+      };
+      place();
       const level = Math.round((ch - half) / B);
       if (level < 0 || level > 5 || Math.abs(ch - (half + level * B)) > 0.45 * B) return null;
+      // How far away the tag is, from its size in the picture, is rough for a
+      // small tag (~25 px: a pixel is 4%, ~6 cm off at 35 cm -- the cube drawn
+      // where its faces don't line up with the tags). Its direction is good, and
+      // the face's height is known (its level): its place is where that ray
+      // meets that height. Sizes not settled yet, and rays nearly level, keep
+      // the size's distance; one too far off it is a misread.
+      const tn = Math.hypot(...tu);
+      if (I.cm && tu[2] / tn < -0.05) {
+        const zFace = level * B + (face === "top" ? B : half);
+        const t = (zFace - snap.h) / tu[2];
+        if (!(t > 0.6 * s && t < 1.6 * s)) return null;
+        pos = [snap.x + tu[0] * t, snap.y + tu[1] * t, zFace];
+        place();
+      }
       // a vote for this ID's size: only from blocks on the floor (that's what the estimate assumes)
       const vote = cm0 >= MIN_CM && cm0 <= MAX_CM && level === 0 ? cm0 : 0;
       return { id, tag: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN, det: d };
