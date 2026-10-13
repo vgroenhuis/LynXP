@@ -472,6 +472,7 @@ window.Lynx = window.Lynx || {};
     const OVERLAP = 0.9;
     const FIT_MAX_PX = 2.5; // a whole-cube fit worse than this (RMS) isn't used
     const FIT_MAX_TILT = (5 * Math.PI) / 180; // nor one that needs the camera tilted more than this
+    const TILT_FIX_GAIN = 0.3; // each still picture moves the camera's tilt correction this share toward what it measures
 
     // -- the whole-cube fit -----------------------------------------------------------
     // A cube's tags' corners in the picture for (x, y, yaw) and the camera
@@ -692,6 +693,7 @@ window.Lynx = window.Lynx || {};
         }
       });
       const seen = new Set(); // blocks sighted in this picture
+      const tiltVotes = []; // the camera's tilt as each whole-cube fit in this picture sees it
       const byId = new Map();
       obs.forEach((o) => (byId.has(o.id) ? byId.get(o.id).push(o) : byId.set(o.id, [o])));
       for (const [id, list] of byId) {
@@ -726,13 +728,10 @@ window.Lynx = window.Lynx || {};
               if (f && !f.top) o.normalYaw = fit.yaw + (f.k * Math.PI) / 2;
             });
             c.rep = { ...c.rep, x: fit.x, y: fit.y, yaw: modQuarter(fit.yaw) };
-            // the camera's real tilt at these servo angles: for every overlay
-            // (Lynx.cameraFrame) -- on top of any correction already in this picture's camera
-            const total = (snap.frame.fixRad || 0) + fit.dt;
-            state.tiltFix = { deg: (total * 180) / Math.PI, rms: fit.rms, at: now, tags: fit.faces.length };
-            if (snap.frame.panDeg !== undefined && opts.fixCamera !== false) {
-              Lynx.camTiltFix = { rad: total, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
-            }
+            // the camera's real tilt at these servo angles (on top of any
+            // correction already in this picture's camera) -- one vote per
+            // cube; only cubes of a known size (a wrong size takes a wrong tilt)
+            if (I.fixed) tiltVotes.push({ rad: (snap.frame.fixRad || 0) + fit.dt, w: fit.faces.length / Math.max(0.2, fit.rms) ** 2, rms: fit.rms, tags: fit.faces.length });
           }
         });
         const free = I.blocks.slice();
@@ -785,6 +784,20 @@ window.Lynx = window.Lynx || {};
             seen.add(cand);
           }
         });
+      }
+      // The camera's real tilt, for every overlay (Lynx.cameraFrame): the
+      // cubes' votes in this picture weighted (faces, fit), then smoothed over
+      // the still pictures at these same servo angles -- with several cubes in
+      // view, each setting it in turn made the overlays jump up and down.
+      if (tiltVotes.length && snap.frame.panDeg !== undefined && opts.fixCamera !== false) {
+        const W = tiltVotes.reduce((a, v) => a + v.w, 0);
+        const meas = tiltVotes.reduce((a, v) => a + v.rad * v.w, 0) / W;
+        const prev = Lynx.camTiltFix;
+        const same = prev && Math.abs(prev.panDeg - snap.frame.panDeg) < 0.5 && Math.abs(prev.tiltDeg - snap.frame.tiltDeg) < 0.5;
+        const rad = same ? prev.rad + TILT_FIX_GAIN * (meas - prev.rad) : meas;
+        Lynx.camTiltFix = { rad, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
+        const spread = tiltVotes.length > 1 ? Math.max(...tiltVotes.map((v) => v.rad)) - Math.min(...tiltVotes.map((v) => v.rad)) : 0;
+        state.tiltFix = { deg: (rad * 180) / Math.PI, cubes: tiltVotes.length, spreadDeg: (spread * 180) / Math.PI, at: now };
       }
       // Gone: a block that should be in plain view in this still picture,
       // but whose tag isn't seen there, MISS_N pictures running -- moved
