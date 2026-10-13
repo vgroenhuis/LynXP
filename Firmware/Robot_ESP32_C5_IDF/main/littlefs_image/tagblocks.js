@@ -115,13 +115,15 @@ window.Lynx = window.Lynx || {};
   const SAVE_EVERY_MS = 10000;
 
   // The robot's "tags" document: {v: 1, tags: {id: {cm, count, at (ms since
-  // 1970), blocks: [[x, y, z] (m, world, block centers)]}}}.
+  // 1970), blocks: [[x, y, z] (m, world, block centers)]}}}. A load that
+  // failed (the robot busy, rebooting) comes back empty with failed: true --
+  // never saved over the real one (that lost the Tags page's limits and sizes).
   Lynx.tagStore = {
     load: () =>
       fetch("/appdata/tags", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
+        .then((r) => (r.ok ? r.json() : r.status === 404 ? null : Promise.reject(new Error(r.status))))
         .then((d) => (d && d.tags ? d : { v: 1, tags: {} }))
-        .catch(() => ({ v: 1, tags: {} })),
+        .catch(() => ({ v: 1, tags: {}, failed: true })),
     save: (doc) => fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(doc) }),
   };
 
@@ -242,26 +244,29 @@ window.Lynx = window.Lynx || {};
       I.count = Math.min(I.count, max);
     }
     if (opts.persist) {
-      Lynx.tagStore.load().then((d) => {
-        doc = d;
-        Object.entries(d.tags).forEach(([id, t]) => {
-          if (alias.has(+id) && alias.get(+id) !== +id) return; // (another one's face: filed under the first)
-          const I = info(+id);
-          if ((!I.fixed || t.user) && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
-          I.max = t.max > 0 ? t.max : 0;
-          // its cubes where they were last seen -- not shown until seen again, but
-          // a sighting overlapping one of them is that cube (same instance, same count)
-          const cm = I.cm;
-          if (!cm || I.blocks.length || !Array.isArray(t.blocks)) return;
-          const B = cm / 100;
-          I.blocks = t.blocks.slice(0, 20).map((b) => ({
-            uid: nextUid++, id: +id, x: b[0], y: b[1], h: b[2], level: Math.max(0, Math.round((b[2] - B / 2) / B)), yaw: 0,
-            n: 1, ok: true, present: false, miss: 0, seen: b[4] ? fromEpoch(b[4]) : fromEpoch(t.at || 0),
-          }));
-          I.count = single.has(+id) ? 1 : I.blocks.length; // (a saved count beyond the places known meant nothing)
-          applyLimit(I);
+      const loadDoc = () =>
+        Lynx.tagStore.load().then((d) => {
+          if (d.failed) return void setTimeout(loadDoc, 2000); // (not saved over until it's read)
+          doc = d;
+          Object.entries(d.tags).forEach(([id, t]) => {
+            if (alias.has(+id) && alias.get(+id) !== +id) return; // (another one's face: filed under the first)
+            const I = info(+id);
+            if ((!I.fixed || t.user) && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
+            I.max = t.max > 0 ? t.max : 0;
+            // its cubes where they were last seen -- not shown until seen again, but
+            // a sighting overlapping one of them is that cube (same instance, same count)
+            const cm = I.cm;
+            if (!cm || I.blocks.length || !Array.isArray(t.blocks)) return;
+            const B = cm / 100;
+            I.blocks = t.blocks.slice(0, 20).map((b) => ({
+              uid: nextUid++, id: +id, x: b[0], y: b[1], h: b[2], level: Math.max(0, Math.round((b[2] - B / 2) / B)), yaw: 0,
+              n: 1, ok: true, present: false, miss: 0, seen: b[4] ? fromEpoch(b[4]) : fromEpoch(t.at || 0),
+            }));
+            I.count = single.has(+id) ? 1 : I.blocks.length; // (a saved count beyond the places known meant nothing)
+            applyLimit(I);
+          });
         });
-      });
+      loadDoc();
     }
     let saving = false;
     function persist(now) {
@@ -275,6 +280,7 @@ window.Lynx = window.Lynx || {};
       Lynx.tagStore
         .load()
         .then((fresh) => {
+          if (fresh.failed) return null; // (the robot's copy unknown: try again next time)
           const out = { v: 1, tags: { ...fresh.tags } };
           // tags that are another one's faces (the frame cube's) are filed under the first one only
           alias.forEach((first, t) => t !== first && delete out.tags[t]);
