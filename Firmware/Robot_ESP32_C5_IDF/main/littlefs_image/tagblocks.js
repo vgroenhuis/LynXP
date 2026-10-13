@@ -36,10 +36,12 @@
 // cube with that tag if there are more than the map has, else one of them
 // moved there (at once if it's known to be gone, else once seen there
 // MOVE_N times, or once clearly). A block that should be in plain view in
-// a still picture -- a tag face turned to the camera, big enough, inside
-// the picture, not behind another block -- but whose tag isn't seen there
-// MISS_N pictures running is gone from there (moved or taken away) until
-// its tag turns up again. One face is enough for a whole cube, and one
+// a still picture -- a tag face turned to the camera, near and big enough
+// to be read for sure, well inside the picture, not behind another block or
+// the robot's own body -- but whose tag isn't seen there MISS_N pictures
+// running is gone from there (moved or taken away; drawn thin magenta) until
+// its tag turns up again. It's never forgotten: the cubes the Tags page
+// counts all stay on the map, where they were last seen. One face is enough for a whole cube, and one
 // clear sighting (a faint one needs a second: stray quads decode as
 // tag16h5 tags now and then, with low margins). Blocks don't float: one up a
 // level stands on blocks below, which are inferred if not seen themselves.
@@ -92,6 +94,17 @@ window.Lynx = window.Lynx || {};
   const CONF_MED = 0.4;
   const CONF_LOW = 0.25;
   const MISS_N = 4; // still pictures running without a block that should be in them: it's gone
+  // ...in them: a tag this big at least (smaller ones are often missed), this near
+  const EXPECT_MIN_PX = 28;
+  const EXPECT_MAX_M = 0.75;
+  // The robot's own body, which hides what's behind it (boxes in the robot's
+  // frame from the pan axis: x ahead, y left, z up; fitted to the camera's
+  // view of it at pan +-50..75): the chassis, and the wheels standing above it.
+  const ROBOT_BODY = [
+    { lo: [-0.12, -0.1, 0], hi: [0.06, 0.1, 0.05] },
+    { lo: [-0.04, -0.1, 0], hi: [0.04, -0.07, 0.072] },
+    { lo: [-0.04, 0.07, 0], hi: [0.04, 0.1, 0.072] },
+  ];
   const STILL_MS = 400; // the camera counts as still after this long without moving...
   const STILL_M = 0.003; // ...more than this
   const STILL_RAD = 0.01; // ...or turning / tilting more than this (0.6 deg)
@@ -357,7 +370,9 @@ window.Lynx = window.Lynx || {};
       }
       // the camera as it was for this picture (ar.pose is delayed to match the video)
       const cw = ar.cameraWorld();
-      const snap = { x: cw.x, y: cw.y, h: cw.h, th: ar.camTheta, tilt: ar.tilt, frame: ar.frame, w, hgt: h, t: performance.now() };
+      const P = ar.pose;
+      const body = P ? { x: P.x, y: P.y, th: typeof P.chassisTheta === "number" ? P.chassisTheta : P.theta } : null; // (where the robot's body is)
+      const snap = { x: cw.x, y: cw.y, h: cw.h, th: ar.camTheta, tilt: ar.tilt, frame: ar.frame, body, w, hgt: h, t: performance.now() };
       snap.still = still(snap);
       state.stable = snap.still;
       busy = true;
@@ -950,20 +965,15 @@ window.Lynx = window.Lynx || {};
           if (!b.ok || !B) return;
           if (expectVisible(b, B, snap)) {
             b.miss++;
-            if (b.miss >= MISS_N) {
-              if (b.present) {
-                // gone from where it was: remembered there (thin magenta) for now
-                b.present = false;
-                b.move = null;
-                b.miss = 0;
-              } else b.forget = true; // remembered, in plain view, still not there: forgotten
+            if (b.miss >= MISS_N && b.present) {
+              // gone from where it was: remembered there (thin magenta) -- not
+              // forgotten, it's one of the cubes counted (the Tags page)
+              b.present = false;
+              b.move = null;
+              b.miss = 0;
             }
           }
         });
-        if (I.blocks.some((b) => b.forget)) {
-          I.blocks = I.blocks.filter((b) => !b.forget);
-          if (!single.has(I.id)) I.count = Math.min(I.count, I.blocks.length);
-        }
       }
       // two blocks where there's room for one (different tags): the better-known one stays
       const all = present();
@@ -1025,20 +1035,49 @@ window.Lynx = window.Lynx || {};
         const fc = [b.x + n[0] * half, b.y + n[1] * half, b.h + n[2] * half];
         const v = [fc[0] - snap.x, fc[1] - snap.y, fc[2] - snap.h];
         const dist = Math.hypot(...v);
-        if (dist > MAX_RANGE_M * 0.9 || dist < 0.05) return false;
+        if (dist > EXPECT_MAX_M || dist < 0.05) return false;
         const facing = -dot3(n, v) / dist;
         if (facing < 0.65) return false;
         const cc = F.toCam(fc);
         const pr = Lynx.lens.project(cc[0], cc[1], cc[2], snap.w, snap.hgt);
         if (!pr) return false;
         const px = (pr.scale * tag * Math.sqrt(facing)) / cc[2];
-        if (px < 2 * MIN_SIDE_PX) return false;
-        const m = px * 0.7 + 6;
+        if (px < EXPECT_MIN_PX) return false;
+        const m = px * (0.71 + EDGE_QUIET) + EDGE_MIN_PX + 4; // (a turned tag's corner and its quiet zone: see integrate's edge filter)
         if (pr.u < m || pr.v < m || pr.u > snap.w - m || pr.v > snap.hgt - m) return false;
         // nothing (no other block, nor a block standing on this face) between it and the camera
         const p = [fc[0] + n[0] * 0.003, fc[1] + n[1] * 0.003, fc[2] + n[2] * 0.003];
-        return !others.some((o) => segmentHitsBlock([snap.x, snap.y, snap.h], p, o));
+        if (others.some((o) => segmentHitsBlock([snap.x, snap.y, snap.h], p, o))) return false;
+        return !(snap.body && segmentHitsRobot([snap.x, snap.y, snap.h], p, snap.body));
       });
+    }
+
+    // a and p (world) on either side of the robot's own body (ROBOT_BODY)?
+    function segmentHitsRobot(a, p, body) {
+      const c = Math.cos(body.th);
+      const s = Math.sin(body.th);
+      const loc = (q) => [(q[0] - body.x) * c + (q[1] - body.y) * s, -(q[0] - body.x) * s + (q[1] - body.y) * c, q[2]];
+      const A = loc(a);
+      const P = loc(p);
+      return ROBOT_BODY.some((bx) => segmentHitsBox(A, P, bx.lo, bx.hi));
+    }
+    function segmentHitsBox(A, P, lo, hi) {
+      let t0 = 0;
+      let t1 = 1;
+      for (let i = 0; i < 3; i++) {
+        const d = P[i] - A[i];
+        if (Math.abs(d) < 1e-9) {
+          if (A[i] < lo[i] || A[i] > hi[i]) return false;
+          continue;
+        }
+        let ta = (lo[i] - A[i]) / d;
+        let tb = (hi[i] - A[i]) / d;
+        if (ta > tb) [ta, tb] = [tb, ta];
+        t0 = Math.max(t0, ta);
+        t1 = Math.min(t1, tb);
+        if (t0 > t1) return false;
+      }
+      return true;
     }
     function segmentHitsBlock(a, p, o) {
       const c = Math.cos(o.yaw);
