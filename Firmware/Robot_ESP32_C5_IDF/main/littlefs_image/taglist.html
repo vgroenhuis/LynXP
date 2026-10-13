@@ -144,8 +144,21 @@
     setInterval(load, 3000);
     const forget = document.getElementById("tagsForget");
     forget.addEventListener("click", () => {
-      if (!confirm("Forget all tags (sizes and places)? Pages that are detecting cubes right now remember what they see again.")) return;
-      fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ v: 1, tags: {} }) }).then(load);
+      if (!confirm("Forget all tags' places and measured sizes? Sizes and limits you set here stay. Pages that are detecting cubes right now remember what they see again.")) return;
+      // (what was set by hand stays: the limits, and the sizes typed in)
+      fetch("/appdata/tags", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .then((d) => {
+          const tags = {};
+          Object.entries((d && d.tags) || {}).forEach(([id, t]) => {
+            const keep = {};
+            if (t.max > 0) keep.max = t.max;
+            if (t.user && t.cm) Object.assign(keep, { cm: t.cm, user: 1 });
+            if (Object.keys(keep).length) tags[id] = { ...keep, count: 0, at: Date.now(), blocks: [] };
+          });
+          return fetch("/appdata/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ v: 1, tags }) });
+        })
+        .then(load, () => (body.textContent = "Can't reach the robot -- nothing forgotten"));
     });
   </script>
 </body>

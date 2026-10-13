@@ -501,6 +501,11 @@ window.Lynx = window.Lynx || {};
     // Two real cubes can't overlap: sightings (or a sighting and a block) of the
     // same tag this close are one and the same cube.
     const OVERLAP = 0.9;
+    // Sightings of one tag this close (or 2 blocks) are one cube: a face's own
+    // place is off by up to ~6 cm at 35 cm (a tag ~25 px wide). Another cube
+    // with the same tag is only ever taken to be further away than that.
+    const SAME_CUBE_M = 0.08;
+    const sameCube = (a, o, B) => Math.hypot(a.x - o.x, a.y - o.y) < Math.max(SAME_CUBE_M, 2 * B) && Math.abs(a.h - o.h) < B;
     const FIT_MAX_PX = 2.5; // a whole-cube fit worse than this (RMS) isn't used
     const FIT_MAX_TILT = (5 * Math.PI) / 180; // nor one that needs the camera tilted more than this
     const TILT_FIX_GAIN = 0.3; // each still picture moves the camera's tilt correction this share toward what it measures
@@ -859,7 +864,7 @@ window.Lynx = window.Lynx || {};
           // single-tag places can be more than OVERLAP apart -- split, they made
           // a second, ghost cube that was never seen again)
           list.forEach((o) => {
-            const c = clusters.find((k) => near(k[0], o, B, OVERLAP) || k.some((oo) => touching(oo.det, o.det)));
+            const c = clusters.find((k) => k.some((oo) => sameCube(oo, o, B) || touching(oo.det, o.det)));
             if (c) c.push(o);
             else clusters.push([o]);
           });
@@ -890,6 +895,11 @@ window.Lynx = window.Lynx || {};
             if (I.fixed && c.rep.level === 0) floorCubes.push({ B, zc: B / 2, faces: fit.faces, q: [fit.x, fit.y, fit.yaw], dt: fit.dt, rms: fit.rms });
           }
         });
+        // two of its blocks that are one cube (a stray copy from before, or from
+        // a moment the pose was off): the one seen last stays
+        I.blocks.sort((a, b) => (b.present - a.present) || b.seen - a.seen);
+        I.blocks = I.blocks.filter((b, k) => !I.blocks.slice(0, k).some((a) => sameCube(a, b, B)));
+        if (!single.has(id)) I.count = Math.min(I.count, Math.max(I.blocks.length, clusters.length));
         const free = I.blocks.slice();
         const later = [];
         clusters.forEach((c) => {
@@ -915,7 +925,7 @@ window.Lynx = window.Lynx || {};
         });
         const limit = single.has(id) ? 1 : I.max || Infinity;
         later.forEach((c) => {
-          if (I.blocks.length < I.count && I.blocks.length < limit) {
+          if (I.blocks.length < I.count && I.blocks.length < limit && !I.blocks.some((b) => sameCube(b, c.rep, B))) {
             // another cube with this tag
             const b = { uid: nextUid++, id, x: c.rep.x, y: c.rep.y, h: c.rep.h, level: c.rep.level, yaw: c.rep.yaw, n: 0, ok: false, present: true, miss: 0, seen: now };
             I.blocks.push(b);
@@ -1053,7 +1063,7 @@ window.Lynx = window.Lynx || {};
       const F = frames(snap);
       const half = B / 2;
       const tag = B * RATIO;
-      const others = present(true).filter((o) => o !== b);
+      const others = present(true).filter((o) => o !== b && o.id !== b.id); // (not its own twin: a stray copy of it hid it)
       const myId = b.id; // (its tag: the group's first, for the frame cube)
       const idOf = (d) => (alias.has(d.id) ? alias.get(d.id) : d.id);
       const boxes = dets
