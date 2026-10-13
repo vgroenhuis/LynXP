@@ -261,5 +261,7 @@ window.Lynx = window.Lynx || {};
     }
   }
 
-  Lynx.freeDriveTags = { setup, setActive, debug: () => run };
+  // blocks(): the cubes seen now (tagblocks.js list(): x, y, yaw, half, h0, h1),
+  // [] while cube detection is off -- e.g. for the world axes (cam.js)
+  Lynx.freeDriveTags = { setup, setActive, debug: () => run, blocks: () => (run ? run.tb.blocks() : []) };
 })(window.Lynx);

@@ -1824,20 +1824,69 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
         draw(a.right, a.forward, b.right, b.forward);
       };
       const labels = [];
+      // Where a cube hides the axis (under it, or behind it from the camera):
+      // drawn thin there. A floor point is hidden if the line of sight to it
+      // passes through a cube's box (slab test in the cube's own frame).
+      const cubes = Lynx.freeDriveTags && Lynx.freeDriveTags.blocks ? Lynx.freeDriveTags.blocks() : [];
+      const camH = calib.heightM;
+      const hidden = (wx, wy) =>
+        cubes.some((b) => {
+          const c = Math.cos(-b.yaw);
+          const s = Math.sin(-b.yaw);
+          const loc = (x, y) => [(x - b.x) * c - (y - b.y) * s, (x - b.x) * s + (y - b.y) * c];
+          const p0 = [...loc(pose.x, pose.y), camH];
+          const p1 = [...loc(wx, wy), 0];
+          let t0 = 0;
+          let t1 = 1;
+          const lo = [-b.half, -b.half, b.h0 - 0.002];
+          const hi = [b.half, b.half, b.h1];
+          for (let k = 0; k < 3; k++) {
+            const d = p1[k] - p0[k];
+            if (Math.abs(d) < 1e-12) {
+              if (p0[k] < lo[k] || p0[k] > hi[k]) return false;
+              continue;
+            }
+            let ta = (lo[k] - p0[k]) / d;
+            let tb = (hi[k] - p0[k]) / d;
+            if (ta > tb) [ta, tb] = [tb, ta];
+            t0 = Math.max(t0, ta);
+            t1 = Math.min(t1, tb);
+            if (t0 > t1) return false;
+          }
+          return true;
+        });
+      const AXIS_HIDDEN_STEP_M = 0.01;
       // along: 0 = X axis (y = 0), 1 = Y axis (x = 0).
       [[0, X_AXIS_RGB], [1, Y_AXIS_RGB]].forEach(([along, rgb]) => {
         const at = (k, off) => (along === 0 ? [k, off] : [off, k]); // world point k meters along the axis, off to the side
         const center = along === 0 ? pose.x : pose.y;
         const lineDraw = makeLineDrawer(maxDistM, halfWidthM, rgb, AXIS_OPACITY);
         ctx.lineWidth = 3;
-        worldSeg(lineDraw, ...at(center - spanM, 0), ...at(center + spanM, 0));
+        if (!cubes.length) worldSeg(lineDraw, ...at(center - spanM, 0), ...at(center + spanM, 0));
+        else {
+          // in runs: visible (3 px) and hidden by a cube (1 px)
+          const k0 = center - spanM;
+          const n = Math.ceil((2 * spanM) / AXIS_HIDDEN_STEP_M);
+          let runStart = k0;
+          let runHidden = hidden(...at(k0, 0));
+          for (let i = 1; i <= n; i++) {
+            const k = Math.min(center + spanM, k0 + i * AXIS_HIDDEN_STEP_M);
+            const h = i === n ? !runHidden : hidden(...at(k, 0));
+            if (h !== runHidden || i === n) {
+              ctx.lineWidth = runHidden ? 1 : 3;
+              worldSeg(lineDraw, ...at(runStart, 0), ...at(k, 0));
+              runStart = k;
+              runHidden = h;
+            }
+          }
+        }
         // Every half meter: whole meters get the bigger tick and label
         // priority; the 0.5 m ones only get labels where there's room.
         for (let i = Math.ceil(2 * (center - spanM)); i <= Math.floor(2 * (center + spanM)); i++) {
           if (i === 0) continue;
           const k = i / 2;
           const half = i % 2 !== 0;
-          ctx.lineWidth = half ? 1.5 : 2;
+          ctx.lineWidth = cubes.length && hidden(...at(k, 0)) ? 0.75 : half ? 1.5 : 2;
           const tickM = half ? AXIS_HALF_TICK_HALF_M : AXIS_TICK_HALF_M;
           worldSeg(lineDraw, ...at(k, -tickM), ...at(k, tickM));
           const [wx, wy] = at(k, 0);
