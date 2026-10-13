@@ -583,6 +583,42 @@ window.Lynx = window.Lynx || {};
       }
       return M.map((r, i) => r[n] / r[i]);
     }
+    // Least squares (Levenberg-Marquardt, numeric Jacobian): res(v) -> {v, r}
+    function lmFit(res, v0) {
+      let v = v0.slice();
+      let r = res(v);
+      let lam = 1e-3;
+      for (let it = 0; it < 30; it++) {
+        const J = v.map(() => 1e-5).map((hh, jj) => {
+          const vp = v.slice();
+          vp[jj] += hh;
+          return res(vp).map((x, ii) => (x - r[ii]) / hh);
+        });
+        const A = J.map((a) => J.map((b) => a.reduce((tt, x, ii) => tt + x * b[ii], 0)));
+        const g = J.map((a) => a.reduce((tt, x, ii) => tt + x * r[ii], 0));
+        let ok = false;
+        for (let k = 0; k < 8; k++) {
+          const d = solveSmall(A.map((row, ii) => row.map((x, jj) => (ii === jj ? x * (1 + lam) + 1e-12 : x))), g.map((x) => -x));
+          if (!d) {
+            lam *= 10;
+            continue;
+          }
+          const v2 = v.map((x, ii) => x + d[ii]);
+          const r2 = res(v2);
+          if (sq(r2) < sq(r)) {
+            v = v2;
+            r = r2;
+            lam = Math.max(1e-9, lam / 3);
+            ok = true;
+            break;
+          }
+          lam *= 10;
+        }
+        if (!ok) break;
+      }
+      return { v, r };
+    }
+
     // The cluster's cube (its sightings c, plus dets: detections of its tags
     // in this picture) fitted: {x, y, yaw, dt, rms, faces} or null.
     function fitCube(c, dets, snap, B) {
@@ -641,41 +677,7 @@ window.Lynx = window.Lynx || {};
           f.shift = best.shift;
           return f;
         });
-      const refine = (faces, v0) => {
-        let v = v0.slice();
-        const res = (vv) => cubeResiduals(snap, B, zc, faces, vv, vv[3]);
-        let r = res(v);
-        let lam = 1e-3;
-        for (let it = 0; it < 30; it++) {
-          const J = [1e-5, 1e-5, 1e-5, 1e-5].map((hh, jj) => {
-            const vp = v.slice();
-            vp[jj] += hh;
-            return res(vp).map((x, ii) => (x - r[ii]) / hh);
-          });
-          const A = J.map((a) => J.map((b) => a.reduce((tt, x, ii) => tt + x * b[ii], 0)));
-          const g = J.map((a) => a.reduce((tt, x, ii) => tt + x * r[ii], 0));
-          let ok = false;
-          for (let k = 0; k < 8; k++) {
-            const d = solveSmall(A.map((row, ii) => row.map((x, jj) => (ii === jj ? x * (1 + lam) + 1e-12 : x))), g.map((x) => -x));
-            if (!d) {
-              lam *= 10;
-              continue;
-            }
-            const v2 = v.map((x, ii) => x + d[ii]);
-            const r2 = res(v2);
-            if (sq(r2) < sq(r)) {
-              v = v2;
-              r = r2;
-              lam = Math.max(1e-9, lam / 3);
-              ok = true;
-              break;
-            }
-            lam *= 10;
-          }
-          if (!ok) break;
-        }
-        return { v, r };
-      };
+      const refine = (faces, v0) => lmFit((vv) => cubeResiduals(snap, B, zc, faces, vv, vv[3]), v0);
       // Every way the tags can sit on the cube's side faces (distinct faces;
       // a top tag stays on top, one tag at most on top), from two starting
       // headings: the best fit.
@@ -736,6 +738,58 @@ window.Lynx = window.Lynx || {};
       if (Lynx.debugCubeFit) console.log("cube fit", { tags: faces.length, rms: +rms.toFixed(2), tiltDeg: +((v[3] * 180) / Math.PI).toFixed(2), movedMm: +(Math.hypot(v[0] - rep0.x, v[1] - rep0.y) * 1000).toFixed(1) });
       if (!(rms < FIT_MAX_PX) || Math.abs(v[3]) > FIT_MAX_TILT || Math.hypot(v[0] - rep0.x, v[1] - rep0.y) > 1.5 * B) return null;
       return { x: v[0], y: v[1], yaw: v[2], dt: v[3], rms, faces };
+    }
+
+    // One side face alone (a cube of known size): its x, y and heading fitted
+    // to the tag's corners, at its known height. A small, blurry tag seen at
+    // a slant has two poses about as good -- the face turned one way or,
+    // mirrored, the other (which corner is further away can't be told) --
+    // and the tag's own pose can be ~90 degrees out: every way the face can
+    // turn toward the camera is tried, the camera's tilt allowed to be a
+    // little off (a degree costs a pixel; uncorrected, the wrong pose fitted
+    // best). When two distinct poses fit about as well, the face is taken to
+    // look straight at the camera, and the sighting counts for little.
+    // -> {x, y, yaw (the face's outward heading), rms, ambiguous} or null
+    function fitFace(o, snap, B) {
+      if (o.face !== "side" || o.normalYaw === null) return null;
+      const half = B / 2;
+      const zc = o.level * B + half;
+      const fx = o.x + Math.cos(o.normalYaw) * half; // the face's center
+      const fy = o.y + Math.sin(o.normalYaw) * half;
+      const view = Math.atan2(snap.y - fy, snap.x - fx); // toward the camera, from it
+      const D2R = Math.PI / 180;
+      const starts = [o.normalYaw, ...[-70, -50, -30, -10, 10, 30, 50, 70].map((d) => view + d * D2R)];
+      const sols = starts.map((ny) => {
+        const f = { det: o.det, top: false, k: 0, shift: 0, flip: false };
+        const q0 = [fx - Math.cos(ny) * half, fy - Math.sin(ny) * half, ny];
+        let best = null;
+        for (const flip of [false, true]) {
+          for (let shift = 0; shift < 4; shift++) {
+            f.flip = flip;
+            f.shift = shift;
+            const e = sq(cubeResiduals(snap, B, zc, [f], q0, 0));
+            if (!best || e < best.e) best = { e, flip, shift };
+          }
+        }
+        f.flip = best.flip;
+        f.shift = best.shift;
+        const fr = lmFit((q) => [...cubeResiduals(snap, B, zc, [f], q, q[3]), q[3] / D2R], [...q0, 0]);
+        const r = fr.r.slice(0, 8);
+        return { q: fr.v, rms: Math.sqrt(sq(r) / r.length) };
+      });
+      sols.sort((a, b) => a.rms - b.rms);
+      const a = sols[0];
+      if (!(a.rms < FIT_MAX_PX) || Math.cos(a.q[2] - view) < 0.2) return null; // (a face turned away can't be seen)
+      // the best of the others that's a distinct pose
+      const turnedFrom = (x) => Math.abs(Math.atan2(Math.sin(x.q[2] - a.q[2]), Math.cos(x.q[2] - a.q[2])));
+      const b = sols.slice(1).find((x) => turnedFrom(x) > 8 * D2R && Math.cos(x.q[2] - view) > 0.2);
+      if (b && b.rms < 1.5 * a.rms + 0.3) {
+        // can't tell: facing the camera, its center straight behind the face
+        const fcx = (a.q[0] + Math.cos(a.q[2]) * half + b.q[0] + Math.cos(b.q[2]) * half) / 2;
+        const fcy = (a.q[1] + Math.sin(a.q[2]) * half + b.q[1] + Math.sin(b.q[2]) * half) / 2;
+        return { x: fcx - Math.cos(view) * half, y: fcy - Math.sin(view) * half, yaw: view, rms: a.rms, ambiguous: true };
+      }
+      return { x: a.q[0], y: a.q[1], yaw: a.q[2], rms: a.rms, ambiguous: false };
     }
 
     // The cubes standing on the floor, fitted together: each its own x, y and
@@ -893,6 +947,15 @@ window.Lynx = window.Lynx || {};
           // two or more faces: the whole cube fitted (and the camera's real tilt with it)
           const fit = fitCube(c, dets, snap, B);
           c.forEach((o) => (o.conf = fit ? (fit.rms < 1.2 ? CONF_HIGH : CONF_MED) : o.strong ? CONF_MED : CONF_LOW));
+          // one face alone, of a cube of known size: its pose fitted (fitFace)
+          const lone = !fit && c.length === 1 && I.fixed ? fitFace(c[0], snap, B) : null;
+          if (lone) {
+            const o = c[0];
+            Object.assign(o, { x: lone.x, y: lone.y, yaw: modQuarter(lone.yaw), normalYaw: lone.yaw });
+            if (lone.ambiguous) o.conf = CONF_LOW;
+            if (Lynx.debugCubeFit) console.log("face fit", { id, x: +(lone.x * 1000).toFixed(1), y: +(lone.y * 1000).toFixed(1), yawDeg: +((lone.yaw * 180) / Math.PI).toFixed(1), rms: +lone.rms.toFixed(2), ambiguous: lone.ambiguous });
+            c.rep = { ...c.rep, x: lone.x, y: lone.y, yaw: modQuarter(lone.yaw) };
+          }
           c.conf = Math.max(...c.map((o) => o.conf));
           if (fit) {
             c.forEach((o) => {
