@@ -570,9 +570,11 @@ window.Lynx = window.Lynx || {};
       // around the cube (seen from above), the corner order that fits, then
       // x, y, yaw and the camera's tilt -- twice (faces and orders again from
       // the first round's cube).
+      // (a tag without a sighting of its own -- its pose too ambiguous, as
+      // a top seen from low down -- may be the top or a side: both are tried)
       const sightingTop = (det) => {
         const o = c.find((oo) => oo.det === det);
-        return o ? o.face === "top" : false;
+        return o ? o.face === "top" : null;
       };
       const assign = (q) =>
         [...mine].map((det) => {
@@ -582,7 +584,8 @@ window.Lynx = window.Lynx || {};
           const ray = F.toWorld([nn[0], nn[1], 1]);
           const t = (zc - snap.h) / ray[2];
           const k = Math.round((Math.atan2(snap.y + ray[1] * t - q[1], snap.x + ray[0] * t - q[0]) - q[2]) / (Math.PI / 2));
-          const f = { det, top: sightingTop(det), k: ((k % 4) + 4) % 4, shift: 0, flip: false };
+          const top = sightingTop(det);
+          const f = { det, top: !!top, open: top === null, k: ((k % 4) + 4) % 4, shift: 0, flip: false };
           let best = null;
           for (const flip of [false, true]) {
             for (let shift = 0; shift < 4; shift++) {
@@ -632,35 +635,40 @@ window.Lynx = window.Lynx || {};
         return { v, r };
       };
       // Every way the tags can sit on the cube's side faces (distinct faces;
-      // a top tag stays on top), from two starting headings: the best fit.
+      // a top tag stays on top, one tag at most on top), from two starting
+      // headings: the best fit.
       // (Where the tags seem to sit around the cube can't be trusted for
       // this: with the camera's tilt 2 degrees off, the cube seems 4 cm away
       // from where it is.)
       let bestFit = null;
       const base = assign([rep0.x, rep0.y, rep0.yaw, 0]);
-      const sides = base.filter((f) => !f.top);
-      if (sides.length > 4) return null;
-      const combos = [];
-      const pick = (i, used, ks) => {
-        if (i === sides.length) {
+      if (base.filter((f) => f.top).length > 1 || base.filter((f) => !f.top && !f.open).length > 4) return null;
+      const combos = []; // per tag: its side face k, or "top"
+      const pick = (i, used, top, ks) => {
+        if (i === base.length) {
           combos.push(ks.slice());
           return;
+        }
+        if (base[i].top || (base[i].open && !top)) {
+          ks.push("top");
+          pick(i + 1, used, true, ks);
+          ks.pop();
+          if (base[i].top) return;
         }
         for (let k = 0; k < 4; k++) {
           if (used.has(k)) continue;
           used.add(k);
           ks.push(k);
-          pick(i + 1, used, ks);
+          pick(i + 1, used, top || base[i].top, ks);
           ks.pop();
           used.delete(k);
         }
       };
-      pick(0, new Set(), []);
+      pick(0, new Set(), base.some((f) => f.top), []);
       for (const ks of combos) {
         for (let j = 0; j < 2; j++) {
           const v0 = [rep0.x, rep0.y, rep0.yaw + (j * Math.PI) / 4, 0];
-          const faces = base.map((f) => ({ ...f }));
-          faces.filter((f) => !f.top).forEach((f, i) => (f.k = ks[i]));
+          const faces = base.map((f, i) => ({ ...f, top: ks[i] === "top", k: ks[i] === "top" ? 0 : ks[i] }));
           // the corner order for each tag on its face, at the start
           faces.forEach((f) => {
             let best = null;
