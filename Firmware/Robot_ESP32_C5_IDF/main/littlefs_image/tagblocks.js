@@ -1044,7 +1044,7 @@ window.Lynx = window.Lynx || {};
       const normals = [[0, 0, 1]];
       for (let k = 0; k < 4; k++) normals.push([Math.cos(b.yaw + k * QUARTER), Math.sin(b.yaw + k * QUARTER), 0]);
       return normals.some((n) => {
-        const fc = [b.x + n[0] * half, b.y + n[1] * half, b.h + n[2] * half];
+        const fc = [b.x + n[0] * half, b.y + n[1] * half, bottomOf(b, B) + half + n[2] * half];
         const v = [fc[0] - snap.x, fc[1] - snap.y, fc[2] - snap.h];
         const dist = Math.hypot(...v);
         if (dist > EXPECT_MAX_M || dist < 0.05) return false;
@@ -1109,7 +1109,7 @@ window.Lynx = window.Lynx || {};
     function segmentHitsBlock(a, p, o, grow = 0) {
       const c = Math.cos(o.yaw);
       const s = Math.sin(o.yaw);
-      const loc = (q) => [(q[0] - o.x) * c + (q[1] - o.y) * s, -(q[0] - o.x) * s + (q[1] - o.y) * c, q[2] - o.h];
+      const loc = (q) => [(q[0] - o.x) * c + (q[1] - o.y) * s, -(q[0] - o.x) * s + (q[1] - o.y) * c, q[2] - bottomOf(o, o.B) - o.B / 2];
       const A = loc(a);
       const P = loc(p);
       const hb = o.B / 2 + grow;
@@ -1131,9 +1131,14 @@ window.Lynx = window.Lynx || {};
       return true;
     }
 
+    // Where a block stands: on the floor or on blocks below (blocks don't
+    // float) -- its height from its level, not the sightings' average height,
+    // which drifts a few mm (a cube drawn floating, its footprint missing).
+    const bottomOf = (b, B) => (b.level || 0) * B;
+
     function list() {
       const out = present().map((b) => ({
-        id: b.uid, tag: b.id, x: b.x, y: b.y, yaw: b.yaw, level: b.level, h0: b.h - b.B / 2, h1: b.h + b.B / 2, half: b.B / 2,
+        id: b.uid, tag: b.id, x: b.x, y: b.y, yaw: b.yaw, level: b.level, h0: bottomOf(b, b.B), h1: bottomOf(b, b.B) + b.B, half: b.B / 2,
         inferred: false, n: b.n, seen: b.seen,
       }));
       // what the ones up a level stand on: right under them, a block lower each (as big, presumably)
@@ -1187,7 +1192,7 @@ window.Lynx = window.Lynx || {};
         if (!cm) continue;
         const B = cm / 100;
         I.blocks.forEach((b) => {
-          if (b.ok && !b.present) out.push({ id: b.uid, tag: b.id, x: b.x, y: b.y, yaw: b.yaw, h0: b.h - B / 2, h1: b.h + B / 2, half: B / 2 });
+          if (b.ok && !b.present) out.push({ id: b.uid, tag: b.id, x: b.x, y: b.y, yaw: b.yaw, h0: bottomOf(b, B), h1: bottomOf(b, B) + B, half: B / 2 });
         });
       }
       return out;
