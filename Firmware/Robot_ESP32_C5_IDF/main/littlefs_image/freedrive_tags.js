@@ -1,7 +1,8 @@
 // Free drive's AprilTag cube detection (cam.js starts it with Free drive):
 // switches in the Overlays panel turn the detection on (tagblocks.js, the
 // same block map as Knight on Blocks, remembered on the robot -- see the
-// Tags page), show the blocks' outlines (cyan, the frame cube yellow; grey
+// Tags page), show the blocks' outlines -- with the footprint where a cube
+// stands on the floor filled in -- (cyan, the frame cube yellow; grey
 // for ones inferred underneath a stack; thin magenta for remembered ones not
 // seen where they were lately) and the tags found in the picture (green), and let
 // the frame cube set the world frame.
@@ -196,6 +197,30 @@ window.Lynx = window.Lynx || {};
       const a = w.anchor();
       // remembered cubes not seen there lately: dim magenta, thin -- under the ones seen
       const gone = tb.remembered().map((b) => ({ ...b, gone: true }));
+      const corners = (b) => {
+        const l = w.toLocal(b.x, b.y);
+        const yaw = a.th - b.yaw;
+        const c = Math.cos(yaw);
+        const s = Math.sin(yaw);
+        return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [l.f + (u * c - v * s) * b.half, l.r + (u * s + v * c) * b.half]);
+      };
+      // where each cube standing on the floor meets it: its footprint, filled (under the outlines)
+      const g = ar.ctx;
+      tb.blocks().forEach((b) => {
+        if (b.h0 > 0.005) return; // (stacked: not on the floor)
+        const pts = corners(b).map(([f, r]) => w.project(f, r, 0));
+        if (pts.some((p) => !p)) return;
+        g.save();
+        g.beginPath();
+        pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+        g.closePath();
+        g.fillStyle = FRAME_ALL.includes(b.tag) ? "rgba(255,210,80,0.28)" : b.inferred ? "rgba(200,200,200,0.2)" : "rgba(80,230,255,0.28)";
+        g.fill();
+        g.strokeStyle = FRAME_ALL.includes(b.tag) ? "rgba(255,230,140,0.95)" : "rgba(170,245,255,0.95)";
+        g.lineWidth = 2;
+        g.stroke();
+        g.restore();
+      });
       [...gone, ...tb.blocks()].forEach((b) => {
         const l = w.toLocal(b.x, b.y);
         const yaw = a.th - b.yaw;
