@@ -1,6 +1,6 @@
 // Knight on Blocks -- the Pocket Knight (game_knight.js) on real blocks:
 // cubes of any size with AprilTags (each tag ID on cubes of one size,
-// measured to the cm), found by tagblocks.js. The knight walks
+// measured to the cm), found by the cube layer (cubes.js). The knight walks
 // around them, jumps or vaults onto them, catches the edge of a stack and
 // climbs it -- and walks behind them: a real block nearer than the knight
 // hides it (its silhouette is cut out of the overlay, so the video shows
@@ -74,13 +74,13 @@ Lynx.games = Lynx.games || {};
     let showBlocks = Boolean(remembered("knightblocksShowBlocks", cfg.showBlocks !== false));
     let showTags = Boolean(remembered("knightblocksShowTags", cfg.showTags !== false)); // (older versions stored 0 / 1)
     const doScan = cfg.scan === true;
-    const w = Lynx.world3d(ar, { textures: false });
-    // the AprilTag cube settings are general (shared with Free drive's cube detection)
-    const tagCfg = (app && app.general) || {};
-    const family = tagCfg.tagFamily === "tag36h11" ? "tag36h11" : "tag16h5";
-    const tagRatio = clamp((+tagCfg.tagPercent || 75) / 100, 0.3, 0.95);
-    const tb = Lynx.tagBlocks(ar, { family, tagRatio, persist: true, fixedSizes: Lynx.frameCubeSizes(tagCfg), cubes: [Lynx.FRAME_CUBE_TAGS] });
-    tb.start();
+    // through the calibrated lens: the knight and the outlines sit on the video right to the picture's edges
+    const w = Lynx.world3d(ar, { textures: false, lens: true });
+    // the tagged cubes: the cube layer every game with cubes uses (cubes.js --
+    // the AprilTag settings are general, shared with Free drive's cube detection)
+    const cubes = Lynx.cubeLayer(ar, app);
+    const tb = cubes.tb;
+    const { family, tagRatio } = cubes.settings;
 
     let state = "title"; // title | scan | playing
     let stateTime = 0;
@@ -104,7 +104,7 @@ Lynx.games = Lynx.games || {};
       const prev = new Map(solids.map((s) => [s.id, s]));
       solids = tb.blocks().map((b) => {
         const l = w.toLocal(b.x, b.y);
-        return { id: b.id, cf: l.f, cr: l.r, yaw: a.th - b.yaw, half: b.half, h0: b.h0, h1: b.h1, inferred: b.inferred, n: b.n };
+        return { id: b.id, cf: l.f, cr: l.r, yaw: a.th - b.yaw, half: b.half, h0: b.h0, h1: b.h1, inferred: b.inferred, n: b.n, world: b };
       });
       // a block's estimate shifting a little under the knight carries it along
       if (hero.onGround && hero.standOn !== null && hero.mode === "move") {
@@ -434,9 +434,11 @@ Lynx.games = Lynx.games || {};
     // gives the camera's heading instead.
     const chassis = { x: 0, y: 0, th: 0, at: -1e9 };
     let alive = true;
-    Lynx.control.onMessage("pose", (m) => {
-      if (alive && typeof m.theta === "number") Object.assign(chassis, { x: m.x, y: m.y, th: m.theta, at: performance.now() });
-    });
+    ar.onDestroy(
+      Lynx.control.onMessage("pose", (m) => {
+        if (alive && typeof m.theta === "number") Object.assign(chassis, { x: m.x, y: m.y, th: m.theta, at: performance.now() });
+      }),
+    );
     function chassisLocal() {
       const fresh = performance.now() - chassis.at < 1000;
       const x = fresh ? chassis.x : ar.pose.x;
@@ -756,8 +758,7 @@ Lynx.games = Lynx.games || {};
     ar.onDestroy(() => {
       panelItems.forEach((el) => el.remove());
       window.removeEventListener("keydown", onKey);
-      alive = false;
-      tb.stop();
+      alive = false; // (the cube layer stops with the ar)
       if (state !== "title") Lynx.control.send({ type: "joystick", j1: 0, j2: 0 }); // out of goto: stop
       takeControl(false);
     });
@@ -814,7 +815,8 @@ Lynx.games = Lynx.games || {};
       return lower.slice(0, -1).concat(upper.slice(0, -1));
     }
     // A real block: in front of the knight it cuts the knight out (the video
-    // shows the block); optionally outlined (seen: cyan, inferred: grey).
+    // shows the block); optionally outlined (the cube layer's: seen cyan, the
+    // frame cube yellow, inferred grey).
     function queueBlock(b) {
       const cs = corners(b);
       const pts = [];
@@ -836,12 +838,7 @@ Lynx.games = Lynx.games || {};
           g.fill();
           g.restore();
         }
-        if (showBlocks) {
-          const col = b.inferred ? "rgba(200,200,200,0.55)" : "rgba(80,230,255,0.85)";
-          const top = cs.map(([f, r]) => [f, r, b.h1]);
-          w.line3([...top, top[0]], col, 1.5, 0.01);
-          cs.forEach(([f, r]) => w.line3([[f, r, b.h0], [f, r, b.h1]], col, 1, 0.01));
-        }
+        if (showBlocks) cubes.drawOutline(w, b.world);
       }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), b.h0, b.h1));
     }
     function queueShadow() {
@@ -877,26 +874,6 @@ Lynx.games = Lynx.games || {};
         K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near);
       }, w.extent(h.f - 0.014 * S, h.f + 0.014 * S, h.r - 0.014 * S, h.r + 0.014 * S, h.z, h.z + C.BODY_H));
     }
-    // the tags found in the last picture, outlined where they were
-    function drawTags() {
-      const v = ar.view;
-      const now = performance.now();
-      const g = ar.ctx;
-      tb.state.lastDetections.forEach((d) => {
-        if (now - d.at > 400) return;
-        const sx = v.w / d.w;
-        const sy = v.h / d.h;
-        g.beginPath();
-        d.corners.forEach((p, i) => (i ? g.lineTo(v.x + p.x * sx, v.y + p.y * sy) : g.moveTo(v.x + p.x * sx, v.y + p.y * sy)));
-        g.closePath();
-        g.strokeStyle = "rgba(60,255,120,0.9)";
-        g.lineWidth = 2;
-        g.stroke();
-        const c = d.corners.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4 }), { x: 0, y: 0 });
-        ar.text(String(d.id), v.x + c.x * sx, v.y + c.y * sy + 4, { size: 11, align: "center", color: "#80ffa0" });
-      });
-    }
-
     function hud() {
       const v = ar.view;
       const s = tb.state;
@@ -928,11 +905,17 @@ Lynx.games = Lynx.games || {};
     function draw() {
       w.beginFrame();
       if (state !== "title") {
+        // on the floor, under everything: the cubes' footprints, and the ones gone from where they were
+        if (showBlocks) {
+          cubes.drawFootprints(w);
+          cubes.drawGone(w);
+        }
         solids.forEach(queueBlock);
         if (state === "playing") queueHero();
         ar.flush();
       }
-      if (showTags) drawTags();
+      if (showTags) cubes.drawTags();
+      cubes.drawStatus();
       hud();
     }
 

@@ -53,7 +53,7 @@ window.Lynx = window.Lynx || {};
       } catch (e) {
         return;
       }
-      (messageListeners.get(msg.type) || []).forEach((cb) => cb(msg));
+      (messageListeners.get(msg.type) || []).slice().forEach((cb) => cb(msg)); // (a copy: one may stop listening)
     };
     ws.onclose = () => {
       clearTimeout(reconnectTimer);
@@ -321,10 +321,16 @@ window.Lynx = window.Lynx || {};
     robotCamPanRad: () => (robotMode() && camCmd ? (camCmd.pan * Math.PI) / 180 : null),
     robotCamTiltDeg: () => (robotMode() && camCmd ? camCmd.tilt : null),
     // Robot telemetry arriving on this same socket, e.g. onMessage("pose", cb).
+    // Returns a function that stops the listening (a game's, when it ends).
     onMessage(type, cb) {
       if (!messageListeners.has(type)) messageListeners.set(type, []);
       messageListeners.get(type).push(cb);
       ensureStarted();
+      return () => {
+        const list = messageListeners.get(type) || [];
+        const i = list.indexOf(cb);
+        if (i >= 0) list.splice(i, 1);
+      };
     },
   };
 
