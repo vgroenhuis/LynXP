@@ -637,8 +637,8 @@ window.Lynx = window.Lynx || {};
   // and lean, the pan, the tilt axis (rolled by axisRollRad), the tilt (down:
   // calib.tiltRad less the tilt servo's angle), the camera's own roll; the
   // lens offsetM ahead of the pan axis along where it looks, and lensUpM
-  // above the tilt axis (heightM is the lens's height looking level). While
-  // the servos stay where a cube showed the camera's real tilt, that tilt
+  // above the tilt axis (heightM is the lens's height looking level). The
+  // camera's real tilt and roll as the cubes last showed them
   // (Lynx.camTiltFix). With the page's
   // smooth aim the pose carries the camera's heading and pose.chassisTheta.
   // -> {C: [x, y, h] (h without a game's jump), fwd, right, down} (unit vectors)
@@ -650,12 +650,14 @@ window.Lynx = window.Lynx || {};
       pan += pose.theta - pose.chassisTheta;
       TH = pose.chassisTheta;
     }
-    // the camera's real tilt, measured from a cube (tagblocks.js fitCube) at
-    // these very servo angles: the hobby tilt servo is 1-2 degrees off in places
+    // the camera's real tilt and roll, measured from the cubes (tagblocks.js
+    // fitCube, floorFit): the hobby tilt servo is 1-2 degrees off in places.
+    // Kept as the camera turns (dropping it there made the floor and the
+    // cubes jump up and down); the cubes then pull it to the new angles.
     const panDeg = pan / D2R;
     const tiltDeg = pose.tiltAngleDeg || 0;
     const fx = Lynx.camTiltFix;
-    const fixHere = fx && Math.abs(fx.panDeg - panDeg) < 0.5 && Math.abs(fx.tiltDeg - tiltDeg) < 0.5;
+    const fixHere = !!fx;
     const fixRad = fixHere ? fx.rad : 0;
     const fixRoll = fixHere ? fx.roll || 0 : 0; // (the floor as the cubes standing on it show it: tagblocks.js)
     const D = calib.tiltRad - tiltDeg * D2R - fixRad;

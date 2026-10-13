@@ -911,8 +911,10 @@ window.Lynx = window.Lynx || {};
       }
       // The camera's real tilt, for every overlay (Lynx.cameraFrame): the
       // cubes' votes in this picture weighted (faces, fit), then smoothed over
-      // the still pictures at these same servo angles -- with several cubes in
-      // view, each setting it in turn made the overlays jump up and down.
+      // the still pictures -- with several cubes in view, each setting it in
+      // turn made the overlays jump up and down. Smoothed on from the last
+      // correction at new servo angles too, so turning the camera doesn't
+      // make the floor jump either.
       if (tiltVotes.length && snap.frame.panDeg !== undefined && opts.fixCamera !== false) {
         const W = tiltVotes.reduce((a, v) => a + v.w, 0);
         let meas = tiltVotes.reduce((a, v) => a + v.rad * v.w, 0) / W;
@@ -921,13 +923,12 @@ window.Lynx = window.Lynx || {};
         // when it's clearly measured.
         const ff = floorFit(floorCubes, snap);
         const prev = Lynx.camTiltFix;
-        const same = prev && Math.abs(prev.panDeg - snap.frame.panDeg) < 0.5 && Math.abs(prev.tiltDeg - snap.frame.tiltDeg) < 0.5;
         if (ff) meas = (snap.frame.fixRad || 0) + ff.dt;
-        const rad = same ? prev.rad + TILT_FIX_GAIN * (meas - prev.rad) : meas;
-        let roll = same ? prev.roll || 0 : 0;
+        const rad = prev ? prev.rad + TILT_FIX_GAIN * (meas - prev.rad) : meas;
+        let roll = prev ? prev.roll || 0 : 0;
         if (ff && ff.rollOk) {
           const measRoll = (snap.frame.fixRoll || 0) + ff.dr;
-          roll = same ? roll + TILT_FIX_GAIN * (measRoll - roll) : measRoll;
+          roll = prev ? roll + TILT_FIX_GAIN * (measRoll - roll) : measRoll;
         }
         Lynx.camTiltFix = { rad, roll, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
         const spread = tiltVotes.length > 1 ? Math.max(...tiltVotes.map((v) => v.rad)) - Math.min(...tiltVotes.map((v) => v.rad)) : 0;
