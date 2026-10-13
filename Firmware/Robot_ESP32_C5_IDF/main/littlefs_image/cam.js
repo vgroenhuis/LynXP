@@ -632,6 +632,20 @@ function ensureFireballOverlayInitialized(calib) {
   // live pose (for reprojecting existing fireballs/monsters), not from
   // whatever it was at any particular fireball's launch time.
   let effectiveTiltRad = calib.tiltRad;
+  // The camera's full frame (Lynx.cameraFrame: lean, rolls, the lens's offset,
+  // and the floor's tilt and roll as the cubes standing on it show it) and the
+  // pose that project()'s camera-relative (right, forward) are taken from.
+  let camF = Lynx.cameraFrame(calib, { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 });
+  let relPose = { x: 0, y: 0, theta: 0 };
+  // camera-relative (right x, forward y, height h) -> camera coordinates
+  function toCam(x, y, h) {
+    const c = Math.cos(relPose.theta);
+    const sn = Math.sin(relPose.theta);
+    const F = camF;
+    const d = [relPose.x + y * c + x * sn - F.C[0], relPose.y + y * sn - x * c - F.C[1], h - F.C[2]];
+    const dot = (v) => d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+    return [dot(F.right), dot(F.down), dot(F.fwd)];
+  }
 
   // Identical to initWaypointOverlay()'s own worldToRelative()/project() --
   // duplicated rather than shared, matching how the floor grid and
@@ -646,12 +660,10 @@ function ensureFireballOverlayInitialized(calib) {
   }
 
   function project(x, y, h) {
-    const verticalOffsetM = calib.heightM - h;
-    const zc = y * Math.cos(effectiveTiltRad) + verticalOffsetM * Math.sin(effectiveTiltRad);
-    const yc = verticalOffsetM * Math.cos(effectiveTiltRad) - y * Math.sin(effectiveTiltRad);
+    const [xc, yc, zc] = toCam(x, y, h);
     // Through the calibrated lens model (Lynx.lens). s = local pixels per
     // unit of x/z there, for sizing things at that depth.
-    const p = Lynx.lens.project(x, yc, zc, img.naturalWidth, img.naturalHeight);
+    const p = Lynx.lens.project(xc, yc, zc, img.naturalWidth, img.naturalHeight);
     return p ? { u: p.u, v: p.v, zc, s: p.scale } : { u: NaN, v: NaN, zc, s: 0 };
   }
 
@@ -842,6 +854,8 @@ function ensureFireballOverlayInitialized(calib) {
     const cameraTheta = pose.theta + (pose.servoAngleDeg * Math.PI) / 180;
     effectiveTiltRad = Lynx.cameraDown(calib, pose);
     const camPose = { x: pose.x, y: pose.y, theta: cameraTheta };
+    camF = Lynx.cameraFrame(calib, pose);
+    relPose = camPose;
 
     // Collected as {zc, render} entries and depth-sorted (painter's
     // algorithm: farthest first, nearest last) rather than always drawing
@@ -1575,6 +1589,20 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
   // reads this instead of calib.tiltRad directly so the live tilt servo
   // angle is folded in on top of the fixed mounting calibration.
   let effectiveTiltRad = calib.tiltRad;
+  // The camera's full frame (Lynx.cameraFrame: lean, rolls, the lens's offset,
+  // and the floor's tilt and roll as the cubes standing on it show it) and the
+  // pose that project()'s camera-relative (right, forward) are taken from.
+  let camF = Lynx.cameraFrame(calib, { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 });
+  let relPose = { x: 0, y: 0, theta: 0 };
+  // camera-relative (right x, forward y, height h) -> camera coordinates
+  function toCam(x, y, h) {
+    const c = Math.cos(relPose.theta);
+    const sn = Math.sin(relPose.theta);
+    const F = camF;
+    const d = [relPose.x + y * c + x * sn - F.C[0], relPose.y + y * sn - x * c - F.C[1], h - F.C[2]];
+    const dot = (v) => d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+    return [dot(F.right), dot(F.down), dot(F.fwd)];
+  }
 
   // World (dx, dy relative to the robot) -> camera-relative (right, forward).
   // Same rotation convention as driveTowardWorldDirection()'s forward/left
@@ -1633,10 +1661,9 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
   // Through the calibrated lens model (Lynx.lens, lynx_common.js), so the
   // grid bends with the camera's barrel distortion.
   function project(x, y) {
-    const zc = y * Math.cos(effectiveTiltRad) + calib.heightM * Math.sin(effectiveTiltRad);
+    const [xc, yc, zc] = toCam(x, y, 0);
     if (zc <= 0.01) return null; // behind the camera, or grazing along the optical axis
-    const yc = calib.heightM * Math.cos(effectiveTiltRad) - y * Math.sin(effectiveTiltRad);
-    const p = Lynx.lens.project(x, yc, zc, img.naturalWidth, img.naturalHeight);
+    const p = Lynx.lens.project(xc, yc, zc, img.naturalWidth, img.naturalHeight);
     return p && { u: p.u, v: p.v, zc };
   }
 
@@ -1661,6 +1688,8 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
     // camera upward, i.e. REDUCES its downward pitch from calib.tiltRad.
     effectiveTiltRad = Lynx.cameraDown(calib, robotPose);
     const pose = { x: robotPose.x, y: robotPose.y, theta: cameraTheta };
+    camF = Lynx.cameraFrame(calib, robotPose);
+    relPose = pose;
     const containerW = canvas.clientWidth;
     const containerH = canvas.clientHeight;
     canvas.width = containerW;
@@ -2033,6 +2062,20 @@ function initWaypointOverlay(calib) {
   // angle (on top of the fixed mounting calibration) is accounted for, same
   // as initFloorGrid()'s own project()/draw() -- see its comment for why.
   let effectiveTiltRad = calib.tiltRad;
+  // The camera's full frame (Lynx.cameraFrame: lean, rolls, the lens's offset,
+  // and the floor's tilt and roll as the cubes standing on it show it) and the
+  // pose that project()'s camera-relative (right, forward) are taken from.
+  let camF = Lynx.cameraFrame(calib, { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 });
+  let relPose = { x: 0, y: 0, theta: 0 };
+  // camera-relative (right x, forward y, height h) -> camera coordinates
+  function toCam(x, y, h) {
+    const c = Math.cos(relPose.theta);
+    const sn = Math.sin(relPose.theta);
+    const F = camF;
+    const d = [relPose.x + y * c + x * sn - F.C[0], relPose.y + y * sn - x * c - F.C[1], h - F.C[2]];
+    const dot = (v) => d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+    return [dot(F.right), dot(F.down), dot(F.fwd)];
+  }
 
   function worldToRelative(wx, wy, pose) {
     const dx = wx - pose.x;
@@ -2050,12 +2093,10 @@ function initWaypointOverlay(calib) {
   // with camera-to-point (calib.heightM - h), which collapses back to the
   // floor-grid formula exactly when h=0.
   function project(x, y, h) {
-    const verticalOffsetM = calib.heightM - h;
-    const zc = y * Math.cos(effectiveTiltRad) + verticalOffsetM * Math.sin(effectiveTiltRad);
-    const yc = verticalOffsetM * Math.cos(effectiveTiltRad) - y * Math.sin(effectiveTiltRad);
+    const [xc, yc, zc] = toCam(x, y, h);
     // Through the calibrated lens model (Lynx.lens). s = local pixels per
     // unit of x/z there, for sizing things at that depth.
-    const p = Lynx.lens.project(x, yc, zc, img.naturalWidth, img.naturalHeight);
+    const p = Lynx.lens.project(xc, yc, zc, img.naturalWidth, img.naturalHeight);
     return p ? { u: p.u, v: p.v, zc, s: p.scale } : { u: NaN, v: NaN, zc, s: 0 };
   }
 
@@ -2192,6 +2233,8 @@ function initWaypointOverlay(calib) {
     // camera upward, i.e. REDUCES its downward pitch from calib.tiltRad.
     effectiveTiltRad = Lynx.cameraDown(calib, robotPose);
     const pose = { x: robotPose.x, y: robotPose.y, theta: cameraTheta };
+    camF = Lynx.cameraFrame(calib, robotPose);
+    relPose = pose;
 
     const containerW = canvas.clientWidth;
     const containerH = canvas.clientHeight;

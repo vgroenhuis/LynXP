@@ -489,13 +489,19 @@ window.Lynx = window.Lynx || {};
     // tilted by dt (rad, up): each tag on a side face (k: which quarter turn
     // from the cube's heading) or the top, its corners in its detection's
     // order (shift, flip: how the tag sits on the face, found once).
-    function cubeResiduals(snap, B, zc, faces, q, dt) {
+    function cubeResiduals(snap, B, zc, faces, q, dt, dr = 0) {
       const F = snap.frame;
       const c = Math.cos(dt);
       const s = Math.sin(dt);
       const fwd = [0, 1, 2].map((k) => F.fwd[k] * c - F.down[k] * s);
-      const down = [0, 1, 2].map((k) => F.down[k] * c + F.fwd[k] * s);
-      const right = F.right;
+      let down = [0, 1, 2].map((k) => F.down[k] * c + F.fwd[k] * s);
+      let right = F.right;
+      if (dr) {
+        // the camera turned by dr about its optical axis (as Lynx.cameraFrame's fixRoll)
+        const cr = Math.cos(dr);
+        const sr = Math.sin(dr);
+        [right, down] = [right.map((v, k) => v * cr + down[k] * sr), down.map((v, k) => v * cr - right[k] * sr)];
+      }
       const half = B / 2;
       const ts = (B * RATIO) / 2;
       const cy = Math.cos(q[2]);
@@ -682,6 +688,88 @@ window.Lynx = window.Lynx || {};
       return { x: v[0], y: v[1], yaw: v[2], dt: v[3], rms, faces };
     }
 
+    // The cubes standing on the floor, fitted together: each its own x, y and
+    // heading, all with the same camera tilt (dt) and roll (dr) -- the floor's
+    // tilt and roll as they show it. A cube that won't fit with the others
+    // (stacked, tipped over, misread) is left out. The roll counts as measured
+    // only with the cubes spread across the picture, a good fit and a small
+    // uncertainty. -> {dt, dr, rms, n, sdr, rollOk} or null.
+    const FLOOR_MAX_PX = 1.2; // the joint fit's RMS
+    const FLOOR_MIN_SPREAD_PX = 120; // the cubes this far apart across the picture (for the roll)
+    const FLOOR_MAX_ROLL = (4 * Math.PI) / 180;
+    const FLOOR_MAX_ROLL_SIGMA = (0.3 * Math.PI) / 180;
+    function floorFit(cubesIn, snap) {
+      let cubes = cubesIn.slice();
+      if (cubes.length < 2) return null;
+      const run = (cs) => {
+        const W = cs.reduce((a, c) => a + 1 / Math.max(0.2, c.rms) ** 2, 0);
+        let v = [cs.reduce((a, c) => a + c.dt / Math.max(0.2, c.rms) ** 2, 0) / W, 0, ...cs.flatMap((c) => c.q)];
+        const res = (vv) => cs.flatMap((c, i) => cubeResiduals(snap, c.B, c.zc, c.faces, vv.slice(2 + 3 * i, 5 + 3 * i), vv[0], vv[1]));
+        let r = res(v);
+        let lam = 1e-3;
+        let JtJ = null;
+        for (let it = 0; it < 25; it++) {
+          const J = v.map((_, j) => {
+            const vp = v.slice();
+            vp[j] += 1e-5;
+            return res(vp).map((x, i) => (x - r[i]) / 1e-5);
+          });
+          JtJ = J.map((a) => J.map((b) => a.reduce((t, x, i) => t + x * b[i], 0)));
+          const g = J.map((a) => a.reduce((t, x, i) => t + x * r[i], 0));
+          let ok = false;
+          for (let k = 0; k < 8; k++) {
+            const d = solveSmall(JtJ.map((row, i) => row.map((x, j) => (i === j ? x * (1 + lam) + 1e-12 : x))), g.map((x) => -x));
+            if (!d) {
+              lam *= 10;
+              continue;
+            }
+            const v2 = v.map((x, i) => x + d[i]);
+            const r2 = res(v2);
+            if (sq(r2) < sq(r)) {
+              v = v2;
+              r = r2;
+              lam = Math.max(1e-9, lam / 3);
+              ok = true;
+              break;
+            }
+            lam *= 10;
+          }
+          if (!ok) break;
+        }
+        // each cube's own share of the misfit
+        let o = 0;
+        const per = cs.map((c) => {
+          const n = c.faces.length * 8;
+          const e = Math.sqrt(sq(r.slice(o, o + n)) / n);
+          o += n;
+          return e;
+        });
+        const rms = Math.sqrt(sq(r) / r.length);
+        // the roll's uncertainty: (J^T J)^-1, scaled by the fit's own noise
+        let sdr = Infinity;
+        const n = v.length;
+        const e1 = Array.from({ length: n }, (_, i) => (i === 1 ? 1 : 0));
+        const col = JtJ && solveSmall(JtJ, e1);
+        if (col && col[1] > 0) sdr = Math.sqrt(col[1]) * Math.max(rms, 0.3);
+        return { v, rms, per, sdr };
+      };
+      let f = run(cubes);
+      // a cube clearly worse than the rest: out, and once more
+      const worst = f.per.indexOf(Math.max(...f.per));
+      const others = f.per.filter((_, i) => i !== worst);
+      if (cubes.length > 2 && f.per[worst] > 1.0 && f.per[worst] > 2.5 * Math.max(...others)) {
+        cubes = cubes.filter((_, i) => i !== worst);
+        f = run(cubes);
+      }
+      if (!(f.rms < FLOOR_MAX_PX)) return null;
+      // spread across the picture: the cubes' tag centers, left to right
+      const us = cubes.map((c) => c.faces.reduce((a, ff) => a + ff.det.corners.reduce((b, p) => b + p.x, 0) / 4, 0) / c.faces.length);
+      const spread = Math.max(...us) - Math.min(...us);
+      const rollOk = cubes.length >= 2 && spread >= FLOOR_MIN_SPREAD_PX && Math.abs(f.v[1]) <= FLOOR_MAX_ROLL && f.sdr <= FLOOR_MAX_ROLL_SIGMA;
+      if (Lynx.debugCubeFit) console.log("floor fit " + JSON.stringify({ cubes: cubes.length, rms: +f.rms.toFixed(2), tiltDeg: +((f.v[0] * 180) / Math.PI).toFixed(2), rollDeg: +((f.v[1] * 180) / Math.PI).toFixed(2), rollSigmaDeg: +((f.sdr * 180) / Math.PI).toFixed(2), spreadPx: Math.round(spread), rollOk }));
+      return { dt: f.v[0], dr: f.v[1], rms: f.rms, n: cubes.length, sdr: f.sdr, rollOk };
+    }
+
     // One still picture's sightings into the map.
     function integrate(detsIn, snap, now) {
       // (tags cut off by the picture's edge out: see EDGE_QUIET)
@@ -712,6 +800,7 @@ window.Lynx = window.Lynx || {};
       });
       const seen = new Set(); // blocks sighted in this picture
       const tiltVotes = []; // the camera's tilt as each whole-cube fit in this picture sees it
+      const floorCubes = []; // the fitted cubes standing on the floor
       const byId = new Map();
       obs.forEach((o) => (byId.has(o.id) ? byId.get(o.id).push(o) : byId.set(o.id, [o])));
       for (const [id, list] of byId) {
@@ -752,6 +841,8 @@ window.Lynx = window.Lynx || {};
             // correction already in this picture's camera) -- one vote per
             // cube; only cubes of a known size (a wrong size takes a wrong tilt)
             if (I.fixed) tiltVotes.push({ rad: (snap.frame.fixRad || 0) + fit.dt, w: fit.faces.length / Math.max(0.2, fit.rms) ** 2, rms: fit.rms, tags: fit.faces.length });
+            // the cubes standing on the floor, for the floor's own tilt and roll (floorFit)
+            if (I.fixed && c.rep.level === 0) floorCubes.push({ B, zc: B / 2, faces: fit.faces, q: [fit.x, fit.y, fit.yaw], dt: fit.dt, rms: fit.rms });
           }
         });
         const free = I.blocks.slice();
@@ -816,13 +907,26 @@ window.Lynx = window.Lynx || {};
       // view, each setting it in turn made the overlays jump up and down.
       if (tiltVotes.length && snap.frame.panDeg !== undefined && opts.fixCamera !== false) {
         const W = tiltVotes.reduce((a, v) => a + v.w, 0);
-        const meas = tiltVotes.reduce((a, v) => a + v.rad * v.w, 0) / W;
+        let meas = tiltVotes.reduce((a, v) => a + v.rad * v.w, 0) / W;
+        // Two or more cubes on the floor, spread across the picture: the floor's
+        // tilt AND roll from all of them at once (floorFit) -- the roll only
+        // when it's clearly measured.
+        const ff = floorFit(floorCubes, snap);
         const prev = Lynx.camTiltFix;
         const same = prev && Math.abs(prev.panDeg - snap.frame.panDeg) < 0.5 && Math.abs(prev.tiltDeg - snap.frame.tiltDeg) < 0.5;
+        if (ff) meas = (snap.frame.fixRad || 0) + ff.dt;
         const rad = same ? prev.rad + TILT_FIX_GAIN * (meas - prev.rad) : meas;
-        Lynx.camTiltFix = { rad, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
+        let roll = same ? prev.roll || 0 : 0;
+        if (ff && ff.rollOk) {
+          const measRoll = (snap.frame.fixRoll || 0) + ff.dr;
+          roll = same ? roll + TILT_FIX_GAIN * (measRoll - roll) : measRoll;
+        }
+        Lynx.camTiltFix = { rad, roll, panDeg: snap.frame.panDeg, tiltDeg: snap.frame.tiltDeg, at: now };
         const spread = tiltVotes.length > 1 ? Math.max(...tiltVotes.map((v) => v.rad)) - Math.min(...tiltVotes.map((v) => v.rad)) : 0;
-        state.tiltFix = { deg: (rad * 180) / Math.PI, cubes: tiltVotes.length, spreadDeg: (spread * 180) / Math.PI, at: now };
+        state.tiltFix = {
+          deg: (rad * 180) / Math.PI, rollDeg: (roll * 180) / Math.PI, cubes: tiltVotes.length, spreadDeg: (spread * 180) / Math.PI, at: now,
+          floor: ff ? { cubes: ff.n, rms: ff.rms, rollSigmaDeg: (ff.sdr * 180) / Math.PI, rollOk: ff.rollOk } : null,
+        };
       }
       // Gone: a block that should be in plain view in this still picture,
       // but whose tag isn't seen there, MISS_N pictures running -- moved

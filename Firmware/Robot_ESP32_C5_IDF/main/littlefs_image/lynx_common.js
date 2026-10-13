@@ -655,7 +655,9 @@ window.Lynx = window.Lynx || {};
     const panDeg = pan / D2R;
     const tiltDeg = pose.tiltAngleDeg || 0;
     const fx = Lynx.camTiltFix;
-    const fixRad = fx && Math.abs(fx.panDeg - panDeg) < 0.5 && Math.abs(fx.tiltDeg - tiltDeg) < 0.5 ? fx.rad : 0;
+    const fixHere = fx && Math.abs(fx.panDeg - panDeg) < 0.5 && Math.abs(fx.tiltDeg - tiltDeg) < 0.5;
+    const fixRad = fixHere ? fx.rad : 0;
+    const fixRoll = fixHere ? fx.roll || 0 : 0; // (the floor as the cubes standing on it show it: tagblocks.js)
     const D = calib.tiltRad - tiltDeg * D2R - fixRad;
     const mul = (A, B) => A.map((r) => [0, 1, 2].map((j) => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
     const Rz = (a) => [[Math.cos(a), -Math.sin(a), 0], [Math.sin(a), Math.cos(a), 0], [0, 0, 1]];
@@ -665,19 +667,28 @@ window.Lynx = window.Lynx || {};
     R = mul(mul(mul(mul(R, Rz(pan)), Rx(calib.axisRollRad || 0)), Rdown(D)), Rx(calib.camRollRad || 0));
     const fwd = [R[0][0], R[1][0], R[2][0]];
     const up = [R[0][2], R[1][2], R[2][2]];
+    let right = [-R[0][1], -R[1][1], -R[2][1]];
+    let down = [-up[0], -up[1], -up[2]];
+    if (fixRoll) {
+      // turned about the optical axis (as tagblocks.js's cubeResiduals)
+      const cr = Math.cos(fixRoll);
+      const sr = Math.sin(fixRoll);
+      [right, down] = [right.map((v, k) => v * cr + down[k] * sr), down.map((v, k) => v * cr - right[k] * sr)];
+    }
     const off = calib.offsetM || 0;
     const u = calib.lensUpM || 0; // the lens above the tilt axis: tilting swings it on that arm
     return {
       C: [pose.x + off * fwd[0] + u * up[0], pose.y + off * fwd[1] + u * up[1], calib.heightM - u + off * fwd[2] + u * up[2]],
       fwd,
-      right: [-R[0][1], -R[1][1], -R[2][1]],
-      down: [-R[0][2], -R[1][2], -R[2][2]],
+      right,
+      down,
       panDeg,
       tiltDeg,
       fixRad,
+      fixRoll,
     };
   };
-  // {rad (up), panDeg, tiltDeg (the servo angles it was measured at)} or null
+  // {rad (tilt, up), roll (about the optical axis), panDeg, tiltDeg (the servo angles it was measured at)} or null
   Lynx.camTiltFix = null;
 
   // -- camera lens model ---------------------------------------------------------
