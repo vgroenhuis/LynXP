@@ -793,6 +793,19 @@ window.Lynx = window.Lynx || {};
       return { dt: f.v[0], dr: f.v[1], rms: f.rms, n: cubes.length, sdr: f.sdr, rollOk };
     }
 
+    // Two detections next to each other in the picture (a gap under 0.6 of a tag)
+    function touching(d, e) {
+      const box = (q) => {
+        const xs = q.corners.map((p) => p.x);
+        const ys = q.corners.map((p) => p.y);
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      };
+      const a = box(d);
+      const b = box(e);
+      const size = Math.max(a[2] - a[0], a[3] - a[1], b[2] - b[0], b[3] - b[1]);
+      return Math.max(a[0] - b[2], b[0] - a[2], a[1] - b[3], b[1] - a[3]) < 0.6 * size;
+    }
+
     // One still picture's sightings into the map.
     function integrate(detsIn, snap, now) {
       // (tags cut off by the picture's edge out: see EDGE_QUIET)
@@ -836,8 +849,11 @@ window.Lynx = window.Lynx || {};
           clusters.push(list);
           if (I.blocks.length > 1) I.blocks = [I.blocks.reduce((a, b) => (b.seen > a.seen ? b : a))];
         } else {
+          // (or whose tags touch in the picture: two faces of one cube, whose
+          // single-tag places can be more than OVERLAP apart -- split, they made
+          // a second, ghost cube that was never seen again)
           list.forEach((o) => {
-            const c = clusters.find((k) => near(k[0], o, B, OVERLAP));
+            const c = clusters.find((k) => near(k[0], o, B, OVERLAP) || k.some((oo) => touching(oo.det, o.det)));
             if (c) c.push(o);
             else clusters.push([o]);
           });
