@@ -15,11 +15,13 @@
 // to match (/set?set_pose -- the robot doesn't move, the world does), and the
 // map moves along. Only the side tags count for the heading (a top tag's turn
 // on its face isn't known). Done again whenever the cube is seen more than
-// FRAME_TOL_M / FRAME_TOL_RAD off the origin / axes. (Games leave it off:
-// the world moving under a game is a surprise.)
+// FRAME_TOL_M / FRAME_TOL_RAD off the origin / axes. A game that offers it
+// moves what it keeps in world coordinates along: opts.onWorldMoved.)
 //
 // Lynx.cubeLayer(ar, app, opts) -> layer; it stops with the ar.
 //   opts: {frame: () => bool (the frame cube sets the world frame),
+//          onWorldMoved(cx, cy, alpha): it just did -- a world point p is now
+//            rotate(-alpha) of (p - (cx, cy)), a heading less alpha,
 //          onStill(obs, snap): every still picture's sightings (tagblocks.js)}
 //   layer.tb: the cube finder (blocks(), remembered(), clear(), state, ...)
 //   layer.blocks(): the cubes seen: [{id, tag, x, y, yaw, level, h0, h1, half,
@@ -225,6 +227,7 @@ window.Lynx = window.Lynx || {};
       const th = wrap(rp.th - alpha);
       fetch(`/set?set_pose=1&x=${x.toFixed(4)}&y=${y.toFixed(4)}&theta=${th.toFixed(5)}`).catch(() => {});
       tb.transform(cx, cy, alpha);
+      if (opts.onWorldMoved) opts.onWorldMoved(cx, cy, alpha);
       tb.pause(1500); // until the video's poses are in the new frame
       frame.samples = [];
       frame.appliedAt = now;

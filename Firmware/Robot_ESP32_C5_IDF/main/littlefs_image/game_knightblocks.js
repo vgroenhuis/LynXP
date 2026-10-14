@@ -112,7 +112,11 @@ Lynx.games = Lynx.games || {};
     const w = Lynx.world3d(ar, { textures: false, lens: true });
     // the tagged cubes: the cube layer every game with cubes uses (cubes.js --
     // the AprilTag settings are general, shared with Free drive's cube detection)
-    const cubes = Lynx.cubeLayer(ar, app);
+    // "World frame from cube" (Overlays panel, remembered): the frame cube sets
+    // the world frame (cubes.js) -- and the knight's floor frame (the anchor),
+    // the camera's aim and the robot's target move along with the world
+    let frameFromCube = Boolean(remembered("knightblocksAutoFrame", false));
+    const cubes = Lynx.cubeLayer(ar, app, { frame: () => frameFromCube, onWorldMoved: (cx, cy, alpha) => worldMoved(cx, cy, alpha) });
     const tb = cubes.tb;
     const { family, tagRatio } = cubes.settings;
 
@@ -700,6 +704,23 @@ Lynx.games = Lynx.games || {};
       man.fwd = man.turn = 0;
       man.sent = { j1: 0, j2: 0 };
     }
+    // the world frame just moved (the frame cube): everything kept in world coordinates along with it
+    let worldHoldUntil = -1e9;
+    function worldMoved(cx, cy, alpha) {
+      worldHoldUntil = performance.now() + 1500; // (as the cube finder's pause: till the poses are in the new frame)
+      const a = w.anchor();
+      const c = Math.cos(alpha);
+      const s = Math.sin(alpha);
+      const dx = a.x - cx;
+      const dy = a.y - cy;
+      w.setAnchor({ x: dx * c + dy * s, y: -dx * s + dy * c, th: wrap(a.th - alpha) }); // (the knight's floor frame: the knight stays put)
+      if (cam.aimYaw !== null) cam.aimYaw = wrap(cam.aimYaw - alpha);
+      if (man.viewYaw !== null) man.viewYaw -= alpha;
+      cam.lastGoto = null; // (the goto target: planned again in the new frame)
+      cam.cmd = null;
+      cam.target = null;
+      cam.planMs = -1e9;
+    }
     function setAutoDrive(on) {
       if (on === autoDrive) return;
       autoDrive = on;
@@ -943,6 +964,7 @@ Lynx.games = Lynx.games || {};
       panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Wheel tracks", showTracks, (on) => remember("knightblocksWheelTracks", (showTracks = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Auto stop", autoStop, (on) => remember("knightblocksAutoStop", (autoStop = on))));
+      panelItems.push(Lynx.cam.addOverlayToggle("World frame from cube", frameFromCube, (on) => remember("knightblocksAutoFrame", (frameFromCube = on))));
     }
     ar.onDestroy(() => {
       panelItems.forEach((el) => el.remove());
@@ -976,7 +998,8 @@ Lynx.games = Lynx.games || {};
       h.speed = h.onGround && h.mode === "move" ? Math.hypot(h.vf, h.vr) : 0;
       const run = clamp((h.speed - C.WALK_V) / (C.RUN_V - C.WALK_V), 0, 1);
       h.phase += (dt * 2 * Math.PI * h.speed) / (lerp(0.056, 0.12, run) * S);
-      steerRobot(dt, now);
+      // (just after the world moved, the robot's pose is still in the old frame for a moment: no steering)
+      if (performance.now() >= worldHoldUntil) steerRobot(dt, now);
     }
 
     // -- drawing ------------------------------------------------------------------------------------
