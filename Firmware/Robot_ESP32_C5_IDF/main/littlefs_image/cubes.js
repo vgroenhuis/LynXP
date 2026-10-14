@@ -336,15 +336,31 @@ window.Lynx = window.Lynx || {};
       g.stroke();
       g.restore();
     }
-    // a cube's wireframe (seen: cyan, the frame cube yellow, inferred: grey, gone: thin magenta)
+    // a cube's wireframe (seen: cyan, the frame cube yellow, inferred: grey,
+    // gone: thin magenta) -- only the edges that can be seen: an edge shows
+    // when one of its two faces is turned to the camera (the top, from above;
+    // a side, from its side; never the bottom)
     function drawOutline(w, b) {
       const cs = cornersIn(w, b);
       const col = b.gone ? COL.gone : b.inferred ? COL.inferred : isFrame(b.tag) ? COL.frame : COL.seen;
-      const top = cs.map(([f, r]) => [f, r, b.h1]);
-      const bottom = cs.map(([f, r]) => [f, r, b.h0]);
-      w.line3([...top, top[0]], col, b.gone ? 1 : 1.5, 0.01);
-      w.line3([...bottom, bottom[0]], col, 1, 0.01);
-      cs.forEach(([f, r]) => w.line3([[f, r, b.h0], [f, r, b.h1]], col, 1, 0.01));
+      const cam = w.camLocal();
+      const cf = cs.reduce((m, p) => m + p[0], 0) / 4;
+      const cr = cs.reduce((m, p) => m + p[1], 0) / 4;
+      // side i: from corner i to corner i + 1 -- turned to the camera?
+      const side = cs.map((p, i) => {
+        const q = cs[(i + 1) % 4];
+        const mf = (p[0] + q[0]) / 2;
+        const mr = (p[1] + q[1]) / 2;
+        return (cam.f - mf) * (mf - cf) + (cam.r - mr) * (mr - cr) > 0;
+      });
+      const top = cam.h > b.h1;
+      for (let i = 0; i < 4; i++) {
+        const [f0, r0] = cs[i];
+        const [f1, r1] = cs[(i + 1) % 4];
+        if (top || side[i]) w.line3([[f0, r0, b.h1], [f1, r1, b.h1]], col, b.gone ? 1 : 1.5, 0.01);
+        if (side[i]) w.line3([[f0, r0, b.h0], [f1, r1, b.h0]], col, 1, 0.01);
+        if (side[i] || side[(i + 3) % 4]) w.line3([[f0, r0, b.h0], [f0, r0, b.h1]], col, 1, 0.01);
+      }
     }
     // cubes known but not seen where they were lately: dim magenta, with their tag
     function drawGone(w) {
@@ -390,7 +406,6 @@ window.Lynx = window.Lynx || {};
     }
     function draw(w, show = {}) {
       if (show.blocks !== false) {
-        drawFootprints(w);
         drawGone(w);
         tb.blocks().forEach((b) => drawOutline(w, b));
       }
