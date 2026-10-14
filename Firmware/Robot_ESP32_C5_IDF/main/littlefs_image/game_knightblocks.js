@@ -44,13 +44,12 @@ Lynx.games = Lynx.games || {};
   const PLAN_DEADBAND_M = 0.015; // a new plan this close to the old one isn't worth moving for
   // The camera: the cube finder only learns from still pictures (the camera
   // turned less than 0.6 deg in 0.4 s, see tagblocks.js), so it doesn't
-  // follow the knight all the time -- it holds still while the spot it looks
-  // at stays within AIM_DEAD_* of the middle of the view, then turns slowly
-  // until that's within AIM_SETTLE_DEG again, and holds still again.
+  // follow the knight all the time -- it holds still while the knight stays
+  // within the dead zone (the settings camDeadzoneDeg / camDeadzoneTiltDeg)
+  // of the middle of the view, then turns at camSpeedDeg until it's within
+  // AIM_SETTLE_DEG again, and holds still again. Re-center (V, the camera
+  // button in manual drive, a touch / Menu button) turns it there right away.
   const AIM_EASE = 0.8; // 1/s: the spot looked at eases toward the knight (time constant 1.25 s)
-  const AIM_MAX_RAD_S = 0.15; // the camera turns no faster than this (8.6 deg/s)
-  const AIM_DEAD_YAW_DEG = 12;
-  const AIM_DEAD_TILT_DEG = 8;
   const AIM_SETTLE_DEG = 2;
   // Manual drive: the robot's top speeds (the "joystick" message's j2 / j1 at
   // full stick: ~5 cm/s, and ~20 deg/s turning on the spot) and how the speed
@@ -105,6 +104,11 @@ Lynx.games = Lynx.games || {};
     // manual drive: the robot won't drive into a block it knows (off: it goes where it's driven)
     let autoStop = Boolean(remembered("knightblocksAutoStop", true));
     const doScan = cfg.scan === true;
+    // the camera (see AIM_EASE): how fast it turns, and its dead zone
+    const num = (v, def) => (Number.isFinite(+v) && v !== "" && v !== null && v !== undefined ? +v : def);
+    const aimRate = (clamp(num(cfg.camSpeedDeg, 9), 1, 60) * Math.PI) / 180;
+    const deadYawDeg = clamp(num(cfg.camDeadzoneDeg, 12), 0, 40);
+    const deadTiltDeg = clamp(num(cfg.camDeadzoneTiltDeg, 8), 0, 40);
     // manual drive (default) or auto drive: a switch in the game, remembered
     let autoDrive = Boolean(remembered("knightblocksAutoDrive", cfg.autoDrive === true));
     const man = { fwd: 0, turn: 0, sentAt: -1e9, sent: null, camAt: -1e9, camSent: null, viewYaw: null };
@@ -801,7 +805,7 @@ Lynx.games = Lynx.games || {};
       const P = w.toWorld(cam.aimPt[0], cam.aimPt[1]);
       const hd = Math.hypot(P.x - cw.x, P.y - cw.y);
       const yaw = Math.atan2(P.y - cw.y, P.x - cw.x);
-      const turn = AIM_MAX_RAD_S * dt;
+      const turn = aimRate * dt;
       const down = Math.atan2(cw.h - cam.aimPt[2], Math.max(hd, 0.03));
       const tilt = ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff;
       if (fresh || cam.aimYaw === null) {
@@ -812,7 +816,7 @@ Lynx.games = Lynx.games || {};
         // held still in the dead zone; past it, turned slowly till it's in the middle again
         const errYawDeg = hd > 0.03 ? (wrap(yaw - cam.aimYaw) * 180) / Math.PI : 0;
         const errTilt = tilt - cam.aimTilt;
-        if (!cam.aimMoving && (Math.abs(errYawDeg) > AIM_DEAD_YAW_DEG || Math.abs(errTilt) > AIM_DEAD_TILT_DEG)) cam.aimMoving = true;
+        if (!cam.aimMoving && (Math.abs(errYawDeg) > deadYawDeg || Math.abs(errTilt) > deadTiltDeg)) cam.aimMoving = true;
         if (cam.aimMoving) {
           const tiltStep = (turn * 180) / Math.PI;
           cam.aimYaw = wrap(cam.aimYaw + clamp((errYawDeg * Math.PI) / 180, -turn, turn));
@@ -929,7 +933,17 @@ Lynx.games = Lynx.games || {};
       hero.jumpBuf = C.JUMP_BUFFER_S;
       return true;
     });
-    Lynx.onAction("camera", () => state === "playing" && (cam.behind = true));
+    // Re-center: the camera turns to the knight now (dead zone or not), and the
+    // spot it looks at jumps to the knight (no easing)
+    function recenter() {
+      if (state !== "playing") return;
+      if (cam.aimYaw === null) return;
+      cam.aimPt = knightMiddle(); // (turned there at the camera's speed: aimAt)
+      cam.aimMoving = true;
+      say("Camera: re-centering on the knight", "#c0f0ff");
+    }
+    // the camera button: in auto drive the robot circles round behind the knight; in manual drive, re-center
+    Lynx.onAction("camera", () => state === "playing" && (autoDrive ? (cam.behind = true) : recenter()));
     function zoom(dir) {
       // dir +1: closer (zoom in), -1: farther
       camDist = clamp(Math.round((camDist - dir * ZOOM_STEP) / ZOOM_STEP) * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
@@ -946,11 +960,13 @@ Lynx.games = Lynx.games || {};
       else if (e.key === "-" || e.key === "_") zoom(-1);
       else if (e.code === "KeyR" && state !== "title") rescan();
       else if (e.code === "KeyM") setAutoDrive(!autoDrive);
+      else if (e.code === "KeyV") recenter();
     };
     window.addEventListener("keydown", onKey);
     const touch = Lynx.touchButtons();
     touch.add("⤒ Jump", () => Lynx.jumpAction());
     touch.add("\u{1F3A5} Behind", () => Lynx.cameraAction());
+    touch.add("\u2316 Center", () => recenter());
     touch.add("\u2795 Zoom in", () => zoom(1));
     touch.add("\u2796 Zoom out", () => zoom(-1));
     // Rescan in the Menu panel, the outline switches with the other overlays
@@ -960,6 +976,7 @@ Lynx.games = Lynx.games || {};
       driveToggle = Lynx.cam.addOverlayToggle("Auto drive", autoDrive, (on) => setAutoDrive(on));
       panelItems.push(driveToggle);
       panelItems.push(Lynx.cam.addMenuButton("\u{1F50D} Rescan blocks", () => state !== "title" && rescan()));
+      panelItems.push(Lynx.cam.addMenuButton("\u2316 Re-center camera", () => recenter()));
       panelItems.push(Lynx.cam.addOverlayToggle("Blocks", showBlocks, (on) => remember("knightblocksShowBlocks", (showBlocks = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Wheel tracks", showTracks, (on) => remember("knightblocksWheelTracks", (showTracks = on))));
