@@ -657,45 +657,45 @@ window.Lynx = window.Lynx || {};
     function explosion(f, r, z, rad, t) {
       const m = w.project(f, r, z + rad * 0.25);
       if (!m) return;
-      const R = rad * m.ppm;
+      const R = rad * m.ppm * 0.62;
       g.save();
       g.globalCompositeOperation = "lighter";
-      const flash = Math.max(0, 1 - t * 5);
-      if (flash > 0) ar.glow(m.x, m.y, R * (1.2 + t * 2), [[0, `rgba(255,255,235,${0.95 * flash})`], [0.5, `rgba(255,190,90,${0.5 * flash})`], [1, "rgba(255,120,0,0)"]]);
-      const swell = smooth(0, 0.35, t);
-      const fade = 1 - smooth(0.35, 1, t);
-      for (let k = 0; k < 6; k++) {
-        const a = k * 1.047 + 0.6;
-        const d = rad * 0.45 * swell;
-        const q = w.project(f + d * Math.cos(a), r + d * Math.sin(a), z + rad * (0.18 + 0.4 * swell) + 0.1 * rad * Math.sin(k));
+      const flash = Math.max(0, 1 - t * 6);
+      if (flash > 0) ar.glow(m.x, m.y, R * (0.8 + t * 3), [[0, `rgba(255,255,240,${0.9 * flash})`], [0.45, `rgba(255,200,110,${0.4 * flash})`], [1, "rgba(255,120,0,0)"]]);
+      const swell = smooth(0, 0.3, t);
+      const fade = 1 - smooth(0.3, 0.85, t);
+      for (let k = 0; k < 7; k++) {
+        const a = k * 0.9 + 0.6;
+        const d = rad * 0.4 * swell * (k % 2 ? 0.7 : 1);
+        const q = w.project(f + d * Math.cos(a), r + d * Math.sin(a), z + rad * (0.14 + 0.38 * swell) + 0.06 * rad * Math.sin(k * 2));
         if (!q) continue;
-        ar.glow(q.x, q.y, R * (0.35 + 0.3 * swell), [[0, `rgba(255,${230 - 90 * swell | 0},${150 - 110 * swell | 0},${0.8 * fade})`], [0.5, `rgba(255,${120 - 50 * swell | 0},20,${0.55 * fade})`], [1, "rgba(120,20,0,0)"]]);
+        ar.glow(q.x, q.y, R * (0.28 + 0.26 * swell), [[0, `rgba(255,${210 - 90 * swell | 0},${120 - 80 * swell | 0},${0.55 * fade})`], [0.5, `rgba(255,${110 - 40 * swell | 0},20,${0.4 * fade})`], [1, "rgba(120,20,0,0)"]]);
       }
       g.restore();
-      // smoke afterwards
-      const sm = smooth(0.25, 0.7, t) * (1 - smooth(0.8, 1, t));
+      // smoke afterwards, darker and rising
+      const sm = smooth(0.2, 0.6, t) * (1 - smooth(0.75, 1, t));
       if (sm > 0) {
         for (let k = 0; k < 5; k++) {
           const a = k * 1.3;
-          const q = w.project(f + rad * 0.3 * Math.cos(a), r + rad * 0.3 * Math.sin(a), z + rad * (0.3 + 0.9 * t));
+          const q = w.project(f + rad * 0.25 * Math.cos(a), r + rad * 0.25 * Math.sin(a), z + rad * (0.25 + 0.9 * t));
           if (!q) continue;
-          ar.glow(q.x, q.y, R * (0.4 + 0.35 * t), [[0, `rgba(60,56,52,${0.5 * sm})`], [1, "rgba(40,38,36,0)"]]);
+          ar.glow(q.x, q.y, R * (0.35 + 0.35 * t), [[0, `rgba(50,46,42,${0.55 * sm})`], [1, "rgba(40,38,36,0)"]]);
         }
       }
       // the blast wave on the floor
-      if (t < 0.5) {
-        const k = t / 0.5;
-        ring(f, r, z + 0.0008, rad * (0.2 + 0.8 * k), `rgba(255,230,180,${(0.7 * (1 - k)).toFixed(3)})`, 2.5);
+      if (t < 0.45) {
+        const k = t / 0.45;
+        ring(f, r, z + 0.0008, rad * (0.25 + 0.75 * k), `rgba(255,235,190,${(0.7 * (1 - k)).toFixed(3)})`, 2.5);
+        disc(f, r, z + 0.0005, rad * 0.5 * (1 - k * 0.5), `rgba(255,170,60,${(0.28 * (1 - k)).toFixed(3)})`);
       }
     }
-
     // -- particles -------------------------------------------------------------------------------------
     const parts = [];
     const KINDS = {
       ember: { life: [1.0, 2.2], size: [0.0014, 0.003], g: -0.01, drag: 0.4 },
       smoke: { life: [1.2, 2.2], size: [0.006, 0.012], g: -0.012, drag: 1.2 },
       spark: { life: [0.25, 0.6], size: [0.0012, 0.0022], g: 0.2, drag: 0.1 },
-      debris: { life: [0.7, 1.4], size: [0.0016, 0.004], g: 0.45, drag: 0.1 },
+      debris: { life: [0.7, 1.4], size: [0.0007, 0.0018], g: 0.45, drag: 0.1 },
       dust: { life: [0.6, 1.1], size: [0.004, 0.009], g: -0.004, drag: 2 },
       splash: { life: [0.4, 0.8], size: [0.0014, 0.0028], g: 0.4, drag: 0.2 },
     };

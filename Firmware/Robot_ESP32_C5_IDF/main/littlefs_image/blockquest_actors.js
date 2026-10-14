@@ -468,7 +468,7 @@ window.Lynx = window.Lynx || {};
     }
     // a blast: damages whatever is in reach and not covered by a block between
     A.blast = (f, r, z, radius, dmg, o = {}) => {
-      A.blasts.push({ f, r, z, rad: radius * 1.6, t: 0 });
+      A.blasts.push({ f, r, z, rad: radius * 1.25, t: 0 });
       cx.sfx("explode");
       fx.parts.emit("spark", f, r, z + 0.004, 16, 0.004, { speed: 0.14, up: 0.1 });
       fx.parts.emit("debris", f, r, z + 0.003, 10, 0.004, { speed: 0.08, up: 0.1 });
