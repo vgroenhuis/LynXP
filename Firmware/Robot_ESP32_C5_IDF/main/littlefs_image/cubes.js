@@ -294,14 +294,29 @@ window.Lynx = window.Lynx || {};
       return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => [l.f + (u * c - v * s) * b.half, l.r + (u * s + v * c) * b.half]);
     }
     // where each cube standing on the floor meets it: its footprint, filled
+    // -- only on the video itself (not over the bars beside it, where a cube
+    // just out of the picture showed as a shaded patch), its edges in short
+    // steps so they bend with the lens as the outlines do
     function drawFootprints(w) {
       const g = ar.ctx;
+      const v = ar.view;
       tb.blocks().forEach((b) => {
         if (b.h0 > 0.005) return; // (stacked: not on the floor)
-        const pts = cornersIn(w, b).map(([f, r]) => w.project(f, r, 0));
+        const cs = cornersIn(w, b);
+        const pts = [];
+        for (let i = 0; i < 4; i++) {
+          const [f0, r0] = cs[i];
+          const [f1, r1] = cs[(i + 1) % 4];
+          for (let k = 0; k < 6; k++) pts.push(w.project(f0 + ((f1 - f0) * k) / 6, r0 + ((r1 - r0) * k) / 6, 0));
+        }
         if (pts.some((p) => !p)) return;
+        // nothing of it on the video: not drawn
+        if (Math.max(...pts.map((p) => p.x)) < v.x || Math.min(...pts.map((p) => p.x)) > v.x + v.w || Math.max(...pts.map((p) => p.y)) < v.y || Math.min(...pts.map((p) => p.y)) > v.y + v.h) return;
         const [fill, stroke] = isFrame(b.tag) ? COL.footFrame : b.inferred ? COL.footInferred : COL.footSeen;
         g.save();
+        g.beginPath();
+        g.rect(v.x, v.y, v.w, v.h);
+        g.clip();
         g.beginPath();
         pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
         g.closePath();
