@@ -39,8 +39,16 @@ Lynx.games = Lynx.games || {};
   const PLAN_EVERY_MS = 150;
   const ROBOT_GLIDE_MPS = 0.03; // how fast the spot the robot drives to may move (slow: the tags stay sharp)
   const PLAN_DEADBAND_M = 0.015; // a new plan this close to the old one isn't worth moving for
-  const AIM_EASE = 1.5; // 1/s: the camera eases toward the knight (time constant 0.7 s)
-  const AIM_MAX_RAD_S = 0.3; // and pans no faster than this (17 deg/s: sharp pictures; the tag finder skips them above 0.6)
+  // The camera: the cube finder only learns from still pictures (the camera
+  // turned less than 0.6 deg in 0.4 s, see tagblocks.js), so it doesn't
+  // follow the knight all the time -- it holds still while the spot it looks
+  // at stays within AIM_DEAD_* of the middle of the view, then turns slowly
+  // until that's within AIM_SETTLE_DEG again, and holds still again.
+  const AIM_EASE = 0.8; // 1/s: the spot looked at eases toward the knight (time constant 1.25 s)
+  const AIM_MAX_RAD_S = 0.15; // the camera turns no faster than this (8.6 deg/s)
+  const AIM_DEAD_YAW_DEG = 12;
+  const AIM_DEAD_TILT_DEG = 8;
+  const AIM_SETTLE_DEG = 2;
   // Manual drive: the robot's top speeds (the "joystick" message's j2 / j1 at
   // full stick: ~5 cm/s, and ~20 deg/s turning on the spot) and how the speed
   // eases toward the stick's -- slow and smooth, so the tags stay sharp
@@ -734,12 +742,24 @@ Lynx.games = Lynx.games || {};
       const hd = Math.hypot(P.x - cw.x, P.y - cw.y);
       const yaw = Math.atan2(P.y - cw.y, P.x - cw.x);
       const turn = AIM_MAX_RAD_S * dt;
-      if (fresh || cam.aimYaw === null) cam.aimYaw = yaw;
-      else if (hd > 0.03) cam.aimYaw = wrap(cam.aimYaw + clamp(wrap(yaw - cam.aimYaw), -turn, turn));
       const down = Math.atan2(cw.h - cam.aimPt[2], Math.max(hd, 0.03));
       const tilt = ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff;
-      const tiltStep = (turn * 180) / Math.PI;
-      cam.aimTilt = fresh ? tilt : cam.aimTilt + clamp(tilt - cam.aimTilt, -tiltStep, tiltStep);
+      if (fresh || cam.aimYaw === null) {
+        cam.aimYaw = yaw;
+        cam.aimTilt = tilt;
+        cam.aimMoving = false;
+      } else {
+        // held still in the dead zone; past it, turned slowly till it's in the middle again
+        const errYawDeg = hd > 0.03 ? (wrap(yaw - cam.aimYaw) * 180) / Math.PI : 0;
+        const errTilt = tilt - cam.aimTilt;
+        if (!cam.aimMoving && (Math.abs(errYawDeg) > AIM_DEAD_YAW_DEG || Math.abs(errTilt) > AIM_DEAD_TILT_DEG)) cam.aimMoving = true;
+        if (cam.aimMoving) {
+          const tiltStep = (turn * 180) / Math.PI;
+          cam.aimYaw = wrap(cam.aimYaw + clamp((errYawDeg * Math.PI) / 180, -turn, turn));
+          cam.aimTilt += clamp(errTilt, -tiltStep, tiltStep);
+          if (Math.abs(errYawDeg) < AIM_SETTLE_DEG && Math.abs(errTilt) < AIM_SETTLE_DEG) cam.aimMoving = false;
+        }
+      }
       if (send) sendAimIfNeeded(now);
     }
     function sendAimIfNeeded(now) {
