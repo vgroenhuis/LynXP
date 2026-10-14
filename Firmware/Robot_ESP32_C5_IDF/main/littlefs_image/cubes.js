@@ -88,9 +88,8 @@ window.Lynx = window.Lynx || {};
   // aheadM) or back (lavender, backM) from the robot's pose as shown with the
   // video, a mark every 10 cm -- and, where the body would first touch a cube
   // on the floor (opts.blocks(): tagblocks.js list() / a cube layer's
-  // blocks()), an orange bar across its width there, the tracks beyond it
-  // faint orange. (Colours apart from the world axes' red and green and the
-  // cubes' cyan, yellow and magenta.)
+  // blocks()), the tracks beyond that point faint orange. (Colours apart
+  // from the world axes' red and green and the cubes' cyan, yellow and magenta.)
   // The body: frontM ahead of the pose point (the pan axis, over the drive
   // wheels' axle), rearM behind, halfWidthM to each side (by default the box
   // fitted to the camera's view of it, see tagblocks.js ROBOT_BODY).
@@ -141,11 +140,6 @@ window.Lynx = window.Lynx || {};
         // a mark every 10 cm, outward
         for (let d = 0.1; d <= free + 1e-9; d += 0.1) w.line3([at(dir * d, y), at(dir * d, y + Math.sign(y) * 0.015)], col, 1, 0.02);
       });
-      if (stop !== null) {
-        // the body's leading edge, where it would touch
-        const edge = dir > 0 ? front + stop : -rear - stop;
-        w.line3([at(edge, -half), at(edge, half)], "rgba(255,150,30,0.98)", 4, 0.01);
-      }
     };
     tracks(1, ahead, "rgba(255,255,255,0.85)", 2);
     tracks(-1, back, "rgba(190,160,255,0.8)", 1.5);
