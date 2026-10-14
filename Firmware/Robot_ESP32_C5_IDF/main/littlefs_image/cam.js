@@ -377,6 +377,56 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => actionBtn.addEventListener(ev, releaseAction));
 
+  // Mouse look (Free drive): dragging the picture with the left button turns
+  // the camera -- right looks right, up looks up, about a degree per degree of
+  // the picture, so the scene follows the mouse -- and it stays where it's
+  // left; a double-click looks straight ahead. In the robot drive mode it sets
+  // the camera's angle to the chassis (Lynx.control.mouseLook); in the default
+  // mode it turns the page's absolute aim (with "Smooth aim").
+  (function setupMouseLook() {
+    const box = document.querySelector(".cam-fullscreen");
+    const img = document.getElementById("camStream");
+    const skip = (e) => e.target.closest(".cam-menu-panel, .cam-overlay-btn, .game-touch-ui, .cam-floating-joystick-base, button, input, select, a, label");
+    let drag = null;
+    const degPerPx = () => {
+      const nw = img.naturalWidth || 640;
+      const nh = img.naturalHeight || 480;
+      const scale = Math.min(box.clientWidth / nw, box.clientHeight / nh) || 1;
+      return (Lynx.cam.vfovDeg || 66.5) / (nh * scale);
+    };
+    box.addEventListener("pointerdown", (e) => {
+      if (gameMode !== "none" || e.pointerType !== "mouse" || e.button !== 0 || skip(e)) return;
+      drag = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      try {
+        box.setPointerCapture(e.pointerId);
+      } catch (err) {
+        // (no capture: still works while over the picture)
+      }
+      box.style.cursor = "grabbing";
+      e.preventDefault();
+    });
+    box.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const k = degPerPx();
+      const dPan = -(e.clientX - drag.x) * k; // (pan: positive = left)
+      const dTilt = -(e.clientY - drag.y) * k; // (tilt: positive = up)
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      if (!Lynx.control.mouseLook(dPan, dTilt) && Lynx.cam.aimBy) Lynx.cam.aimBy(dPan, dTilt);
+    });
+    const end = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null;
+      box.style.cursor = "";
+    };
+    box.addEventListener("pointerup", end);
+    box.addEventListener("pointercancel", end);
+    box.addEventListener("dblclick", (e) => {
+      if (gameMode !== "none" || skip(e)) return;
+      if (!Lynx.control.mouseLookReset() && Lynx.cam.aimTo) Lynx.cam.aimTo(0);
+    });
+  })();
+
   // Mouse users: clicking the picture fires too (while a game is running).
   document.querySelector(".cam-fullscreen").addEventListener("mousedown", (e) => {
     if (gameMode === "none") return;
@@ -1170,6 +1220,22 @@ function subscribeToPose(callback) {
     return a.quadratic ? Math.sign(x) * x * x : x;
   };
   const aimSteering = (now) => now - aim.activeAt < AIM_HOLD_MS;
+  // Mouse look in the default drive mode (see setupMouseLook): the absolute
+  // aim turned by (deg; pan positive = left, tilt up) -- or the tilt set level
+  // (aimTo) -- sent as any steering is
+  if (Lynx.cam) Lynx.cam.aimBy = (dPanDeg, dTiltDeg) => {
+    if (!aimParams || aim.yaw === null || aimOverride) return;
+    const a = aimParams;
+    aim.yaw += (dPanDeg * Math.PI) / 180;
+    aim.tiltDeg = Math.max(a.tiltMinDeg, Math.min(a.tiltMaxDeg, aim.tiltDeg + dTiltDeg));
+    aim.errYaw = aim.errTilt = 0;
+    aim.activeAt = performance.now();
+  };
+  if (Lynx.cam) Lynx.cam.aimTo = (tiltDeg) => {
+    if (!aimParams || aim.yaw === null || aimOverride) return;
+    aim.tiltDeg = Math.max(aimParams.tiltMinDeg, Math.min(aimParams.tiltMaxDeg, tiltDeg));
+    aim.activeAt = performance.now();
+  };
   // Absolute aim is on while this loop keeps it up to date (it stops with
   // the tab hidden) -- otherwise the rates go to the robot as before.
   Lynx.control.absoluteAim = () => aimParams !== null && aim.yaw !== null && aim.lastMs !== null && performance.now() - aim.lastMs < 250;
@@ -1193,7 +1259,9 @@ function subscribeToPose(callback) {
       aim.errYaw = aim.errTilt = 0;
     }
     // A game pointing the camera itself (Lynx.cam.setAimOverride): it says
-    // where, the rates above only feed its own controls.
+    // where, the rates above only feed its own controls. With noSend the game
+    // moves the camera itself (e.g. "camera_relative") and this is only where
+    // the view looks: no "aim" to the robot.
     const o = aimOverride && aimOverride(now);
     if (o) {
       aim.yaw += wrapToPi(o.yaw - aim.yaw); // the history stays continuous
@@ -1202,7 +1270,7 @@ function subscribeToPose(callback) {
     }
     if (aimSteering(now)) {
       aim.errYaw = aim.errTilt = 0; // this page is the one steering
-      sendAim(now);
+      if (!(o && o.noSend)) sendAim(now);
     }
     const k = 1 - Math.exp(-dt / AIM_TAU_S);
     const dy = aim.errYaw * k;

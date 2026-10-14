@@ -114,6 +114,9 @@ window.Lynx = window.Lynx || {};
   // filter's answer changed (the robot reached a wall between two resends),
   // but only while that input is still being resent -- never on its own.
   let driveFilter = null;
+  // A game can keep the look input (right stick, arrows, Q/E) for itself
+  // (setLookCapture): only aimInput sees it, nothing goes to the robot.
+  let lookCaptured = false;
   let rawDrive = { j1: 0, j2: 0, at: -1e9 };
   let sentDrive = { j1: 0, j2: 0 };
   const round2 = (v) => Math.round(v * 100) / 100;
@@ -169,6 +172,15 @@ window.Lynx = window.Lynx || {};
   }
   let robotModeAllowed = false; // only in Free drive (games steer the camera and drive themselves)
   const camStick = { rot: 0, tilt: 0, rotAt: -1e9, tiltAt: -1e9 };
+  // Mouse look (cam.js: dragging the picture): the camera's angle to the
+  // chassis it set (deg) -- it stays there; the stick / arrows take over an
+  // axis while held, and let go it returns here (not straight ahead).
+  const mouseCam = { pan: 0, tilt: 0 };
+  // The arrow keys (and Q / E) in the robot mode: they turn that same angle at
+  // KEY_LOOK_DEG_S while held, and leave it there (full deflection while held
+  // was a jump to +-90 deg) -- the gamepad stick still sets the angle itself.
+  const KEY_LOOK_DEG_S = 45;
+  const keyLook = { rot: 0, tilt: 0, at: 0 };
   let camTimer = null;
   let lastCam = null; // what was last sent, and when
   let camCmd = null; // where the camera is being moved to now: {pan, tilt, at}
@@ -184,7 +196,10 @@ window.Lynx = window.Lynx || {};
     const tilt = now - camStick.tiltAt < 1000 ? camStick.tilt : 0;
     const axis = (v, full) => Math.max(-1, Math.min(1, v / full)); // (no dead zone here: the gamepad's own is enough)
     const tenth = (v) => Math.round(v * 10) / 10;
-    return { pan: tenth(axis(rot, ROBOT_CAM_FULL_ROT) * ROBOT_CAM_PAN_DEG), tilt: tenth(axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG) };
+    return {
+      pan: tenth(rot ? axis(rot, ROBOT_CAM_FULL_ROT) * ROBOT_CAM_PAN_DEG : mouseCam.pan),
+      tilt: tenth(tilt ? axis(tilt, ROBOT_CAM_FULL_TILT) * ROBOT_CAM_TILT_DEG : mouseCam.tilt),
+    };
   }
   // Each tick: the robot gets the stick's angles (sent when they change,
   // else every ROBOT_CAM_SEND_MS to keep the mode) and eases the servos
@@ -192,6 +207,12 @@ window.Lynx = window.Lynx || {};
   // along for the view.
   function sendRobotCam() {
     const now = performance.now();
+    const kdt = keyLook.at ? Math.min(0.2, (now - keyLook.at) / 1000) : 0;
+    keyLook.at = now;
+    if (keyLook.rot || keyLook.tilt) {
+      mouseCam.pan = Math.max(-ROBOT_CAM_PAN_DEG, Math.min(ROBOT_CAM_PAN_DEG, mouseCam.pan + keyLook.rot * KEY_LOOK_DEG_S * kdt));
+      mouseCam.tilt = Math.max(-ROBOT_CAM_TILT_DEG, Math.min(ROBOT_CAM_TILT_DEG, mouseCam.tilt + keyLook.tilt * KEY_LOOK_DEG_S * kdt));
+    }
     const want = robotCam();
     if (!camCmd) camCmd = { pan: servoNow.pan, tilt: servoNow.tilt, at: now };
     const dt = Math.min(0.2, (now - camCmd.at) / 1000);
@@ -228,6 +249,7 @@ window.Lynx = window.Lynx || {};
     }
     Object.assign(camStick, { rot: 0, tilt: 0 });
     Object.assign(aimInput, { rot: 0, tilt: 0 });
+    Object.assign(mouseCam, { pan: 0, tilt: 0 });
   }
 
   messageListeners.set("pose", [
@@ -240,6 +262,12 @@ window.Lynx = window.Lynx || {};
   Lynx.control = {
     send(obj) {
       ensureStarted();
+      if (lookCaptured && (obj.type === "control_frame_rotate" || obj.type === "tilt_rate")) {
+        const v = Math.max(-1, Math.min(1, Number(obj.value) || 0));
+        if (obj.type === "control_frame_rotate") Object.assign(aimInput, { rot: v, rotAt: performance.now() });
+        else Object.assign(aimInput, { tilt: v, tiltAt: performance.now() });
+        return;
+      }
       if (robotMode() && obj.type === "control_joystick") {
         const j1 = Number(obj.j1) || 0;
         const j2 = Number(obj.j2) || 0;
@@ -275,6 +303,29 @@ window.Lynx = window.Lynx || {};
     setDriveFilter(fn) {
       driveFilter = fn;
       Lynx.control.refreshDrive();
+    },
+    // Mouse look in the robot mode: the camera's angle to the chassis moved by
+    // (deg; pan positive = left, tilt up) and left there. False when the robot
+    // mode isn't on (the camera page then turns its own aim). Reset: straight ahead.
+    mouseLook(dPanDeg, dTiltDeg) {
+      if (!robotMode()) return false;
+      mouseCam.pan = Math.max(-ROBOT_CAM_PAN_DEG, Math.min(ROBOT_CAM_PAN_DEG, mouseCam.pan + dPanDeg));
+      mouseCam.tilt = Math.max(-ROBOT_CAM_TILT_DEG, Math.min(ROBOT_CAM_TILT_DEG, mouseCam.tilt + dTiltDeg));
+      return true;
+    },
+    mouseLookReset() {
+      if (!robotMode()) return false;
+      Object.assign(mouseCam, { pan: 0, tilt: 0 });
+      return true;
+    },
+    setLookCapture(on) {
+      if (on === lookCaptured) return;
+      lookCaptured = on;
+      // (a rate running on the robot stops)
+      if (on && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "control_frame_rotate", value: 0 }));
+        ws.send(JSON.stringify({ type: "tilt_rate", value: 0 }));
+      }
     },
     refreshDrive() {
       if (performance.now() - rawDrive.at > 1000) return; // the input stopped: the robot's own watchdog stops it
@@ -393,12 +444,18 @@ window.Lynx = window.Lynx || {};
 
   function computeAndSend(force) {
     const slow = held.has("ShiftLeft") || held.has("ShiftRight") || pad.slow ? 0.5 : 1;
+    const keyRot = clamp1(axis("ArrowRight", "ArrowLeft") + axis("KeyE", "KeyQ"));
+    const keyTilt = axis("ArrowDown", "ArrowUp");
+    // (the robot mode: the keys turn the camera at a rate and leave it -- keyLook)
+    const keysTurn = robotMode();
+    keyLook.rot = keysTurn ? keyRot * slow : 0;
+    keyLook.tilt = keysTurn ? keyTilt * slow : 0;
     const cmd = {
       j1: quantize(clamp1(axis("KeyA", "KeyD") * DRIVE_SPEED + pad.j1) * slow),
       j2: quantize(clamp1(axis("KeyS", "KeyW") * DRIVE_SPEED + pad.j2) * slow),
       // Rotate is positive to the LEFT, matching the right touch joystick's mapping.
-      rot: quantizeFine(clamp1((axis("ArrowRight", "ArrowLeft") + axis("KeyE", "KeyQ")) * TURN_SPEED + pad.rot) * slow),
-      tilt: quantizeFine(clamp1(axis("ArrowDown", "ArrowUp") * TILT_SPEED + pad.tilt) * slow),
+      rot: quantizeFine(clamp1((keysTurn ? 0 : keyRot) * TURN_SPEED + pad.rot) * slow),
+      tilt: quantizeFine(clamp1((keysTurn ? 0 : keyTilt) * TILT_SPEED + pad.tilt) * slow),
     };
     const driveChanged = cmd.j1 !== lastSent.j1 || cmd.j2 !== lastSent.j2;
     const lookChanged = cmd.rot !== lastSent.rot || cmd.tilt !== lastSent.tilt;
