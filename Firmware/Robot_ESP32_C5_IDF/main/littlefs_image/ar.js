@@ -724,11 +724,18 @@ window.Lynx = window.Lynx || {};
     // and something right beside it (the knight next to a cube's corner) was
     // "inside" them, so ordered by depth and wrongly hidden.
     const floorPts = (b) => b.pts || [[b.f0, b.r0], [b.f1, b.r0], [b.f1, b.r1], [b.f0, b.r1]];
+    // Boxes that overlap a little (the knight pressed against a cube's face,
+    // its box a few mm into it): along the axis they overlap least, as if
+    // that overlap were the gap -- the camera on the knight's side of the
+    // face, the knight is in front (else depth decided, and the cube hid it).
     function boxOrder(a, b) {
       const cam = a.frame.cam;
+      let least = null; // {pen, aLow, mid, c}: the axis with the least overlap
       const order = (a0, a1, b0, b1, c) => {
         if (a1 <= b0 + 1e-6) return c > b0 ? 1 : c < a1 ? -1 : 0;
         if (b1 <= a0 + 1e-6) return c < b1 ? 1 : c > a0 ? -1 : 0;
+        const pen = Math.min(a1, b1) - Math.max(a0, b0);
+        if (!least || pen < least.pen) least = { pen, thin: Math.min(a1 - a0, b1 - b0), aLow: a0 + a1 < b0 + b1, mid: (Math.max(a0, b0) + Math.min(a1, b1)) / 2, c };
         return null; // (no gap along this axis)
       };
       const A = floorPts(a);
@@ -750,7 +757,11 @@ window.Lynx = window.Lynx || {};
         if (o !== null) return o;
       }
       const o = order(a.h0, a.h1, b.h0, b.h1, cam.h);
-      return o === null ? 0 : o; // (0: they intersect -- nothing exact to say)
+      if (o !== null) return o;
+      // (they intersect: the least overlap taken as the gap -- if it's shallow;
+      // one box well inside the other: nothing exact to say)
+      if (!least || least.pen > 0.5 * least.thin) return 0;
+      return least.aLow ? (least.c > least.mid ? 1 : -1) : least.c < least.mid ? 1 : -1;
     }
 
     // Screen rectangle a box covers ({x0, y0, x1, y1}), null if it's all
