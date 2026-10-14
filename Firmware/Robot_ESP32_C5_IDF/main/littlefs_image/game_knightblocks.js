@@ -421,8 +421,8 @@ Lynx.games = Lynx.games || {};
       return null;
     }
     // The hint, in the depth order with the blocks (a block in front of it
-    // hides it): where it lands, a faint glowing disc -- white on the floor,
-    // gold on a block (none from the floor to the floor); where it would
+    // hides it): where it lands, a faint glowing white disc (none from the
+    // floor to the floor); where it would
     // catch a ledge, that part of the edge as a glowing white line.
     let jumpFrom = null; // what the knight last stood on (a block's id, or null: the floor)
     function queueJumpHint() {
@@ -448,7 +448,6 @@ Lynx.games = Lynx.games || {};
         return;
       }
       const rad = C.BODY_R * 1.6;
-      const gold = j.on !== null;
       ar.queue(m.depth, () => {
         const pts = [];
         for (let k = 0; k < 28; k++) {
@@ -461,9 +460,9 @@ Lynx.games = Lynx.games || {};
         pts.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
         g.closePath();
         // subtle: no border, mostly see-through, a soft glow
-        g.shadowColor = gold ? "rgba(255,200,60,0.5)" : "rgba(255,255,255,0.5)";
+        g.shadowColor = "rgba(255,255,255,0.5)";
         g.shadowBlur = 10;
-        g.fillStyle = gold ? "rgba(255,210,80,0.16)" : "rgba(255,255,255,0.14)";
+        g.fillStyle = "rgba(255,255,255,0.15)";
         g.fill();
         g.restore();
       }, w.extent(j.f - rad, j.f + rad, j.r - rad, j.r + rad, j.h, j.h + 0.001));
