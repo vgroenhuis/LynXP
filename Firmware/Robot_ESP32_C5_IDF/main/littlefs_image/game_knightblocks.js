@@ -6,7 +6,15 @@
 // hides it (its silhouette is cut out of the overlay, so the video shows
 // through).
 //
-// The robot follows the knight as in Pocket Knight (a leash at ~15 cm, the
+// Manual drive (the default; "Auto drive" in the Overlays panel, or M,
+// switches): the left stick moves the knight, the right stick (arrows) drives
+// the robot in its own frame, as Free drive's robot mode -- up/down forward /
+// back, left/right turning on the spot -- slowly (MANUAL_FWD, MANUAL_TURN:
+// a few cm/s, ~20 deg/s), and it won't drive into a block it knows. The camera
+// looks at the floor just in front of the knight by itself ("camera_relative":
+// the robot doesn't turn to help it, as it does for "aim").
+//
+// Auto drive: the robot follows the knight as in Pocket Knight (a leash at ~15 cm, the
 // camera button circles it round behind, the look controls orbit it), but
 // keeps its body clear of every block it knows: it only drives to a spot
 // where its whole footprint fits -- from the drive wheels back to the
@@ -29,10 +37,18 @@ Lynx.games = Lynx.games || {};
   const SCAN_TILT_DEG = -24; // looking down at the floor around the robot
   const ROBOT_MARGIN_M = 0.01;
   const PLAN_EVERY_MS = 150;
-  const ROBOT_GLIDE_MPS = 0.05; // how fast the spot the robot drives to may move
+  const ROBOT_GLIDE_MPS = 0.03; // how fast the spot the robot drives to may move (slow: the tags stay sharp)
   const PLAN_DEADBAND_M = 0.015; // a new plan this close to the old one isn't worth moving for
-  const AIM_EASE = 2.5; // 1/s: the camera eases toward the knight (time constant 0.4 s)
-  const AIM_MAX_RAD_S = 0.5; // and pans no faster than this (the tag finder skips blurred pictures above 0.6)
+  const AIM_EASE = 1.5; // 1/s: the camera eases toward the knight (time constant 0.7 s)
+  const AIM_MAX_RAD_S = 0.3; // and pans no faster than this (17 deg/s: sharp pictures; the tag finder skips them above 0.6)
+  // Manual drive: the robot's top speeds (the "joystick" message's j2 / j1 at
+  // full stick: ~5 cm/s, and ~20 deg/s turning on the spot) and how the speed
+  // eases toward the stick's -- slow and smooth, so the tags stay sharp
+  const MANUAL_FWD = 0.12;
+  const MANUAL_TURN = 0.08;
+  const MANUAL_EASE = 3; // 1/s
+  const MANUAL_SEND_MS = 100; // drive and camera resent this often (the robot stops without)
+  const AHEAD_BODIES = 1.6; // the camera looks this many knight heights in front of the knight
 
   Lynx.games.knightblocks = (ar, cfg, app) => {
     const K = Lynx.knightKit;
@@ -74,6 +90,9 @@ Lynx.games = Lynx.games || {};
     let showBlocks = Boolean(remembered("knightblocksShowBlocks", cfg.showBlocks !== false));
     let showTags = Boolean(remembered("knightblocksShowTags", cfg.showTags !== false)); // (older versions stored 0 / 1)
     const doScan = cfg.scan === true;
+    // manual drive (default) or auto drive: a switch in the game, remembered
+    let autoDrive = Boolean(remembered("knightblocksAutoDrive", cfg.autoDrive === true));
+    const man = { fwd: 0, turn: 0, sentAt: -1e9, sent: null, camAt: -1e9, camSent: null, viewYaw: null };
     // through the calibrated lens: the knight and the outlines sit on the video right to the picture's edges
     const w = Lynx.world3d(ar, { textures: false, lens: true });
     // the tagged cubes: the cube layer every game with cubes uses (cubes.js --
@@ -568,7 +587,91 @@ Lynx.games = Lynx.games || {};
       return best || { f: ch.f, r: ch.r, why: "no clear way: holding" };
     }
 
+    // the chassis's heading in the world (rad)
+    function chassisTheta() {
+      if (performance.now() - chassis.at < 1000) return chassis.th;
+      return typeof ar.pose.chassisTheta === "number" ? ar.pose.chassisTheta : ar.pose.theta - ((ar.pose.servoAngleDeg || 0) * Math.PI) / 180;
+    }
+    // Manual drive: the right stick (arrows) drives the robot in its own frame,
+    // eased and slow, never into a block it knows; the camera looks at the
+    // floor in front of the knight.
+    function manualDrive(dt, now) {
+      const h = hero;
+      const look = Lynx.control.aimInput;
+      // (the look input as sent: stick x TURN_SPEED 0.7 / TILT_SPEED 0.8, see controls.js)
+      const turnIn = now - look.rotAt < 300 ? clamp(look.rot / 0.7, -1, 1) : 0;
+      const fwdIn = now - look.tiltAt < 300 ? clamp(look.tilt / 0.8, -1, 1) : 0;
+      const k = 1 - Math.exp(-dt * MANUAL_EASE);
+      man.fwd += (fwdIn - man.fwd) * k;
+      man.turn += (turnIn - man.turn) * k;
+      if (!fwdIn && Math.abs(man.fwd) < 0.03) man.fwd = 0;
+      if (!turnIn && Math.abs(man.turn) < 0.03) man.turn = 0;
+      cam.why = "";
+      // not into a block it knows: forward / back, or its tail swinging round
+      const ch = chassisLocal();
+      const m0 = bodyMargin(ch.f, ch.r, ch.th);
+      if (man.fwd) {
+        const s = Math.sign(man.fwd) * 0.03;
+        const m1 = bodyMargin(ch.f + s * Math.cos(ch.th), ch.r + s * Math.sin(ch.th), ch.th);
+        if (m1 < 0.003 && m1 < m0) {
+          man.fwd = 0;
+          cam.why = "a block in the way";
+        }
+      }
+      if (man.turn) {
+        // (turning left: the heading in the floor frame goes down)
+        const m1 = bodyMargin(ch.f, ch.r, ch.th - Math.sign(man.turn) * 0.15);
+        if (m1 < 0.003 && m1 < m0) {
+          man.turn = 0;
+          cam.why = "a block in the way";
+        }
+      }
+      const r2 = (v) => Math.round(v * 100) / 100;
+      const cmd = { j1: r2(-man.turn * MANUAL_TURN), j2: r2(man.fwd * MANUAL_FWD) }; // (j1: right)
+      const moving = cmd.j1 !== 0 || cmd.j2 !== 0;
+      const changed = !man.sent || cmd.j1 !== man.sent.j1 || cmd.j2 !== man.sent.j2;
+      if ((changed || moving) && now - man.sentAt > (changed ? 40 : MANUAL_SEND_MS)) {
+        Lynx.control.send({ type: "joystick", ...cmd });
+        man.sent = cmd;
+        man.sentAt = now;
+      }
+      // the camera: the floor just in front of the knight, where it's heading
+      const ahead = AHEAD_BODIES * C.BODY_H;
+      aimAt([h.f + Math.cos(h.yaw) * ahead + h.vf * 0.3, h.r + Math.sin(h.yaw) * ahead + h.vr * 0.3, h.z], dt, now, false);
+      // pointed relative to the chassis (the robot doesn't turn to help, as with "aim")
+      const th = chassisTheta();
+      const panDeg = clamp((wrap(cam.aimYaw - th) * 180) / Math.PI, -88, 88);
+      man.viewYaw = th + (panDeg * Math.PI) / 180;
+      const c = { pan: +panDeg.toFixed(1), tilt: +cam.aimTilt.toFixed(1) };
+      const camChanged = !man.camSent || c.pan !== man.camSent.pan || c.tilt !== man.camSent.tilt;
+      if (now - man.camAt > (camChanged ? 50 : MANUAL_SEND_MS)) {
+        Lynx.control.send({ type: "camera_relative", ...c });
+        man.camSent = c;
+        man.camAt = now;
+      }
+    }
+    function stopRobot() {
+      Lynx.control.send({ type: "joystick", j1: 0, j2: 0 }); // (out of goto too)
+      man.fwd = man.turn = 0;
+      man.sent = { j1: 0, j2: 0 };
+    }
+    function setAutoDrive(on) {
+      if (on === autoDrive) return;
+      autoDrive = on;
+      remember("knightblocksAutoDrive", on);
+      if (driveToggle) driveToggle.querySelector("input").checked = on;
+      cam.target = null;
+      cam.cmd = null;
+      cam.lastGoto = null;
+      cam.planMs = -1e9;
+      cam.why = "";
+      if (state === "playing") stopRobot();
+      applyControl();
+      say(on ? "Auto drive: the robot follows the knight" : "Manual drive: right stick / arrows drive the robot", "#c0f0ff");
+    }
+
     function steerRobot(dt, now) {
+      if (!autoDrive) return manualDrive(dt, now);
       const cw = ar.cameraWorld();
       const rl = w.toLocal(cw.x, cw.y);
       const h = hero;
@@ -620,7 +723,8 @@ Lynx.games = Lynx.games || {};
       aimAt([h.f + h.vf * 0.3, h.r + h.vr * 0.3, h.z + 0.04 * S], dt, now);
     }
     // the camera eases toward the point, panning and tilting at a limited rate
-    function aimAt(pt, dt, now) {
+    // (send: as "aim"; manual drive sends it itself)
+    function aimAt(pt, dt, now, send = true) {
       const cw = ar.cameraWorld();
       const fresh = !cam.aimPt;
       if (fresh) cam.aimPt = pt;
@@ -636,7 +740,7 @@ Lynx.games = Lynx.games || {};
       const tilt = ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff;
       const tiltStep = (turn * 180) / Math.PI;
       cam.aimTilt = fresh ? tilt : cam.aimTilt + clamp(tilt - cam.aimTilt, -tiltStep, tiltStep);
-      sendAimIfNeeded(now);
+      if (send) sendAimIfNeeded(now);
     }
     function sendAimIfNeeded(now) {
       if (!Lynx.control.absoluteAim() && now - cam.lastAimMs > 50 && cam.aimYaw !== null) {
@@ -644,10 +748,28 @@ Lynx.games = Lynx.games || {};
         cam.lastAimMs = now;
       }
     }
-    // while playing or looking around: the knight's input, the game's camera
+    // while playing or looking around: the knight's input (the left stick),
+    // the game's camera -- and in manual drive the right stick (the robot's
+    // drive), with the camera pointed relative to the chassis by the game
+    let controlling = false;
     function takeControl(on) {
+      controlling = on;
+      applyControl();
+    }
+    function applyControl() {
+      const on = controlling;
+      const manual = on && !autoDrive && state === "playing";
       if (Lynx.control.setDriveFilter) Lynx.control.setDriveFilter(on ? () => null : null);
-      if (Lynx.cam && Lynx.cam.setAimOverride) Lynx.cam.setAimOverride(on ? () => (cam.aimYaw === null ? null : { yaw: cam.aimYaw, tiltDeg: cam.aimTilt }) : null);
+      if (Lynx.control.setLookCapture) Lynx.control.setLookCapture(manual);
+      if (Lynx.cam && Lynx.cam.setAimOverride) {
+        Lynx.cam.setAimOverride(
+          !on
+            ? null
+            : manual
+              ? () => (man.viewYaw === null ? null : { yaw: man.viewYaw, tiltDeg: cam.aimTilt, noSend: true })
+              : () => (cam.aimYaw === null ? null : { yaw: cam.aimYaw, tiltDeg: cam.aimTilt }),
+        );
+      }
     }
     function holdRobot() {
       const cw = ar.cameraWorld();
@@ -697,6 +819,8 @@ Lynx.games = Lynx.games || {};
       cam.target = null;
       state = "playing";
       stateTime = 0;
+      if (!autoDrive) stopRobot(); // (out of the scan's goto)
+      applyControl();
       sfx("go");
       say(solids.length ? `${solids.filter((b) => !b.inferred).length} blocks -- climb them!` : "No blocks seen yet -- put the tagged blocks in view");
     }
@@ -741,6 +865,7 @@ Lynx.games = Lynx.games || {};
       if (e.key === "+" || e.key === "=") zoom(1);
       else if (e.key === "-" || e.key === "_") zoom(-1);
       else if (e.code === "KeyR" && state !== "title") rescan();
+      else if (e.code === "KeyM") setAutoDrive(!autoDrive);
     };
     window.addEventListener("keydown", onKey);
     const touch = Lynx.touchButtons();
@@ -750,7 +875,10 @@ Lynx.games = Lynx.games || {};
     touch.add("\u2796 Zoom out", () => zoom(-1));
     // Rescan in the Menu panel, the outline switches with the other overlays
     const panelItems = [];
+    let driveToggle = null;
     if (Lynx.cam && Lynx.cam.addMenuButton) {
+      driveToggle = Lynx.cam.addOverlayToggle("Auto drive", autoDrive, (on) => setAutoDrive(on));
+      panelItems.push(driveToggle);
       panelItems.push(Lynx.cam.addMenuButton("\u{1F50D} Rescan blocks", () => state !== "title" && rescan()));
       panelItems.push(Lynx.cam.addOverlayToggle("Blocks", showBlocks, (on) => remember("knightblocksShowBlocks", (showBlocks = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
@@ -894,8 +1022,14 @@ Lynx.games = Lynx.games || {};
       }
       if (state === "scan") ar.text(`Looking around... ${Math.min(100, Math.round((SCAN_RATE * stateTime * 100) / (2 * Math.PI)))}%  (Fire: start now)`, v.cx, v.y + v.h - 20, { size: 14, align: "center" });
       if (state === "playing") {
-        ar.text("Run: stick / WASD · Jump: A / Space · Behind: Y / C · Zoom: + / \u2212, RB / LB · Rescan: R (or the Menu)", v.cx, v.y + v.h - 20, { size: 13, align: "center" });
-        if (cam.why) ar.text(`Robot: ${cam.why}`, v.x + 12, v.y + 42, { size: 12, color: "#ffd080" });
+        ar.text(
+          autoDrive
+            ? "Run: stick / WASD · Jump: A / Space · Behind: Y / C · Zoom: + / \u2212, RB / LB · Rescan: R · Manual drive: M"
+            : "Knight: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Rescan: R · Auto drive: M",
+          v.cx, v.y + v.h - 20, { size: 13, align: "center" },
+        );
+        const mode = autoDrive ? "auto drive" : "manual drive";
+        ar.text(`Robot: ${mode}${cam.why ? ` -- ${cam.why}` : ""}`, v.x + 12, v.y + 42, { size: 12, color: cam.why ? "#ffd080" : "#c0f0ff" });
         const k = w.toWorld(hero.f, hero.r);
         ar.edgeArrow(k.x, k.y, hero.z + 0.035 * S, "#80d0ff");
       }
