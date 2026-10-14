@@ -82,11 +82,13 @@ window.Lynx = window.Lynx || {};
 
   const wrap = (v) => Math.atan2(Math.sin(v), Math.cos(v));
 
-  // Wheel tracks: where the wheels would run driving straight forward (green,
-  // aheadM) or back (amber, backM) from the robot's pose as shown with the
+  // Wheel tracks: where the wheels would run driving straight forward (white,
+  // aheadM) or back (lavender, backM) from the robot's pose as shown with the
   // video, a mark every 10 cm -- and, where the body would first touch a cube
   // on the floor (opts.blocks(): tagblocks.js list() / a cube layer's
-  // blocks()), a red bar across its width there, the tracks beyond it dimmed.
+  // blocks()), an orange bar across its width there, the tracks beyond it
+  // faint orange. (Colours apart from the world axes' red and green and the
+  // cubes' cyan, yellow and magenta.)
   // The body: frontM ahead of the pose point (the pan axis, over the drive
   // wheels' axle), rearM behind, halfWidthM to each side (by default the box
   // fitted to the camera's view of it, see tagblocks.js ROBOT_BODY).
@@ -133,18 +135,18 @@ window.Lynx = window.Lynx || {};
       const free = stop === null ? max : stop;
       [-wb / 2, wb / 2].forEach((y) => {
         if (free > 0.002) w.line3([at(0, y), at(dir * free, y)], col, wide, 0.02);
-        if (stop !== null && stop < max) w.line3([at(dir * stop, y), at(dir * max, y)], "rgba(255,80,80,0.3)", 1, 0.02);
+        if (stop !== null && stop < max) w.line3([at(dir * stop, y), at(dir * max, y)], "rgba(255,150,40,0.35)", 1, 0.02);
         // a mark every 10 cm, outward
         for (let d = 0.1; d <= free + 1e-9; d += 0.1) w.line3([at(dir * d, y), at(dir * d, y + Math.sign(y) * 0.015)], col, 1, 0.02);
       });
       if (stop !== null) {
         // the body's leading edge, where it would touch
         const edge = dir > 0 ? front + stop : -rear - stop;
-        w.line3([at(edge, -half), at(edge, half)], "rgba(255,60,60,0.95)", 3, 0.01);
+        w.line3([at(edge, -half), at(edge, half)], "rgba(255,150,30,0.98)", 4, 0.01);
       }
     };
-    tracks(1, ahead, "rgba(120,255,140,0.85)", 2);
-    tracks(-1, back, "rgba(255,200,90,0.75)", 1.5);
+    tracks(1, ahead, "rgba(255,255,255,0.85)", 2);
+    tracks(-1, back, "rgba(190,160,255,0.8)", 1.5);
   };
 
   Lynx.cubeLayer = (ar, app, opts = {}) => {
@@ -298,35 +300,38 @@ window.Lynx = window.Lynx || {};
     // just out of the picture showed as a shaded patch), its edges in short
     // steps so they bend with the lens as the outlines do
     function drawFootprints(w) {
+      tb.blocks().forEach((b) => drawFootprint(w, b));
+    }
+    // one cube's (e.g. inside a game's depth-sorted drawing, after the cube
+    // cut what's behind it out of the overlay -- drawn before, it was cut too)
+    function drawFootprint(w, b) {
       const g = ar.ctx;
       const v = ar.view;
-      tb.blocks().forEach((b) => {
-        if (b.h0 > 0.005) return; // (stacked: not on the floor)
-        const cs = cornersIn(w, b);
-        const pts = [];
-        for (let i = 0; i < 4; i++) {
-          const [f0, r0] = cs[i];
-          const [f1, r1] = cs[(i + 1) % 4];
-          for (let k = 0; k < 6; k++) pts.push(w.project(f0 + ((f1 - f0) * k) / 6, r0 + ((r1 - r0) * k) / 6, 0));
-        }
-        if (pts.some((p) => !p)) return;
-        // nothing of it on the video: not drawn
-        if (Math.max(...pts.map((p) => p.x)) < v.x || Math.min(...pts.map((p) => p.x)) > v.x + v.w || Math.max(...pts.map((p) => p.y)) < v.y || Math.min(...pts.map((p) => p.y)) > v.y + v.h) return;
-        const [fill, stroke] = isFrame(b.tag) ? COL.footFrame : b.inferred ? COL.footInferred : COL.footSeen;
-        g.save();
-        g.beginPath();
-        g.rect(v.x, v.y, v.w, v.h);
-        g.clip();
-        g.beginPath();
-        pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
-        g.closePath();
-        g.fillStyle = fill;
-        g.fill();
-        g.strokeStyle = stroke;
-        g.lineWidth = 2;
-        g.stroke();
-        g.restore();
-      });
+      if (b.h0 > 0.005) return; // (stacked: not on the floor)
+      const cs = cornersIn(w, b);
+      const pts = [];
+      for (let i = 0; i < 4; i++) {
+        const [f0, r0] = cs[i];
+        const [f1, r1] = cs[(i + 1) % 4];
+        for (let k = 0; k < 6; k++) pts.push(w.project(f0 + ((f1 - f0) * k) / 6, r0 + ((r1 - r0) * k) / 6, 0));
+      }
+      if (pts.some((p) => !p)) return;
+      // nothing of it on the video: not drawn
+      if (Math.max(...pts.map((p) => p.x)) < v.x || Math.min(...pts.map((p) => p.x)) > v.x + v.w || Math.max(...pts.map((p) => p.y)) < v.y || Math.min(...pts.map((p) => p.y)) > v.y + v.h) return;
+      const [fill, stroke] = isFrame(b.tag) ? COL.footFrame : b.inferred ? COL.footInferred : COL.footSeen;
+      g.save();
+      g.beginPath();
+      g.rect(v.x, v.y, v.w, v.h);
+      g.clip();
+      g.beginPath();
+      pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+      g.closePath();
+      g.fillStyle = fill;
+      g.fill();
+      g.strokeStyle = stroke;
+      g.lineWidth = 2;
+      g.stroke();
+      g.restore();
     }
     // a cube's wireframe (seen: cyan, the frame cube yellow, inferred: grey, gone: thin magenta)
     function drawOutline(w, b) {
@@ -400,6 +405,7 @@ window.Lynx = window.Lynx || {};
       rayHit,
       draw,
       drawFootprints,
+      drawFootprint,
       drawOutline,
       drawGone,
       drawTags,

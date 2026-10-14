@@ -1027,7 +1027,10 @@ Lynx.games = Lynx.games || {};
           g.fill();
           g.restore();
         }
-        if (showBlocks) cubes.drawOutline(w, b.world);
+        if (showBlocks) {
+          cubes.drawFootprint(w, b.world); // (after the cut: drawn before, it was cut out too)
+          cubes.drawOutline(w, b.world);
+        }
       }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), b.h0, b.h1));
     }
     function queueShadow() {
@@ -1093,11 +1096,9 @@ Lynx.games = Lynx.games || {};
     function draw() {
       w.beginFrame();
       if (state !== "title") {
-        // on the floor, under everything: the cubes' footprints, and the ones gone from where they were
-        if (showBlocks) {
-          cubes.drawFootprints(w);
-          cubes.drawGone(w);
-        }
+        // on the floor, under everything: the cubes gone from where they were
+        // (each cube's own footprint goes with it, queueBlock)
+        if (showBlocks) cubes.drawGone(w);
         // (its body as the game keeps it clear of the blocks)
         if (showTracks) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotFront, rearM: robotRear });
         solids.forEach(queueBlock);
