@@ -10,7 +10,10 @@
 // switches): the left stick moves the knight, the right stick (arrows) drives
 // the robot in its own frame, as Free drive's robot mode -- up/down forward /
 // back, left/right turning on the spot -- slowly (MANUAL_FWD, MANUAL_TURN:
-// a few cm/s, ~20 deg/s), and it won't drive into a block it knows. The camera
+// a few cm/s, ~20 deg/s), and -- with "Auto stop" on (the default) -- it
+// won't drive into a block it knows. The robot's outline: a rectangle round the
+// drive wheels' axle (robotFrontCm ahead, robotRearCm behind, robotRadiusCm to
+// each side, see bodyMargin). The camera
 // keeps the knight in the middle of the view by itself ("camera_relative":
 // the robot doesn't turn to help it, as it does for "aim").
 //
@@ -90,14 +93,17 @@ Lynx.games = Lynx.games || {};
     const ZOOM_MAX = 0.4;
     const ZOOM_STEP = 0.025;
     let camDist = clamp(+remembered("knightblocksCamDist", (+cfg.camDistCm || 15) / 100) || 0.15, ZOOM_MIN, ZOOM_MAX);
-    // the robot's footprint (see bodyMargin): half its width, and how far it reaches behind the drive wheels' axle
+    // the robot's footprint (see bodyMargin): half its width, and how far it reaches in front of and behind the drive wheels' axle
     const robotHalf = clamp((+cfg.robotRadiusCm || 9.5) / 100, 0.04, 0.2) + ROBOT_MARGIN_M;
-    const robotRear = Math.max(robotHalf, clamp((+cfg.robotRearCm || 18) / 100, 0.04, 0.4) + ROBOT_MARGIN_M);
+    const robotFront = clamp((+cfg.robotFrontCm || 5) / 100, 0.02, 0.2) + ROBOT_MARGIN_M;
+    const robotRear = clamp((+cfg.robotRearCm || 18) / 100, 0.04, 0.4) + ROBOT_MARGIN_M;
     // the cyan block outlines and the green tag outlines: switches in the game
     let showBlocks = Boolean(remembered("knightblocksShowBlocks", cfg.showBlocks !== false));
     let showTags = Boolean(remembered("knightblocksShowTags", cfg.showTags !== false)); // (older versions stored 0 / 1)
     // the wheel tracks driving straight forward / back, and where the body would touch a cube (cubes.js)
     let showTracks = Boolean(remembered("knightblocksWheelTracks", true));
+    // manual drive: the robot won't drive into a block it knows (off: it goes where it's driven)
+    let autoStop = Boolean(remembered("knightblocksAutoStop", true));
     const doScan = cfg.scan === true;
     // manual drive (default) or auto drive: a switch in the game, remembered
     let autoDrive = Boolean(remembered("knightblocksAutoDrive", cfg.autoDrive === true));
@@ -455,11 +461,11 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- the robot ----------------------------------------------------------------------------------
-    // Its footprint: from the drive wheels' axle (the odometry point) back to
-    // the caster, robotRear behind it, and robotHalf to each side (and in
-    // front of the axle) -- a capsule along the chassis heading. The chassis
-    // heading is the robot's own (its pose messages): the page's smooth aim
-    // gives the camera's heading instead.
+    // Its footprint: a rectangle along the chassis heading, from robotFront in
+    // front of the drive wheels' axle (the odometry point) to the caster's
+    // end robotRear behind it, robotHalf to each side. The chassis heading is
+    // the robot's own (its pose messages): the page's smooth aim gives the
+    // camera's heading instead.
     const chassis = { x: 0, y: 0, th: 0, at: -1e9 };
     let alive = true;
     ar.onDestroy(
@@ -476,19 +482,51 @@ Lynx.games = Lynx.games || {};
       return { f: l.f, r: l.r, th: wrap(w.anchor().th - th) };
     }
     const clearance = (f, r) => solids.reduce((m, b) => Math.min(m, footDist(b, f, r)), Infinity);
-    // how far the footprint at (f, r) facing th (floor frame) stays from the blocks, beyond robotHalf
-    function bodyMargin(f, r, th) {
+    // Two convex outlines ([f, r] corners in order): the gap between them, or
+    // (overlapping) minus how deep (the least overlap along an edge's normal).
+    function polyGap(A, B) {
+      let sep = -Infinity;
+      for (const P of [A, B]) {
+        for (let i = 0; i < P.length; i++) {
+          const p = P[i];
+          const q = P[(i + 1) % P.length];
+          const l = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+          const n = [(q[1] - p[1]) / l, -(q[0] - p[0]) / l];
+          const proj = (X) => X.map((x) => x[0] * n[0] + x[1] * n[1]);
+          const a = proj(A);
+          const b = proj(B);
+          sep = Math.max(sep, Math.min(...b) - Math.max(...a), Math.min(...a) - Math.max(...b));
+        }
+      }
+      if (sep < 0) return sep;
+      const segDist = (x, p, q) => {
+        const dx = q[0] - p[0];
+        const dy = q[1] - p[1];
+        const t = clamp(((x[0] - p[0]) * dx + (x[1] - p[1]) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+        return Math.hypot(x[0] - p[0] - t * dx, x[1] - p[1] - t * dy);
+      };
+      let m = Infinity;
+      for (const [X, Y] of [[A, B], [B, A]]) for (const x of X) for (let i = 0; i < Y.length; i++) m = Math.min(m, segDist(x, Y[i], Y[(i + 1) % Y.length]));
+      return m;
+    }
+    // the robot's footprint at (f, r) facing th (floor frame): its corners
+    function bodyCorners(f, r, th) {
       const c = Math.cos(th);
       const s = Math.sin(th);
-      const len = Math.max(0, robotRear - robotHalf);
-      const n = Math.max(1, Math.ceil(len / 0.02));
+      return [[robotFront, robotHalf], [robotFront, -robotHalf], [-robotRear, -robotHalf], [-robotRear, robotHalf]].map(([x, y]) => [f + c * x - s * y, r + s * x + c * y]);
+    }
+    // how far that footprint stays from the blocks it could touch (below its top); negative: in one
+    function bodyMargin(f, r, th) {
+      const R = bodyCorners(f, r, th);
       let m = Infinity;
-      for (let i = 0; i <= n; i++) {
-        const d = (len * i) / n;
-        m = Math.min(m, clearance(f - c * d, r - s * d) - robotHalf);
+      for (const b of solids) {
+        if (b.h0 > 0.06) continue;
+        const B = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => fromB(b, u * b.half, v * b.half));
+        m = Math.min(m, polyGap(R, B));
       }
       return m;
     }
+    const axleRoom = Math.min(robotHalf, robotFront); // (the axle can't be nearer a block than this)
     const bodyClear = (f, r, th) => bodyMargin(f, r, th) >= 0;
     // Driving from (f0, r0) facing th0 to (f1, r1): goto turns toward the
     // target -- or its back to it, reversing to one behind -- then drives
@@ -566,7 +604,7 @@ Lynx.games = Lynx.games || {};
           const b = want + off;
           const f = h.f + dist * Math.cos(b);
           const r = h.r + dist * Math.sin(b);
-          if (clearance(f, r) < robotHalf) continue; // (the axle at least; the rest once the heading is known)
+          if (clearance(f, r) < axleRoom) continue; // (the axle at least; the rest once the heading is known)
           let cost = Math.abs(off) + Math.abs(extra) * 4;
           if (hidden({ f, r, h: camH }, eye)) cost += 3.5; // (going all the way round beats losing sight of the knight)
           spots.push({ f, r, cost, why: off || extra ? "around the blocks" : "" });
@@ -586,7 +624,7 @@ Lynx.games = Lynx.games || {};
             const r = ch.r + d * Math.sin(a);
             const cost = s.cost + 2 * (d + Math.hypot(s.f - f, s.r - r));
             if (best && cost >= best.cost) continue;
-            if (clearance(f, r) < robotHalf) continue;
+            if (clearance(f, r) < axleRoom) continue;
             const th = moveClear(ch.f, ch.r, ch.th, f, r);
             if (th === null || moveClear(f, r, th, s.f, s.r) === null) continue;
             best = { f, r, cost, why: "going round the blocks" };
@@ -617,8 +655,8 @@ Lynx.games = Lynx.games || {};
       cam.why = "";
       // not into a block it knows: forward / back, or its tail swinging round
       const ch = chassisLocal();
-      const m0 = bodyMargin(ch.f, ch.r, ch.th);
-      if (man.fwd) {
+      const m0 = autoStop ? bodyMargin(ch.f, ch.r, ch.th) : 0;
+      if (autoStop && man.fwd) {
         const s = Math.sign(man.fwd) * 0.03;
         const m1 = bodyMargin(ch.f + s * Math.cos(ch.th), ch.r + s * Math.sin(ch.th), ch.th);
         if (m1 < 0.003 && m1 < m0) {
@@ -626,7 +664,7 @@ Lynx.games = Lynx.games || {};
           cam.why = "a block in the way";
         }
       }
-      if (man.turn) {
+      if (autoStop && man.turn) {
         // (turning left: the heading in the floor frame goes down)
         const m1 = bodyMargin(ch.f, ch.r, ch.th - Math.sign(man.turn) * 0.15);
         if (m1 < 0.003 && m1 < m0) {
@@ -904,6 +942,7 @@ Lynx.games = Lynx.games || {};
       panelItems.push(Lynx.cam.addOverlayToggle("Blocks", showBlocks, (on) => remember("knightblocksShowBlocks", (showBlocks = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Wheel tracks", showTracks, (on) => remember("knightblocksWheelTracks", (showTracks = on))));
+      panelItems.push(Lynx.cam.addOverlayToggle("Auto stop", autoStop, (on) => remember("knightblocksAutoStop", (autoStop = on))));
     }
     ar.onDestroy(() => {
       panelItems.forEach((el) => el.remove());
@@ -1059,8 +1098,8 @@ Lynx.games = Lynx.games || {};
           cubes.drawFootprints(w);
           cubes.drawGone(w);
         }
-        // (its body as the game keeps it clear of the blocks: robotHalf to the sides and ahead, robotRear behind)
-        if (showTracks) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotHalf, rearM: robotRear });
+        // (its body as the game keeps it clear of the blocks)
+        if (showTracks) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotFront, rearM: robotRear });
         solids.forEach(queueBlock);
         if (state === "playing") queueHero();
         ar.flush();

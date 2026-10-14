@@ -230,6 +230,7 @@ window.Lynx = window.Lynx || {};
         "Printable tags: open /tags.html on the robot.",
       settings: [
         { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
+        { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
         { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
         { key: "knightCm", label: "Knight's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
         { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
