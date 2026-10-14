@@ -417,12 +417,16 @@ Lynx.games = Lynx.games || {};
       return null;
     }
     // The hint, in the depth order with the blocks (a block in front of it
-    // hides it): where it lands, a glowing semi-transparent disc -- white on
-    // the floor, gold on a block; where it would catch a ledge, that part of
-    // the edge as a glowing white line.
+    // hides it): where it lands, a faint glowing disc -- white on the floor,
+    // gold on a block (none from the floor to the floor); where it would
+    // catch a ledge, that part of the edge as a glowing white line.
+    let jumpFrom = null; // what the knight last stood on (a block's id, or null: the floor)
     function queueJumpHint() {
+      if (hero.onGround) jumpFrom = hero.standOn;
       const j = predictJump();
       if (!j) return;
+      // from the floor to the floor: nothing worth showing
+      if (!j.grab && j.on === null && jumpFrom === null) return;
       const m = w.project(j.f, j.r, j.h);
       if (!m) return;
       const g = ar.ctx;
@@ -451,14 +455,11 @@ Lynx.games = Lynx.games || {};
         g.beginPath();
         pts.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
         g.closePath();
-        g.shadowColor = gold ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.9)";
-        g.shadowBlur = 14;
-        g.fillStyle = gold ? "rgba(255,210,80,0.35)" : "rgba(255,255,255,0.3)";
+        // subtle: no border, mostly see-through, a soft glow
+        g.shadowColor = gold ? "rgba(255,200,60,0.5)" : "rgba(255,255,255,0.5)";
+        g.shadowBlur = 10;
+        g.fillStyle = gold ? "rgba(255,210,80,0.16)" : "rgba(255,255,255,0.14)";
         g.fill();
-        g.shadowBlur = 6;
-        g.strokeStyle = gold ? "rgba(255,225,130,0.7)" : "rgba(255,255,255,0.6)";
-        g.lineWidth = 1.5;
-        g.stroke();
         g.restore();
       }, w.extent(j.f - rad, j.f + rad, j.r - rad, j.r + rad, j.h, j.h + 0.001));
     }
