@@ -2,6 +2,7 @@
 
 #include "settings.hpp"
 #include "odometry.hpp"
+#include "pose_persist.hpp"
 #include "board_pins.hpp"
 #include "control_task.hpp"
 #include "breadcrumb.hpp"
@@ -820,6 +821,7 @@ void controlModesTick() {
         resetPoseTo(resetPoseX_m, resetPoseY_m, resetPoseTheta_rad);
         resetPoseFlag = false;
     }
+    pose_persist_save(); // (kept across a restart: pose_persist.hpp)
 
     if (resetEncodersFlag) {
         encoderCount_steps[0] = 0;

@@ -12,6 +12,7 @@ idf_component_register(
         "waypoints.cpp"
         "control_modes.cpp"
         "odometry.cpp"
+        "pose_persist.cpp"
         "breadcrumb.cpp"
         "log_task.cpp"
         "wifi_connect.cpp"

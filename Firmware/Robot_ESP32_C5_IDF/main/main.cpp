@@ -18,6 +18,7 @@
 #include "ping_diag.hpp"
 #include "ota.hpp"
 #include "debug_pan.hpp"
+#include "pose_persist.hpp"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -69,6 +70,7 @@ extern "C" void app_main(void) {
     encoders_init();
     servo_tables_load(); // the servos' calibration tables (servo_table.hpp), before any pulse is computed
     web_server_recenter_servo(); // see its own doc comment -- must run after settings are loaded, before HTTP bring-up
+    pose_persist_restore(); // the pose from before a restart (an update, a watchdog), before the control task saves over it
     log_task_start(); // before control_task_start(): controlModesTick() may submit log lines from tick 1
     control_task_start();
     serial_console_start();
