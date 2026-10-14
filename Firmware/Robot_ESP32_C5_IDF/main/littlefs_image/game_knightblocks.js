@@ -11,7 +11,7 @@
 // the robot in its own frame, as Free drive's robot mode -- up/down forward /
 // back, left/right turning on the spot -- slowly (MANUAL_FWD, MANUAL_TURN:
 // a few cm/s, ~20 deg/s), and it won't drive into a block it knows. The camera
-// looks at the floor just in front of the knight by itself ("camera_relative":
+// keeps the knight in the middle of the view by itself ("camera_relative":
 // the robot doesn't turn to help it, as it does for "aim").
 //
 // Auto drive: the robot follows the knight as in Pocket Knight (a leash at ~15 cm, the
@@ -56,7 +56,6 @@ Lynx.games = Lynx.games || {};
   const MANUAL_TURN = 0.08;
   const MANUAL_EASE = 3; // 1/s
   const MANUAL_SEND_MS = 100; // drive and camera resent this often (the robot stops without)
-  const AHEAD_BODIES = 1.6; // the camera looks this many knight heights in front of the knight
 
   Lynx.games.knightblocks = (ar, cfg, app) => {
     const K = Lynx.knightKit;
@@ -97,6 +96,8 @@ Lynx.games = Lynx.games || {};
     // the cyan block outlines and the green tag outlines: switches in the game
     let showBlocks = Boolean(remembered("knightblocksShowBlocks", cfg.showBlocks !== false));
     let showTags = Boolean(remembered("knightblocksShowTags", cfg.showTags !== false)); // (older versions stored 0 / 1)
+    // the wheel tracks driving straight forward / back, and where the body would touch a cube (cubes.js)
+    let showTracks = Boolean(remembered("knightblocksWheelTracks", true));
     const doScan = cfg.scan === true;
     // manual drive (default) or auto drive: a switch in the game, remembered
     let autoDrive = Boolean(remembered("knightblocksAutoDrive", cfg.autoDrive === true));
@@ -602,9 +603,8 @@ Lynx.games = Lynx.games || {};
     }
     // Manual drive: the right stick (arrows) drives the robot in its own frame,
     // eased and slow, never into a block it knows; the camera looks at the
-    // floor in front of the knight.
+    // knight in the middle of the view.
     function manualDrive(dt, now) {
-      const h = hero;
       const look = Lynx.control.aimInput;
       // (the look input as sent: stick x TURN_SPEED 0.7 / TILT_SPEED 0.8, see controls.js)
       const turnIn = now - look.rotAt < 300 ? clamp(look.rot / 0.7, -1, 1) : 0;
@@ -643,9 +643,8 @@ Lynx.games = Lynx.games || {};
         man.sent = cmd;
         man.sentAt = now;
       }
-      // the camera: the floor just in front of the knight, where it's heading
-      const ahead = AHEAD_BODIES * C.BODY_H;
-      aimAt([h.f + Math.cos(h.yaw) * ahead + h.vf * 0.3, h.r + Math.sin(h.yaw) * ahead + h.vr * 0.3, h.z], dt, now, false);
+      // the camera: the knight in the middle (no lead -- as little camera movement as can be)
+      aimAt(knightMiddle(), dt, now, false);
       // pointed relative to the chassis (the robot doesn't turn to help, as with "aim")
       const th = chassisTheta();
       const panDeg = clamp((wrap(cam.aimYaw - th) * 180) / Math.PI, -88, 88);
@@ -728,8 +727,10 @@ Lynx.games = Lynx.games || {};
           cam.lastGotoMs = now;
         }
       }
-      aimAt([h.f + h.vf * 0.3, h.r + h.vr * 0.3, h.z + 0.04 * S], dt, now);
+      aimAt(knightMiddle(), dt, now);
     }
+    // what the camera keeps in the middle of the view: the knight, half way up
+    const knightMiddle = () => [hero.f, hero.r, hero.z + C.BODY_H / 2];
     // the camera eases toward the point, panning and tilting at a limited rate
     // (send: as "aim"; manual drive sends it itself)
     function aimAt(pt, dt, now, send = true) {
@@ -902,6 +903,7 @@ Lynx.games = Lynx.games || {};
       panelItems.push(Lynx.cam.addMenuButton("\u{1F50D} Rescan blocks", () => state !== "title" && rescan()));
       panelItems.push(Lynx.cam.addOverlayToggle("Blocks", showBlocks, (on) => remember("knightblocksShowBlocks", (showBlocks = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
+      panelItems.push(Lynx.cam.addOverlayToggle("Wheel tracks", showTracks, (on) => remember("knightblocksWheelTracks", (showTracks = on))));
     }
     ar.onDestroy(() => {
       panelItems.forEach((el) => el.remove());
@@ -1064,6 +1066,8 @@ Lynx.games = Lynx.games || {};
           cubes.drawFootprints(w);
           cubes.drawGone(w);
         }
+        // (its body as the game keeps it clear of the blocks: robotHalf to the sides and ahead, robotRear behind)
+        if (showTracks) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotHalf, rearM: robotRear });
         solids.forEach(queueBlock);
         if (state === "playing") queueHero();
         ar.flush();
