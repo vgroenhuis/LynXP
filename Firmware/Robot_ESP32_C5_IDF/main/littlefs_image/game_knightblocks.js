@@ -322,7 +322,7 @@ Lynx.games = Lynx.games || {};
     // control, gravity, bumping into blocks, landing on the floor or a block,
     // or catching a ledge on the way down (tryGrab's test, facing where it
     // flies). No side effects. -> {f, r, h (where it lands), on (a block's
-    // id, or null: the floor), grab (catches that block's edge), path: [[f, r, z]]} or null
+    // id, or null: the floor), grab (catches that block's edge), path: [[f, r, z]] (the flight)} or null
     function predictJump() {
       const h = hero;
       if (h.mode !== "move") return null;
@@ -391,32 +391,25 @@ Lynx.games = Lynx.games || {};
       }
       return null;
     }
-    // The hint: the flight as dots, a ring where it lands -- white on the
-    // floor, gold on a block (and a mark when it would catch the edge and
-    // climb up). Drawn over everything (it's a hint, not a thing in the world).
-    function drawJumpHint() {
+    // The hint: a ring where it lands -- white on the floor, gold on a block
+    // (and a mark when it would catch the edge and climb up) -- in the depth
+    // order with the blocks, so a block in front of it hides it.
+    function queueJumpHint() {
       const j = predictJump();
       if (!j) return;
-      const g = ar.ctx;
       const col = j.on === null ? "rgba(255,255,255,0.9)" : "rgba(255,205,70,0.95)";
-      g.save();
-      j.path.forEach(([f, r, z], i) => {
-        const q = w.project(f, r, z);
-        if (!q || i === 0) return;
-        g.fillStyle = `rgba(255,255,255,${(0.35 + (0.5 * i) / j.path.length).toFixed(2)})`;
-        g.beginPath();
-        g.arc(q.x, q.y, 2, 0, 2 * Math.PI);
-        g.fill();
-      });
-      g.restore();
       const rad = C.BODY_R * 1.6;
-      const ring = [];
-      for (let k = 0; k <= 24; k++) ring.push([j.f + rad * Math.cos((k / 24) * 2 * Math.PI), j.r + rad * Math.sin((k / 24) * 2 * Math.PI), j.h + 0.0008]);
-      w.line3(ring, col, 2.5, 0.003);
-      if (j.grab) {
-        const q = w.project(j.f, j.r, j.h + 0.004 * S);
-        if (q) ar.text("\u2934 climbs", q.x, q.y - 10, { size: 12, align: "center", color: col });
-      }
+      const m = w.project(j.f, j.r, j.h);
+      if (!m) return;
+      ar.queue(m.depth, () => {
+        const ring = [];
+        for (let k = 0; k <= 24; k++) ring.push([j.f + rad * Math.cos((k / 24) * 2 * Math.PI), j.r + rad * Math.sin((k / 24) * 2 * Math.PI), j.h + 0.0008]);
+        w.line3(ring, col, 2.5, 0.003);
+        if (j.grab) {
+          const q = w.project(j.f, j.r, j.h + 0.004 * S);
+          if (q) ar.text("\u2934 climbs", q.x, q.y - 10, { size: 12, align: "center", color: col });
+        }
+      }, w.extent(j.f - rad, j.f + rad, j.r - rad, j.r + rad, j.h, j.h + 0.001));
     }
 
     function collide(up) {
@@ -1252,8 +1245,8 @@ Lynx.games = Lynx.games || {};
         if (showTracks) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotFront, rearM: robotRear });
         solids.forEach(queueBlock);
         if (state === "playing") queueHero();
+        if (state === "playing" && showJumpHint) queueJumpHint();
         ar.flush();
-        if (state === "playing" && showJumpHint) drawJumpHint();
       }
       if (showTags) cubes.drawTags();
       cubes.drawStatus();
