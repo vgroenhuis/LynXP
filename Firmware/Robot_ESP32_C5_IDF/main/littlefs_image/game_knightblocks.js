@@ -103,10 +103,12 @@ Lynx.games = Lynx.games || {};
     let showTracks = Boolean(remembered("knightblocksWheelTracks", true));
     // manual drive: the robot won't drive into a block it knows (off: it goes where it's driven)
     let autoStop = Boolean(remembered("knightblocksAutoStop", true));
+    // where a jump would land (predictJump), shown while running or in the air
+    let showJumpHint = Boolean(remembered("knightblocksJumpHint", true));
     const doScan = cfg.scan === true;
     // the camera (see AIM_EASE): how fast it turns, and its dead zone
     const num = (v, def) => (Number.isFinite(+v) && v !== "" && v !== null && v !== undefined ? +v : def);
-    const aimRate = (clamp(num(cfg.camSpeedDeg, 9), 1, 60) * Math.PI) / 180;
+    const aimRate = (clamp(num(cfg.camSpeedDeg, 40), 1, 60) * Math.PI) / 180;
     const deadYawDeg = clamp(num(cfg.camDeadzoneDeg, 12), 0, 40);
     const deadTiltDeg = clamp(num(cfg.camDeadzoneTiltDeg, 8), 0, 40);
     // manual drive (default) or auto drive: a switch in the game, remembered
@@ -308,6 +310,109 @@ Lynx.games = Lynx.games || {};
           if (h.attackQueued && h.attack.n < 3) startSwing(h.attack.n + 1);
           else h.attack = null;
         }
+      }
+    }
+
+    // -- where a jump lands ---------------------------------------------------------------------
+    // The knight's flight as stepHero would fly it -- jumping now if it's on
+    // the ground (else the jump it's in), the stick held as it is: air
+    // control, gravity, bumping into blocks, landing on the floor or a block,
+    // or catching a ledge on the way down (tryGrab's test, facing where it
+    // flies). No side effects. -> {f, r, h (where it lands), on (a block's
+    // id, or null: the floor), grab (catches that block's edge), path: [[f, r, z]]} or null
+    function predictJump() {
+      const h = hero;
+      if (h.mode !== "move") return null;
+      const p = { f: h.f, r: h.r, z: h.z, vf: h.vf, vr: h.vr, vz: h.vz };
+      const inp = stickInput();
+      const tvf = inp.df * inp.speed;
+      const tvr = inp.dr * inp.speed;
+      if (h.onGround) {
+        if (inp.speed < 0.004 * S) return null; // (standing still: a jump straight up)
+        p.vz = C.JUMP_V;
+      }
+      const dt = 1 / 120;
+      const path = [[p.f, p.r, p.z]];
+      for (let i = 1; i < 360; i++) {
+        const dvf = tvf - p.vf;
+        const dvr = tvr - p.vr;
+        const dv = Math.hypot(dvf, dvr);
+        const a = C.AIR_ACCEL * dt;
+        if (dv > a) {
+          p.vf += (dvf / dv) * a;
+          p.vr += (dvr / dv) * a;
+        } else {
+          p.vf = tvf;
+          p.vr = tvr;
+        }
+        p.vz -= C.GRAVITY * dt;
+        p.z += p.vz * dt;
+        p.f += p.vf * dt;
+        p.r += p.vr * dt;
+        // bumping into blocks (as collide)
+        for (const b of solids) {
+          if (b.h1 <= p.z + C.AIR_STEP_UP || b.h0 >= p.z + C.BODY_H - 0.004 * S) continue;
+          const [u, v] = toB(b, p.f, p.r);
+          const e = b.half + C.BODY_R;
+          if (Math.abs(u) >= e || Math.abs(v) >= e) continue;
+          const pen = [[e - u, 1, 0], [e + u, -1, 0], [e - v, 0, 1], [e + v, 0, -1]].sort((x, y) => x[0] - y[0]);
+          const [d, nu, nv] = pen[0];
+          [p.f, p.r] = fromB(b, u + nu * d, v + nv * d);
+          const [nf, nr] = dirFromB(b, nu, nv);
+          const vn = p.vf * nf + p.vr * nr;
+          if (vn < 0) {
+            p.vf -= vn * nf;
+            p.vr -= vn * nr;
+          }
+        }
+        if (i % 4 === 0) path.push([p.f, p.r, p.z]);
+        const g = groundAt(p.f, p.r, p.z, C.AIR_STEP_UP);
+        if (p.vz <= 0 && p.z <= g.h) {
+          path.push([p.f, p.r, g.h]);
+          return { f: p.f, r: p.r, h: g.h, on: g.ref, grab: false, path };
+        }
+        // catching a ledge on the way down (tryGrab: a block's edge in front, high enough)
+        if (p.vz < 0.07 * S && Math.hypot(p.vf, p.vr) > 1e-4) {
+          const n = Math.hypot(p.vf, p.vr);
+          const pf = p.f + (p.vf / n) * (C.BODY_R + 0.005 * S);
+          const pr = p.r + (p.vr / n) * (C.BODY_R + 0.005 * S);
+          for (const b of solids) {
+            if (!inFoot(b, pf, pr)) continue;
+            const rise = b.h1 - p.z;
+            if (rise < C.MANTLE_MIN || rise > C.GRAB_MAX) continue;
+            if (solids.some((o) => o !== b && o.h0 < b.h1 + C.BODY_H && o.h1 > b.h1 + 0.002 * S && inFoot(o, pf, pr, 0.004 * S))) continue;
+            path.push([p.f, p.r, p.z]);
+            return { f: pf, r: pr, h: b.h1, on: b.id, grab: true, path };
+          }
+        }
+      }
+      return null;
+    }
+    // The hint: the flight as dots, a ring where it lands -- white on the
+    // floor, gold on a block (and a mark when it would catch the edge and
+    // climb up). Drawn over everything (it's a hint, not a thing in the world).
+    function drawJumpHint() {
+      const j = predictJump();
+      if (!j) return;
+      const g = ar.ctx;
+      const col = j.on === null ? "rgba(255,255,255,0.9)" : "rgba(255,205,70,0.95)";
+      g.save();
+      j.path.forEach(([f, r, z], i) => {
+        const q = w.project(f, r, z);
+        if (!q || i === 0) return;
+        g.fillStyle = `rgba(255,255,255,${(0.35 + (0.5 * i) / j.path.length).toFixed(2)})`;
+        g.beginPath();
+        g.arc(q.x, q.y, 2, 0, 2 * Math.PI);
+        g.fill();
+      });
+      g.restore();
+      const rad = C.BODY_R * 1.6;
+      const ring = [];
+      for (let k = 0; k <= 24; k++) ring.push([j.f + rad * Math.cos((k / 24) * 2 * Math.PI), j.r + rad * Math.sin((k / 24) * 2 * Math.PI), j.h + 0.0008]);
+      w.line3(ring, col, 2.5, 0.003);
+      if (j.grab) {
+        const q = w.project(j.f, j.r, j.h + 0.004 * S);
+        if (q) ar.text("\u2934 climbs", q.x, q.y - 10, { size: 12, align: "center", color: col });
       }
     }
 
@@ -981,6 +1086,7 @@ Lynx.games = Lynx.games || {};
       panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Wheel tracks", showTracks, (on) => remember("knightblocksWheelTracks", (showTracks = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Auto stop", autoStop, (on) => remember("knightblocksAutoStop", (autoStop = on))));
+      panelItems.push(Lynx.cam.addOverlayToggle("Jump hint", showJumpHint, (on) => remember("knightblocksJumpHint", (showJumpHint = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("World frame from cube", frameFromCube, (on) => remember("knightblocksAutoFrame", (frameFromCube = on))));
     }
     ar.onDestroy(() => {
@@ -1143,6 +1249,7 @@ Lynx.games = Lynx.games || {};
         solids.forEach(queueBlock);
         if (state === "playing") queueHero();
         ar.flush();
+        if (state === "playing" && showJumpHint) drawJumpHint();
       }
       if (showTags) cubes.drawTags();
       cubes.drawStatus();
@@ -1156,7 +1263,7 @@ Lynx.games = Lynx.games || {};
 
     return {
       actionLabel: "⚔️ Sword",
-      debug: { hero: () => hero, cam: () => cam, world: () => w, tags: () => tb, solids: () => solids, startPlay, startScan, rescan, teleport: (f, r) => placeHero(f, r, hero.yaw) },
+      debug: { hero: () => hero, cam: () => cam, world: () => w, tags: () => tb, solids: () => solids, startPlay, startScan, rescan, teleport: (f, r) => placeHero(f, r, hero.yaw), predictJump },
       snapshot: () => ({
         state, blocks: solids.map((b) => `${b.id}${b.inferred ? "i" : ""}@${b.cf.toFixed(3)},${b.cr.toFixed(3)} h${(b.h0 * 1000).toFixed(0)}..${(b.h1 * 1000).toFixed(0)}mm`),
         hero: { f: +hero.f.toFixed(3), r: +hero.r.toFixed(3), z: +hero.z.toFixed(3), mode: hero.mode, onGround: hero.onGround, on: hero.standOn },
