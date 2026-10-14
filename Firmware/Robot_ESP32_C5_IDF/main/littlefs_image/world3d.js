@@ -144,7 +144,9 @@ window.Lynx = window.Lynx || {};
       c.stroke();
     }
 
-    const extent = (f0, f1, r0, r1, h0, h1) => ({ frame, f0, f1, r0, r1, h0, h1 });
+    // (pts: a turned box's four floor corners [f, r] in order -- f0..r1 then
+    // bound them; without, the box is the f0..f1 x r0..r1 rectangle)
+    const extent = (f0, f1, r0, r1, h0, h1, pts) => ({ frame, f0, f1, r0, r1, h0, h1, pts });
 
     // -- textures -------------------------------------------------------------------
     const mod = (a, n) => {

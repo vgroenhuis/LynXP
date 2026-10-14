@@ -719,14 +719,38 @@ window.Lynx = window.Lynx || {};
     // toward one of them only), so neither covers the other -- saying
     // otherwise invents constraints that can form cycles (the camera
     // standing between walls in a maze), which then get broken wrongly.
-    const AXES = [["f0", "f1", "f"], ["r0", "r1", "r"], ["h0", "h1", "h"]];
+    // A box turned on the floor (box.pts: its corners) is tried along its own
+    // edges' directions too -- its f0..r1 bounds alone are bigger than it,
+    // and something right beside it (the knight next to a cube's corner) was
+    // "inside" them, so ordered by depth and wrongly hidden.
+    const floorPts = (b) => b.pts || [[b.f0, b.r0], [b.f1, b.r0], [b.f1, b.r1], [b.f0, b.r1]];
     function boxOrder(a, b) {
       const cam = a.frame.cam;
-      for (const [lo, hi, c] of AXES) {
-        if (a[hi] <= b[lo] + 1e-6) return cam[c] > b[lo] ? 1 : cam[c] < a[hi] ? -1 : 0;
-        if (b[hi] <= a[lo] + 1e-6) return cam[c] < b[hi] ? 1 : cam[c] > a[lo] ? -1 : 0;
+      const order = (a0, a1, b0, b1, c) => {
+        if (a1 <= b0 + 1e-6) return c > b0 ? 1 : c < a1 ? -1 : 0;
+        if (b1 <= a0 + 1e-6) return c < b1 ? 1 : c > a0 ? -1 : 0;
+        return null; // (no gap along this axis)
+      };
+      const A = floorPts(a);
+      const B = floorPts(b);
+      const axes = [[1, 0], [0, 1]];
+      for (const P of [a.pts, b.pts]) {
+        if (!P) continue;
+        for (let i = 0; i < 2; i++) {
+          const dx = P[i + 1][0] - P[i][0];
+          const dy = P[i + 1][1] - P[i][1];
+          const l = Math.hypot(dx, dy);
+          if (l > 1e-9) axes.push([dx / l, dy / l]);
+        }
       }
-      return 0; // they intersect: nothing exact to say
+      for (const n of axes) {
+        const pa = A.map((p) => p[0] * n[0] + p[1] * n[1]);
+        const pb = B.map((p) => p[0] * n[0] + p[1] * n[1]);
+        const o = order(Math.min(...pa), Math.max(...pa), Math.min(...pb), Math.max(...pb), cam.f * n[0] + cam.r * n[1]);
+        if (o !== null) return o;
+      }
+      const o = order(a.h0, a.h1, b.h0, b.h1, cam.h);
+      return o === null ? 0 : o; // (0: they intersect -- nothing exact to say)
     }
 
     // Screen rectangle a box covers ({x0, y0, x1, y1}), null if it's all

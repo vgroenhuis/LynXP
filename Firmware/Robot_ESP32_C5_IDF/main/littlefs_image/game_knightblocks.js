@@ -1071,7 +1071,7 @@ Lynx.games = Lynx.games || {};
           cubes.drawFootprint(w, b.world); // (after the cut: drawn before, it was cut out too)
           cubes.drawOutline(w, b.world);
         }
-      }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), b.h0, b.h1));
+      }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), b.h0, b.h1, cs)); // (cs: the cube as turned, see ar.js boxOrder)
     }
     function queueShadow() {
       const h = hero;
