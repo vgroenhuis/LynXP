@@ -338,7 +338,8 @@ Lynx.games = Lynx.games || {};
     // control, gravity, bumping into blocks, landing on the floor or a block,
     // or catching a ledge on the way down (tryGrab's test, facing where it
     // flies). No side effects. -> {f, r, h (where it lands), on (a block's
-    // id, or null: the floor), grab (catches that block's edge), path: [[f, r, z]] (the flight)} or null
+    // id, or null: the floor), grab (catches that block's edge: edge, the part
+    // of it the hands take, [[f, r], [f, r]] at h), path: [[f, r, z]] (the flight)} or null
     function predictJump() {
       const h = hero;
       if (h.mode !== "move") return null;
@@ -401,30 +402,64 @@ Lynx.games = Lynx.games || {};
             if (rise < C.MANTLE_MIN || rise > C.GRAB_MAX) continue;
             if (solids.some((o) => o !== b && o.h0 < b.h1 + C.BODY_H && o.h1 > b.h1 + 0.002 * S && inFoot(o, pf, pr, 0.004 * S))) continue;
             path.push([p.f, p.r, p.z]);
-            return { f: pf, r: pr, h: b.h1, on: b.id, grab: true, path };
+            // the edge of the top it catches: the side the knight comes from
+            const [u, v] = toB(b, p.f, p.r);
+            const onU = Math.abs(u) - b.half >= Math.abs(v) - b.half;
+            const L = Math.min(C.BODY_R * 1.8, b.half);
+            const along = clamp(onU ? v : u, -b.half + L, b.half - L);
+            const edge = onU
+              ? [fromB(b, Math.sign(u) * b.half, along - L), fromB(b, Math.sign(u) * b.half, along + L)]
+              : [fromB(b, along - L, Math.sign(v) * b.half), fromB(b, along + L, Math.sign(v) * b.half)];
+            return { f: pf, r: pr, h: b.h1, on: b.id, grab: true, edge, path };
           }
         }
       }
       return null;
     }
-    // The hint: a ring where it lands -- white on the floor, gold on a block
-    // (and a mark when it would catch the edge and climb up) -- in the depth
-    // order with the blocks, so a block in front of it hides it.
+    // The hint, in the depth order with the blocks (a block in front of it
+    // hides it): where it lands, a glowing semi-transparent disc -- white on
+    // the floor, gold on a block; where it would catch a ledge, that part of
+    // the edge as a glowing white line.
     function queueJumpHint() {
       const j = predictJump();
       if (!j) return;
-      const col = j.on === null ? "rgba(255,255,255,0.9)" : "rgba(255,205,70,0.95)";
-      const rad = C.BODY_R * 1.6;
       const m = w.project(j.f, j.r, j.h);
       if (!m) return;
+      const g = ar.ctx;
+      if (j.grab) {
+        const [[f0, r0], [f1, r1]] = j.edge;
+        const lift = 0.0008;
+        ar.queue(m.depth, () => {
+          g.save();
+          g.shadowColor = "rgba(255,255,255,0.95)";
+          g.shadowBlur = 10;
+          w.line3([[f0, r0, j.h + lift], [f1, r1, j.h + lift]], "rgba(255,255,255,0.95)", 3.5, 0.003);
+          g.restore();
+        }, w.extent(Math.min(f0, f1) - 0.002, Math.max(f0, f1) + 0.002, Math.min(r0, r1) - 0.002, Math.max(r0, r1) + 0.002, j.h, j.h + 0.001));
+        return;
+      }
+      const rad = C.BODY_R * 1.6;
+      const gold = j.on !== null;
       ar.queue(m.depth, () => {
-        const ring = [];
-        for (let k = 0; k <= 24; k++) ring.push([j.f + rad * Math.cos((k / 24) * 2 * Math.PI), j.r + rad * Math.sin((k / 24) * 2 * Math.PI), j.h + 0.0008]);
-        w.line3(ring, col, 2.5, 0.003);
-        if (j.grab) {
-          const q = w.project(j.f, j.r, j.h + 0.004 * S);
-          if (q) ar.text("\u2934 climbs", q.x, q.y - 10, { size: 12, align: "center", color: col });
+        const pts = [];
+        for (let k = 0; k < 28; k++) {
+          const q = w.project(j.f + rad * Math.cos((k / 28) * 2 * Math.PI), j.r + rad * Math.sin((k / 28) * 2 * Math.PI), j.h + 0.0008);
+          if (!q) return;
+          pts.push(q);
         }
+        g.save();
+        g.beginPath();
+        pts.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+        g.closePath();
+        g.shadowColor = gold ? "rgba(255,200,60,0.9)" : "rgba(255,255,255,0.9)";
+        g.shadowBlur = 14;
+        g.fillStyle = gold ? "rgba(255,210,80,0.35)" : "rgba(255,255,255,0.3)";
+        g.fill();
+        g.shadowBlur = 6;
+        g.strokeStyle = gold ? "rgba(255,225,130,0.7)" : "rgba(255,255,255,0.6)";
+        g.lineWidth = 1.5;
+        g.stroke();
+        g.restore();
       }, w.extent(j.f - rad, j.f + rad, j.r - rad, j.r + rad, j.h, j.h + 0.001));
     }
 
