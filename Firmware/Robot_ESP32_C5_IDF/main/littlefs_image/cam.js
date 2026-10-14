@@ -215,6 +215,7 @@ window.addEventListener("DOMContentLoaded", () => {
             return {
               heightM: data.cameraHeightMm / 1000,
               tiltRad: (data.cameraTiltDeg * Math.PI) / 180,
+              wheelbaseM: (+data.wheelbaseMm || 170) / 1000, // (the wheel tracks overlay)
               // the chassis's lean (camcal "lean": the servo / mount calibration; see Lynx.cameraDown)
               leanFwdRad: camcal && camcal.lean ? ((+camcal.lean.fwdDeg || 0) * Math.PI) / 180 : 0,
               leanLeftRad: camcal && camcal.lean ? ((+camcal.lean.leftDeg || 0) * Math.PI) / 180 : 0,

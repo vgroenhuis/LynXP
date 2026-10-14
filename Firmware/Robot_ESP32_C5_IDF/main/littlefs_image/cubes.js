@@ -82,6 +82,71 @@ window.Lynx = window.Lynx || {};
 
   const wrap = (v) => Math.atan2(Math.sin(v), Math.cos(v));
 
+  // Wheel tracks: where the wheels would run driving straight forward (green,
+  // aheadM) or back (amber, backM) from the robot's pose as shown with the
+  // video, a mark every 10 cm -- and, where the body would first touch a cube
+  // on the floor (opts.blocks(): tagblocks.js list() / a cube layer's
+  // blocks()), a red bar across its width there, the tracks beyond it dimmed.
+  // The body: frontM ahead of the pose point (the pan axis, over the drive
+  // wheels' axle), rearM behind, halfWidthM to each side (by default the box
+  // fitted to the camera's view of it, see tagblocks.js ROBOT_BODY).
+  // w: a Lynx.world3d of this ar (with {lens: true} it sits on the video).
+  Lynx.drawWheelTracks = (ar, w, opts = {}) => {
+    const p = ar.pose;
+    if (!p || !(typeof p.x === "number")) return;
+    const th = typeof p.chassisTheta === "number" ? p.chassisTheta : p.theta - ((p.servoAngleDeg || 0) * Math.PI) / 180;
+    const wb = (ar.calib && ar.calib.wheelbaseM) || 0.17;
+    const half = opts.halfWidthM ?? 0.1;
+    const front = opts.frontM ?? 0.06;
+    const rear = opts.rearM ?? 0.12;
+    const ahead = opts.aheadM ?? 0.4;
+    const back = opts.backM ?? 0.25;
+    const blocks = (opts.blocks ? opts.blocks() : []).filter((b) => b.h0 < 0.05); // (ones up high pass over it)
+    const c = Math.cos(th);
+    const s = Math.sin(th);
+    // a point d ahead of the pose point and y to the left of it -> w's local floor frame
+    const at = (d, y, h = 0.001) => {
+      const l = w.toLocal(p.x + d * c - y * s, p.y + d * s + y * c);
+      return [l.f, l.r, h];
+    };
+    const inBlock = (d, y) => {
+      const x = p.x + d * c - y * s;
+      const yy = p.y + d * s + y * c;
+      return blocks.some((b) => {
+        const cb = Math.cos(b.yaw);
+        const sb = Math.sin(b.yaw);
+        const dx = x - b.x;
+        const dy = yy - b.y;
+        return Math.abs(dx * cb + dy * sb) <= b.half && Math.abs(-dx * sb + dy * cb) <= b.half;
+      });
+    };
+    // how far it gets (forward: dir 1, back: -1) before its leading edge reaches a cube, or null
+    const reach = (dir, max) => {
+      for (let d = 0; d <= max + 1e-9; d += 0.005) {
+        const edge = dir > 0 ? front + d : -rear - d;
+        for (let k = 0; k <= 10; k++) if (inBlock(edge, -half + (2 * half * k) / 10)) return d;
+      }
+      return null;
+    };
+    const tracks = (dir, max, col, wide) => {
+      const stop = reach(dir, max);
+      const free = stop === null ? max : stop;
+      [-wb / 2, wb / 2].forEach((y) => {
+        if (free > 0.002) w.line3([at(0, y), at(dir * free, y)], col, wide, 0.02);
+        if (stop !== null && stop < max) w.line3([at(dir * stop, y), at(dir * max, y)], "rgba(255,80,80,0.3)", 1, 0.02);
+        // a mark every 10 cm, outward
+        for (let d = 0.1; d <= free + 1e-9; d += 0.1) w.line3([at(dir * d, y), at(dir * d, y + Math.sign(y) * 0.015)], col, 1, 0.02);
+      });
+      if (stop !== null) {
+        // the body's leading edge, where it would touch
+        const edge = dir > 0 ? front + stop : -rear - stop;
+        w.line3([at(edge, -half), at(edge, half)], "rgba(255,60,60,0.95)", 3, 0.01);
+      }
+    };
+    tracks(1, ahead, "rgba(120,255,140,0.85)", 2);
+    tracks(-1, back, "rgba(255,200,90,0.75)", 1.5);
+  };
+
   Lynx.cubeLayer = (ar, app, opts = {}) => {
     const set = Lynx.tagSettings(app);
     const frame = { samples: [], appliedAt: -1e9, note: null, noteAt: -1e9, seenAt: -1e9, progress: 0 };

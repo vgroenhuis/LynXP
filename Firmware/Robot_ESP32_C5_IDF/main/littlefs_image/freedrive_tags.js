@@ -13,7 +13,7 @@
 window.Lynx = window.Lynx || {};
 
 (function (Lynx) {
-  const KEYS = { on: "freeDriveTags", blocks: "freeDriveShowBlocks", tags: "freeDriveShowTags", frame: "freeDriveAutoFrame" };
+  const KEYS = { on: "freeDriveTags", blocks: "freeDriveShowBlocks", tags: "freeDriveShowTags", frame: "freeDriveAutoFrame", tracks: "freeDriveWheelTracks" };
 
   const remembered = (key, def) => {
     try {
@@ -34,8 +34,8 @@ window.Lynx = window.Lynx || {};
   let calib = null;
   let app = null;
   let active = false; // Free drive is running
-  const opt = { on: remembered(KEYS.on, false), blocks: remembered(KEYS.blocks, true), tags: remembered(KEYS.tags, true), frame: remembered(KEYS.frame, false) };
-  let run = null; // {ar, w, layer} while detecting
+  const opt = { on: remembered(KEYS.on, false), blocks: remembered(KEYS.blocks, true), tags: remembered(KEYS.tags, true), frame: remembered(KEYS.frame, false), tracks: remembered(KEYS.tracks, false) };
+  let run = null; // {ar, w, layer (null with the detection off)} while detecting or showing the wheel tracks
   let toggles = [];
 
   function setup(c, a) {
@@ -53,34 +53,36 @@ window.Lynx = window.Lynx || {};
         remember(KEYS[key], v);
         refresh();
       });
-      toggles = [t("Cube detection", "on"), t("Cube outlines", "blocks"), t("Cube tags", "tags"), t("World frame from cube", "frame")];
+      toggles = [t("Cube detection", "on"), t("Cube outlines", "blocks"), t("Cube tags", "tags"), t("World frame from cube", "frame"), t("Wheel tracks", "tracks")];
     }
     refresh();
   }
 
   function refresh() {
-    const want = active && opt.on && calib;
-    if (want && !run) startRun();
-    else if (!want && run) {
+    const want = active && (opt.on || opt.tracks) && calib;
+    // (the detection switched: started over with or without it)
+    if (run && (!want || !!run.layer !== opt.on)) {
       run.ar.destroy(); // (the layer stops with it)
       run = null;
     }
+    if (want && !run) startRun();
   }
 
   function startRun() {
     const ar = Lynx.createAr(calib);
     const w = Lynx.world3d(ar, { textures: false, lens: true }); // (outlines on the video: through the lens)
     w.setAnchor({ x: 0, y: 0, th: 0 });
-    const layer = Lynx.cubeLayer(ar, app, { frame: () => opt.frame });
+    const layer = opt.on ? Lynx.cubeLayer(ar, app, { frame: () => opt.frame }) : null;
     run = { ar, w, layer };
     ar.onFrame(() => {
       w.beginFrame();
       // (no status line -- the Tags page lists the cubes; only a failure shows here)
-      layer.draw(w, { blocks: opt.blocks, tags: opt.tags });
+      if (layer) layer.draw(w, { blocks: opt.blocks, tags: opt.tags });
+      if (opt.tracks) Lynx.drawWheelTracks(ar, w, { blocks: () => (layer ? layer.blocks() : []) });
     });
   }
 
   // blocks(): the cubes seen now (tagblocks.js list(): x, y, yaw, half, h0, h1),
   // [] while cube detection is off -- e.g. for the world axes (cam.js)
-  Lynx.freeDriveTags = { setup, setActive, debug: () => run, blocks: () => (run ? run.layer.blocks() : []) };
+  Lynx.freeDriveTags = { setup, setActive, debug: () => run, blocks: () => (run && run.layer ? run.layer.blocks() : []) };
 })(window.Lynx);
