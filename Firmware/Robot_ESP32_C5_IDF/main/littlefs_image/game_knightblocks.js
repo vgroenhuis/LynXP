@@ -52,6 +52,10 @@ Lynx.games = Lynx.games || {};
   // button in manual drive, a touch / Menu button) turns it there right away.
   const AIM_EASE = 0.8; // 1/s: the spot looked at eases toward the knight (time constant 1.25 s)
   const AIM_SETTLE_DEG = 2;
+  // Once it turns, it turns to the knight itself -- or, the knight walking, a
+  // little ahead of it (its velocity x AIM_LEAD_S, at most half the dead zone)
+  // -- so the knight has room to go on: fewer, bigger camera movements.
+  const AIM_LEAD_S = 0.8;
   // Manual drive: the robot's top speeds (the "joystick" message's j2 / j1 at
   // full stick: ~5 cm/s, and ~20 deg/s turning on the spot) and how the speed
   // eases toward the stick's -- slow and smooth, so the tags stay sharp
@@ -844,7 +848,7 @@ Lynx.games = Lynx.games || {};
         man.sentAt = now;
       }
       // the camera: the knight in the middle (no lead -- as little camera movement as can be)
-      aimAt(knightMiddle(), dt, now, false);
+      aimAt(knightMiddle(), dt, now, false, [hero.vf, hero.vr]);
       // pointed relative to the chassis (the robot doesn't turn to help, as with "aim")
       const th = chassisTheta();
       const panDeg = clamp((wrap(cam.aimYaw - th) * 180) / Math.PI, -88, 88);
@@ -944,38 +948,50 @@ Lynx.games = Lynx.games || {};
           cam.lastGotoMs = now;
         }
       }
-      aimAt(knightMiddle(), dt, now);
+      aimAt(knightMiddle(), dt, now, true, [hero.vf, hero.vr]);
     }
     // what the camera keeps in the middle of the view: the knight, half way up
     const knightMiddle = () => [hero.f, hero.r, hero.z + C.BODY_H / 2];
     // the camera eases toward the point, panning and tilting at a limited rate
     // (send: as "aim"; manual drive sends it itself)
-    function aimAt(pt, dt, now, send = true) {
+    function aimAt(pt, dt, now, send = true, vel = [0, 0]) {
       const cw = ar.cameraWorld();
       const fresh = !cam.aimPt;
       if (fresh) cam.aimPt = pt;
       const k = 1 - Math.exp(-dt * AIM_EASE);
       cam.aimPt = cam.aimPt.map((v, i) => v + (pt[i] - v) * k);
-      const P = w.toWorld(cam.aimPt[0], cam.aimPt[1]);
-      const hd = Math.hypot(P.x - cw.x, P.y - cw.y);
-      const yaw = Math.atan2(P.y - cw.y, P.x - cw.x);
+      // the camera's yaw and tilt to look at a point
+      const anglesOf = (q) => {
+        const P = w.toWorld(q[0], q[1]);
+        const hd = Math.hypot(P.x - cw.x, P.y - cw.y);
+        const down = Math.atan2(cw.h - q[2], Math.max(hd, 0.03));
+        return { yaw: Math.atan2(P.y - cw.y, P.x - cw.x), tilt: ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff, hd };
+      };
       const turn = aimRate * dt;
-      const down = Math.atan2(cw.h - cam.aimPt[2], Math.max(hd, 0.03));
-      const tilt = ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff;
       if (fresh || cam.aimYaw === null) {
-        cam.aimYaw = yaw;
-        cam.aimTilt = tilt;
+        const a = anglesOf(cam.aimPt);
+        cam.aimYaw = a.yaw;
+        cam.aimTilt = a.tilt;
         cam.aimMoving = false;
       } else {
-        // held still in the dead zone; past it, turned slowly till it's in the middle again
-        const errYawDeg = hd > 0.03 ? (wrap(yaw - cam.aimYaw) * 180) / Math.PI : 0;
-        const errTilt = tilt - cam.aimTilt;
-        if (!cam.aimMoving && (Math.abs(errYawDeg) > deadYawDeg || Math.abs(errTilt) > deadTiltDeg)) cam.aimMoving = true;
+        // held still while the (eased) spot stays in the dead zone...
+        const a = anglesOf(cam.aimPt);
+        const err = (b) => ({ yaw: b.hd > 0.03 ? (wrap(b.yaw - cam.aimYaw) * 180) / Math.PI : 0, tilt: b.tilt - cam.aimTilt });
+        const e0 = err(a);
+        if (!cam.aimMoving && (Math.abs(e0.yaw) > deadYawDeg || Math.abs(e0.tilt) > deadTiltDeg)) cam.aimMoving = true;
         if (cam.aimMoving) {
+          // ...past it: turned to the knight itself, a little ahead of it if it's walking
+          const v = Math.hypot(vel[0], vel[1]);
+          const cap = 0.5 * a.hd * Math.tan((deadYawDeg * Math.PI) / 180);
+          const lead = v > 1e-6 ? Math.min(v * AIM_LEAD_S, cap) / v : 0;
+          const e = err(anglesOf([pt[0] + vel[0] * lead, pt[1] + vel[1] * lead, pt[2]]));
           const tiltStep = (turn * 180) / Math.PI;
-          cam.aimYaw = wrap(cam.aimYaw + clamp((errYawDeg * Math.PI) / 180, -turn, turn));
-          cam.aimTilt += clamp(errTilt, -tiltStep, tiltStep);
-          if (Math.abs(errYawDeg) < AIM_SETTLE_DEG && Math.abs(errTilt) < AIM_SETTLE_DEG) cam.aimMoving = false;
+          cam.aimYaw = wrap(cam.aimYaw + clamp((e.yaw * Math.PI) / 180, -turn, turn));
+          cam.aimTilt += clamp(e.tilt, -tiltStep, tiltStep);
+          if (Math.abs(e.yaw) < AIM_SETTLE_DEG && Math.abs(e.tilt) < AIM_SETTLE_DEG) {
+            cam.aimMoving = false;
+            cam.aimPt = pt; // (the spot is where it looks now: no drift back across the dead zone)
+          }
         }
       }
       if (send) sendAimIfNeeded(now);
