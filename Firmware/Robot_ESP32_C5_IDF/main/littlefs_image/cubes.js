@@ -86,7 +86,7 @@ window.Lynx = window.Lynx || {};
 
   // Wheel tracks: where the wheels would run driving straight forward (white,
   // aheadM) or back (lavender, backM) from the robot's pose as shown with the
-  // video, a mark every 10 cm -- and, where the body would first touch a cube
+  // video -- and, where the body would first touch a cube
   // on the floor (opts.blocks(): tagblocks.js list() / a cube layer's
   // blocks()), the tracks beyond that point faint orange. (Colours apart
   // from the world axes' red and green and the cubes' cyan, yellow and magenta.)
@@ -137,12 +137,10 @@ window.Lynx = window.Lynx || {};
       [-wb / 2, wb / 2].forEach((y) => {
         if (free > 0.002) w.line3([at(0, y), at(dir * free, y)], col, wide, 0.02);
         if (stop !== null && stop < max) w.line3([at(dir * stop, y), at(dir * max, y)], "rgba(255,150,40,0.35)", 1, 0.02);
-        // a mark every 10 cm, outward
-        for (let d = 0.1; d <= free + 1e-9; d += 0.1) w.line3([at(dir * d, y), at(dir * d, y + Math.sign(y) * 0.015)], col, 1, 0.02);
       });
     };
-    tracks(1, ahead, "rgba(255,255,255,0.85)", 2);
-    tracks(-1, back, "rgba(190,160,255,0.8)", 1.5);
+    tracks(1, ahead, "rgba(255,255,255,0.5)", 2);
+    tracks(-1, back, "rgba(190,160,255,0.45)", 1.5);
   };
 
   Lynx.cubeLayer = (ar, app, opts = {}) => {
