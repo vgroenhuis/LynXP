@@ -1027,15 +1027,8 @@ Lynx.games = Lynx.games || {};
     function hud() {
       const v = ar.view;
       const s = tb.state;
-      const real = solids.filter((b) => !b.inferred).length;
-      // per tag ID: its block size (? = not yet measured on the floor) and how many cubes carry it
-      const sizes = s.ids.map((i) => `#${i.id} ${i.cm}${i.sure ? "" : "?"} cm${i.count > 1 ? ` \u00d7${i.count}` : ""}`).join(", ");
-      const status = s.error
-        ? s.error
-        : !s.ready
-          ? "Loading the tag detector..."
-          : `${real} block${real === 1 ? "" : "s"}${sizes ? ` (${sizes})` : ""} · ${s.tags} tag${s.tags === 1 ? "" : "s"} in view · ${s.fps.toFixed(1)}/s${s.stable ? "" : " · moving"}`;
-      ar.text(status, v.x + 12, v.y + 24, { size: 13, color: s.error ? "#ff8080" : "#c0f0ff" });
+      // (no status line -- the Tags page lists the cubes; a failure shows at the bottom, cubes.js)
+      if (!s.ready && !s.error) ar.text("Loading the tag detector...", v.x + 12, v.y + 24, { size: 13, color: "#c0f0ff" });
       if (state === "title") {
         ar.banner("KNIGHT ON BLOCKS", doScan ? "Fire to start -- the robot looks around for the tagged blocks first" : "Fire to start -- with the tagged blocks in view");
         ar.text(`Blocks: cubes of any size with ${family} AprilTags filling ${Math.round(tagRatio * 100)}% of a face`, v.cx, v.cy + 70, { size: 14, align: "center" });
