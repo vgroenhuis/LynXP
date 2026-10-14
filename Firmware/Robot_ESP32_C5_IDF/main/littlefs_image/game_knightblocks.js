@@ -9,8 +9,9 @@
 // Manual drive (the default; "Auto drive" in the Overlays panel, or M,
 // switches): the left stick moves the knight, the right stick (arrows) drives
 // the robot in its own frame, as Free drive's robot mode -- up/down forward /
-// back, left/right turning on the spot -- slowly (MANUAL_FWD, MANUAL_TURN:
-// a few cm/s, ~20 deg/s), and -- with "Auto stop" on (the default) -- it
+// back, left/right turning on the spot -- quick, short moves, so the camera is
+// still most of the time (the settings driveSpeedCmS, turnSpeedDeg: 16 cm/s,
+// 60 deg/s by default), and -- with "Auto stop" on (the default) -- it
 // won't drive into a block it knows. The robot's outline: a rectangle round the
 // drive wheels' axle (robotFrontCm ahead, robotRearCm behind, robotRadiusCm to
 // each side, see bodyMargin). The camera
@@ -54,9 +55,8 @@ Lynx.games = Lynx.games || {};
   // Manual drive: the robot's top speeds (the "joystick" message's j2 / j1 at
   // full stick: ~5 cm/s, and ~20 deg/s turning on the spot) and how the speed
   // eases toward the stick's -- slow and smooth, so the tags stay sharp
-  const MANUAL_FWD = 0.12;
-  const MANUAL_TURN = 0.08;
-  const MANUAL_EASE = 3; // 1/s
+  const WHEEL_TOP_MPS = 0.4; // a wheel at "joystick" 1 (maxWheelSpeedRevPerSec 1.8 x 71 mm wheels)
+  const MANUAL_EASE = 8; // 1/s: the speed follows the stick quickly (starts and stops in ~0.1 s)
   const MANUAL_SEND_MS = 100; // drive and camera resent this often (the robot stops without)
 
   Lynx.games.knightblocks = (ar, cfg, app) => {
@@ -111,6 +111,9 @@ Lynx.games = Lynx.games || {};
     const aimRate = (clamp(num(cfg.camSpeedDeg, 40), 1, 60) * Math.PI) / 180;
     const deadYawDeg = clamp(num(cfg.camDeadzoneDeg, 12), 0, 40);
     const deadTiltDeg = clamp(num(cfg.camDeadzoneTiltDeg, 8), 0, 40);
+    // manual drive's top speeds as "joystick" j2 / j1 (the wheels' speeds, a turn on the spot: v = omega x wheelbase / 2)
+    const manualFwd = clamp(num(cfg.driveSpeedCmS, 16) / 100 / WHEEL_TOP_MPS, 0.02, 1);
+    const manualTurn = clamp((((num(cfg.turnSpeedDeg, 60) * Math.PI) / 180) * 0.085) / WHEEL_TOP_MPS, 0.02, 1);
     // manual drive (default) or auto drive: a switch in the game, remembered
     let autoDrive = Boolean(remembered("knightblocksAutoDrive", cfg.autoDrive === true));
     const man = { fwd: 0, turn: 0, sentAt: -1e9, sent: null, camAt: -1e9, camSent: null, viewYaw: null };
@@ -770,7 +773,8 @@ Lynx.games = Lynx.games || {};
       const ch = chassisLocal();
       const m0 = autoStop ? bodyMargin(ch.f, ch.r, ch.th) : 0;
       if (autoStop && man.fwd) {
-        const s = Math.sign(man.fwd) * 0.03;
+        // (looking further ahead the faster it goes: it stops within ~a third of a second)
+        const s = Math.sign(man.fwd) * Math.max(0.03, Math.abs(man.fwd) * manualFwd * WHEEL_TOP_MPS * 0.35);
         const m1 = bodyMargin(ch.f + s * Math.cos(ch.th), ch.r + s * Math.sin(ch.th), ch.th);
         if (m1 < 0.003 && m1 < m0) {
           man.fwd = 0;
@@ -786,7 +790,7 @@ Lynx.games = Lynx.games || {};
         }
       }
       const r2 = (v) => Math.round(v * 100) / 100;
-      const cmd = { j1: r2(-man.turn * MANUAL_TURN), j2: r2(man.fwd * MANUAL_FWD) }; // (j1: right)
+      const cmd = { j1: r2(-man.turn * manualTurn), j2: r2(man.fwd * manualFwd) }; // (j1: right)
       const moving = cmd.j1 !== 0 || cmd.j2 !== 0;
       const changed = !man.sent || cmd.j1 !== man.sent.j1 || cmd.j2 !== man.sent.j2;
       if ((changed || moving) && now - man.sentAt > (changed ? 40 : MANUAL_SEND_MS)) {

@@ -234,6 +234,8 @@ window.Lynx = window.Lynx || {};
         { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
         { key: "knightCm", label: "Knight's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
         { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
+        { key: "driveSpeedCmS", label: "Manual drive: top speed (quick, short moves keep the camera still most of the time)", type: "number", unit: "cm/s", def: 16, min: 3, max: 35, step: 1 },
+        { key: "turnSpeedDeg", label: "Manual drive: top turning speed", type: "number", unit: "deg/s", def: 60, min: 10, max: 150, step: 5 },
         { key: "camSpeedDeg", label: "Camera turning speed (slower: the cubes stay better in place; faster: catches up sooner)", type: "number", unit: "deg/s", def: 40, min: 2, max: 40, step: 1 },
         { key: "camDeadzoneDeg", label: "Camera dead zone, left / right (the knight moves this far off the middle before the camera follows)", type: "number", unit: "deg", def: 12, min: 0, max: 30, step: 1 },
         { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
