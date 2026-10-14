@@ -153,18 +153,34 @@ Lynx.games = Lynx.games || {};
         const l = w.toLocal(b.x, b.y);
         return { id: b.id, cf: l.f, cr: l.r, yaw: a.th - b.yaw, half: b.half, h0: b.h0, h1: b.h1, inferred: b.inferred, n: b.n, world: b };
       });
-      // a block's estimate shifting a little under the knight carries it along
-      if (hero.onGround && hero.standOn !== null && hero.mode === "move") {
-        const now = solids.find((s) => s.id === hero.standOn);
-        const before = prev.get(hero.standOn);
-        if (now && before) {
-          const df = now.cf - before.cf;
-          const dr = now.cr - before.cr;
-          if (Math.hypot(df, dr) < 0.02) {
-            hero.f += df;
-            hero.r += dr;
-          }
-        }
+      // The block the knight stands on (or is climbing onto) moving -- its
+      // estimate shifting, or the block itself pushed somewhere else (by the
+      // robot, by hand) -- carries the knight along: the same spot on it,
+      // turned with it. (Hanging from an edge follows the block by itself.)
+      const h = hero;
+      const ref = h.mode === "move" && h.onGround ? h.standOn : h.mode === "climb" && h.climb ? h.climb.id : null;
+      if (ref === null) return;
+      const now = solids.find((s) => s.id === ref);
+      const before = prev.get(ref);
+      if (!now || !before || (now.cf === before.cf && now.cr === before.cr && now.yaw === before.yaw)) return;
+      // (a cube looks the same every quarter turn: its heading is only known
+      // modulo 90 deg -- the turn is the smallest one that matches)
+      const Q = Math.PI / 2;
+      let turn = wrap(now.yaw - before.yaw);
+      turn -= Math.round(turn / Q) * Q;
+      const to = { ...now, yaw: before.yaw + turn };
+      const carry = (p) => {
+        const [u, v] = toB(before, p.f, p.r);
+        [p.f, p.r] = fromB(to, u, v);
+      };
+      carry(h);
+      h.yaw = wrap(h.yaw + turn);
+      const c = Math.cos(turn);
+      const sn = Math.sin(turn);
+      [h.vf, h.vr] = [h.vf * c - h.vr * sn, h.vf * sn + h.vr * c];
+      if (h.mode === "climb") {
+        carry(h.climb.from);
+        carry(h.climb.to);
       }
     }
     const rot = (b) => [Math.cos(b.yaw), Math.sin(b.yaw)];
