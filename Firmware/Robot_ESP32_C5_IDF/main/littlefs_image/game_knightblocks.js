@@ -439,9 +439,10 @@ Lynx.games = Lynx.games || {};
         const lift = 0.0008;
         ar.queue(m.depth, () => {
           g.save();
-          g.shadowColor = "rgba(255,255,255,0.95)";
+          // (as faint as the landing disc)
+          g.shadowColor = "rgba(255,255,255,0.5)";
           g.shadowBlur = 10;
-          w.line3([[f0, r0, j.h + lift], [f1, r1, j.h + lift]], "rgba(255,255,255,0.95)", 3.5, 0.003);
+          w.line3([[f0, r0, j.h + lift], [f1, r1, j.h + lift]], "rgba(255,255,255,0.16)", 5, 0.003);
           g.restore();
         }, w.extent(Math.min(f0, f1) - 0.002, Math.max(f0, f1) + 0.002, Math.min(r0, r1) - 0.002, Math.max(r0, r1) + 0.002, j.h, j.h + 0.001));
         return;
