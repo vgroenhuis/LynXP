@@ -604,7 +604,7 @@ Lynx.games = Lynx.games || {};
 
   // The knight -- body, animation, drawing, moves -- for other games (game_knightblocks.js).
   Lynx.knightKit = {
-    bodyJoints, knightPrims, placer, drawPrims, KNIGHT_LOOK,
+    bodyJoints, knightPrims, skeletonPrims, swordPrims, placer, drawPrims, KNIGHT_LOOK, SKELETON_LOOK, BRUTE_LOOK,
     C: {
       BODY_H, BODY_R, STEP_UP, AIR_STEP_UP, GRAVITY, JUMP_V, WALK_V, RUN_V, ACCEL, DECEL, AIR_ACCEL, TURN_RATE, COYOTE_S, JUMP_BUFFER_S,
       MANTLE_MIN, GRAB_MIN, GRAB_MAX, HANG_DROP, CLIMB_S, SHIMMY_V, FALL_HURT_M, SWINGS, CAM_DIST, ORBIT_RATE, BEHIND_RATE, GOTO_EVERY_MS, GOTO_MOVE_M,

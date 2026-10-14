@@ -33,6 +33,16 @@
 // lags it a little) stay lined up, and estimates jittering a few mm don't
 // shake the picture.
 
+// Extensions: a fourth argument, ext(api) -> hooks, lets another game ride on
+// this one -- its hero, blocks, drive and camera -- with its own rules (Block
+// Quest, game_blockquest.js). The hooks, all optional: solids() (virtual
+// blocks the knight can't pass: {id, cf, cr, yaw, half, h0, h1}), frozen(),
+// moveScale(), update(dt, now), drawFloor() / draw() (drawn under / among the
+// blocks), hud(), title() (true: its own title screen), helpLine(auto),
+// onFire(state) / onWeapon(w, state) (true: handled), heroJoints(J), heroPrims(J, prims, P),
+// blockOver(b) (after a real block's silhouette is cut out: a skin, light),
+// heroAlpha(), snapshot(). See `api` below for what it gets.
+
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
 
@@ -63,7 +73,7 @@ Lynx.games = Lynx.games || {};
   const MANUAL_EASE = 8; // 1/s: the speed follows the stick quickly (starts and stops in ~0.1 s)
   const MANUAL_SEND_MS = 100; // drive and camera resent this often (the robot stops without)
 
-  Lynx.games.knightblocks = (ar, cfg, app) => {
+  Lynx.games.knightblocks = (ar, cfg, app, ext) => {
     const K = Lynx.knightKit;
     const { clamp, lerp, ease, wrap } = K.util;
     // The knight at its size here (3 cm by default; the Pocket Knight is 7):
@@ -138,6 +148,8 @@ Lynx.games = Lynx.games || {};
     let time = 0;
     let note = null;
     let solids = []; // the blocks, in the floor frame: {id, cf, cr, yaw, half, h0, h1, inferred}
+    let realSolids = []; // (without an extension's virtual ones: what the robot keeps clear of)
+    let X = null; // the extension's hooks
     let lastPos = new Map(); // block id -> [cf, cr, h1] last frame (to carry the knight)
     const hero = {
       f: 0, r: 0, z: 0, vf: 0, vr: 0, vz: 0, yaw: 0, onGround: true, standOn: null, mode: "move", coyote: 0, jumpBuf: 0, fallFrom: 0,
@@ -155,8 +167,10 @@ Lynx.games = Lynx.games || {};
       const prev = new Map(solids.map((s) => [s.id, s]));
       solids = tb.blocks().map((b) => {
         const l = w.toLocal(b.x, b.y);
-        return { id: b.id, cf: l.f, cr: l.r, yaw: a.th - b.yaw, half: b.half, h0: b.h0, h1: b.h1, inferred: b.inferred, n: b.n, world: b };
+        return { id: b.id, tag: b.tag, cf: l.f, cr: l.r, yaw: a.th - b.yaw, half: b.half, h0: b.h0, h1: b.h1, inferred: b.inferred, n: b.n, world: b };
       });
+      realSolids = solids;
+      if (X && X.solids) solids = solids.concat(X.solids());
       // The block the knight stands on (or is climbing onto) moving -- its
       // estimate shifting, or the block itself pushed somewhere else (by the
       // robot, by hand) -- carries the knight along: the same spot on it,
@@ -247,8 +261,9 @@ Lynx.games = Lynx.games || {};
       if (h.mode === "hang") return stepHang(dt);
       if (h.mode === "climb") return stepClimb(dt);
       const inp = stickInput();
-      let tvf = inp.df * inp.speed;
-      let tvr = inp.dr * inp.speed;
+      const mk = X && X.moveScale ? X.moveScale() : 1;
+      let tvf = inp.df * inp.speed * mk;
+      let tvr = inp.dr * inp.speed * mk;
       if (h.attack && h.onGround) {
         tvf *= 0.25;
         tvr *= 0.25;
@@ -646,7 +661,7 @@ Lynx.games = Lynx.games || {};
       const l = w.toLocal(x, y);
       return { f: l.f, r: l.r, th: wrap(w.anchor().th - th) };
     }
-    const clearance = (f, r) => solids.reduce((m, b) => Math.min(m, footDist(b, f, r)), Infinity);
+    const clearance = (f, r) => realSolids.reduce((m, b) => Math.min(m, footDist(b, f, r)), Infinity);
     // Two convex outlines ([f, r] corners in order): the gap between them, or
     // (overlapping) minus how deep (the least overlap along an edge's normal).
     function polyGap(A, B) {
@@ -684,7 +699,7 @@ Lynx.games = Lynx.games || {};
     function bodyMargin(f, r, th) {
       const R = bodyCorners(f, r, th);
       let m = Infinity;
-      for (const b of solids) {
+      for (const b of realSolids) {
         if (b.h0 > 0.06) continue;
         const B = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => fromB(b, u * b.half, v * b.half));
         m = Math.min(m, polyGap(R, B));
@@ -714,7 +729,7 @@ Lynx.games = Lynx.games || {};
     }
     // does a block stand between the camera and the knight?
     function hidden(c, p) {
-      return solids.some((b) => {
+      return realSolids.some((b) => {
         let t0 = 0;
         let t1 = 1;
         const [ua, va] = toB(b, c.f, c.r);
@@ -1089,6 +1104,7 @@ Lynx.games = Lynx.games || {};
     }
 
     Lynx.onAction("fire", () => {
+      if (X && X.onFire && X.onFire(state)) return;
       if (state === "title") {
         if (doScan) startScan();
         else startPlay();
@@ -1122,7 +1138,7 @@ Lynx.games = Lynx.games || {};
       say(`Camera ${Math.round(camDist * 100)} cm from the knight`, "#c0f0ff");
     }
     // RB / Tab: zoom in, LB: out (the weapon buttons -- no weapons to switch here)
-    Lynx.onAction("weapon", (wpn) => (wpn === "prev" ? zoom(-1) : wpn === "next" ? zoom(1) : null));
+    Lynx.onAction("weapon", (wpn) => (X && X.onWeapon && X.onWeapon(wpn, state) ? null : wpn === "prev" ? zoom(-1) : wpn === "next" ? zoom(1) : null));
     const onKey = (e) => {
       const t = e.target;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA"))) return;
@@ -1181,11 +1197,12 @@ Lynx.games = Lynx.games || {};
         return;
       }
       const n = Math.max(1, Math.ceil(dt / (1 / 120)));
-      for (let i = 0; i < n; i++) stepHero(dt / n);
+      if (!(X && X.frozen && X.frozen())) for (let i = 0; i < n; i++) stepHero(dt / n);
       const h = hero;
       h.speed = h.onGround && h.mode === "move" ? Math.hypot(h.vf, h.vr) : 0;
       const run = clamp((h.speed - C.WALK_V) / (C.RUN_V - C.WALK_V), 0, 1);
       h.phase += (dt * 2 * Math.PI * h.speed) / (lerp(0.056, 0.12, run) * S);
+      if (X && X.update) X.update(dt, now);
       // (just after the world moved, the robot's pose is still in the old frame for a moment: no steering)
       if (performance.now() >= worldHoldUntil) steerRobot(dt, now);
     }
@@ -1238,6 +1255,7 @@ Lynx.games = Lynx.games || {};
           g.fill();
           g.restore();
         }
+        if (X && X.blockOver) X.blockOver(b);
         if (showBlocks) {
           cubes.drawOutline(w, b.world);
         }
@@ -1267,13 +1285,15 @@ Lynx.games = Lynx.games || {};
           // (the body's animation is in Pocket Knight units: speeds at its size)
           time, speed: h.speed / S, phase: h.phase, air: h.mode === "move" && !h.onGround ? h.vz / S : null, land: h.landT > 0 ? h.landT / 0.18 : 0,
           hang: h.mode === "hang", climb: h.mode === "climb" ? h.climb.anim : null, attack: h.attack ? { n: h.attack.n, u: h.attack.u } : null,
-          hurt: 0, dead: 0, brace: 0, armed: true,
+          hurt: h.hurtT > 0 ? h.hurtT / 0.35 : 0, dead: h.deadT > 0 ? clamp(h.deadT / 0.7, 0, 1) : 0, brace: 0, armed: true,
         });
+        if (X && X.heroJoints) X.heroJoints(J);
         const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw, S), K.KNIGHT_LOOK, { speed: h.speed / S, time });
         prims.forEach((p) => p.rad && (p.rad *= S)); // limbs as thick as the knight is small
+        if (X && X.heroPrims) X.heroPrims(J, prims, K.placer(h.f, h.r, h.z, h.yaw, S));
         const c = w.camLocal();
         const near = clamp((Math.hypot(c.f - h.f, c.r - h.r) - 0.05) / 0.04, 0.35, 1);
-        K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near);
+        K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near * (X && X.heroAlpha ? X.heroAlpha() : 1));
       }, w.extent(h.f - 0.014 * S, h.f + 0.014 * S, h.r - 0.014 * S, h.r + 0.014 * S, h.z, h.z + C.BODY_H));
     }
     function hud() {
@@ -1282,6 +1302,7 @@ Lynx.games = Lynx.games || {};
       // (no status line -- the Tags page lists the cubes; a failure shows at the bottom, cubes.js)
       if (!s.ready && !s.error) ar.text("Loading the tag detector...", v.x + 12, v.y + 24, { size: 13, color: "#c0f0ff" });
       if (state === "title") {
+        if (X && X.title && X.title()) return;
         ar.banner("KNIGHT ON BLOCKS", doScan ? "Fire to start -- the robot looks around for the tagged blocks first" : "Fire to start -- with the tagged blocks in view");
         ar.text(`Blocks: cubes of any size with ${family} AprilTags filling ${Math.round(tagRatio * 100)}% of a face`, v.cx, v.cy + 70, { size: 14, align: "center" });
         ar.text(`Tags to print: ${location.host}/tags.html`, v.cx, v.cy + 92, { size: 13, align: "center", color: "#c0f0ff" });
@@ -1290,7 +1311,7 @@ Lynx.games = Lynx.games || {};
       if (state === "scan") ar.text(`Looking around... ${Math.min(100, Math.round((SCAN_RATE * stateTime * 100) / (2 * Math.PI)))}%  (Fire: start now)`, v.cx, v.y + v.h - 20, { size: 14, align: "center" });
       if (state === "playing") {
         ar.text(
-          autoDrive
+          X && X.helpLine ? X.helpLine(autoDrive) : autoDrive
             ? "Run: stick / WASD · Jump: A / Space · Behind: Y / C · Center: V · Zoom: + / \u2212, RB / LB · Rescan: R · Manual drive: M"
             : "Knight: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Center: V / Y · Rescan: R · Auto drive: M",
           v.cx, v.y + v.h - 20, { size: 13, align: "center" },
@@ -1300,6 +1321,7 @@ Lynx.games = Lynx.games || {};
         const k = w.toWorld(hero.f, hero.r);
         ar.edgeArrow(k.x, k.y, hero.z + 0.035 * S, "#80d0ff");
       }
+      if (X && X.hud) X.hud();
       if (note && note.t < 3) ar.text(note.text, v.cx, v.y + 70, { size: 16, align: "center", color: note.color, alpha: clamp(3 - note.t, 0, 1) });
     }
 
@@ -1311,7 +1333,9 @@ Lynx.games = Lynx.games || {};
         if (showBlocks) cubes.drawGone(w);
         // (its body as the game keeps it clear of the blocks)
         if (showTracks) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotFront, rearM: robotRear });
-        solids.forEach(queueBlock);
+        if (X && X.drawFloor) X.drawFloor();
+        realSolids.forEach(queueBlock);
+        if (X && X.draw) X.draw();
         if (state === "playing") queueHero();
         if (state === "playing" && showJumpHint) queueJumpHint();
         ar.flush();
@@ -1321,19 +1345,42 @@ Lynx.games = Lynx.games || {};
       hud();
     }
 
+    // What an extension gets to work with
+    const api = {
+      ar, w, cfg, app, cubes, tb, K, C, S, family, tagRatio, hero, cam, util: K.util,
+      get solids() { return solids; },
+      get realSolids() { return realSolids; },
+      get state() { return state; },
+      time: () => time,
+      say, sfx, startPlay, placeHero, groundAt, inFoot, footDist, toB, fromB, recenter, stopRobot, zoom,
+      collideHero: () => collide(C.STEP_UP),
+      setFrameFromCube: (on) => (frameFromCube = on),
+      setShowBlocks: (on) => (showBlocks = on),
+      frameFromCube: () => frameFromCube,
+      camDist: () => camDist,
+      setCamDist: (d) => {
+        camDist = clamp(d, ZOOM_MIN, ZOOM_MAX);
+        cam.planMs = -1e9;
+      },
+    };
+    X = ext ? ext(api) || null : null;
+
     ar.onFrame((now, dt) => {
       update(dt, now);
       draw();
     });
 
     return {
-      actionLabel: "⚔️ Sword",
-      debug: { hero: () => hero, cam: () => cam, world: () => w, tags: () => tb, solids: () => solids, startPlay, startScan, rescan, teleport: (f, r) => placeHero(f, r, hero.yaw), predictJump },
+      actionLabel: X && X.actionLabel ? X.actionLabel : "⚔️ Sword",
+      ext: X,
+      debug: {
+        ext: () => X, api: () => api, hero: () => hero, cam: () => cam, world: () => w, tags: () => tb, solids: () => solids, startPlay, startScan, rescan, teleport: (f, r) => placeHero(f, r, hero.yaw), predictJump },
       snapshot: () => ({
         state, blocks: solids.map((b) => `${b.id}${b.inferred ? "i" : ""}@${b.cf.toFixed(3)},${b.cr.toFixed(3)} h${(b.h0 * 1000).toFixed(0)}..${(b.h1 * 1000).toFixed(0)}mm`),
         hero: { f: +hero.f.toFixed(3), r: +hero.r.toFixed(3), z: +hero.z.toFixed(3), mode: hero.mode, onGround: hero.onGround, on: hero.standOn },
         detector: { ready: tb.state.ready, error: tb.state.error, fps: +tb.state.fps.toFixed(1), ms: +tb.state.detectMs.toFixed(1), tags: tb.state.tags },
         robot: cam.why,
+        ext: X && X.snapshot ? X.snapshot() : null,
       }),
     };
   };

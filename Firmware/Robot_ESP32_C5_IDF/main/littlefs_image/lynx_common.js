@@ -246,6 +246,41 @@ window.Lynx = window.Lynx || {};
       boards: [],
     },
     {
+      id: "blockquest",
+      kind: "game",
+      name: "Block Quest",
+      icon: "\u2694\uFE0F",
+      blurb:
+        "Knight on Blocks with real levels, built around the tagged cubes (tags 0-5, 40 mm) and the frame cube. Each level starts with a placement guide: " +
+        "a checklist and ghost footprints on the floor tell where every cube goes (the frame cube is the origin), and the level starts when they are there. " +
+        "Seven levels: a first climb; the floor is lava (hop from block to block, move a block to bridge a gap); a courtyard of skeletons, hoplites and archers " +
+        "(sword, shield, parry, bash); a cellar where bombs are set by hand and set off from a distance (and a powder keg is a cube you carry); a vault where the cubes " +
+        "are mirrors for a sunbeam (turn them 45 degrees); a two-player ferry over a lava river (a second human slides one cube by hand); and a bone-and-iron boss. " +
+        "Same drive and camera as Knight on Blocks. Needs internet once (the tag detector). Tags to print: /tags.html",
+      settings: [
+        { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
+          options: [["easy", "Easy (slower, slower to strike)"], ["normal", "Normal"], ["hard", "Hard (tougher, quicker)"]] },
+        { key: "hearts", label: "Hearts", type: "number", def: 5, min: 1, max: 9, step: 1 },
+        { key: "blockCm", label: "Block size when the cubes aren't measured yet (the levels scale with it)", type: "number", unit: "cm", def: 5, min: 2, max: 10, step: 0.5 },
+        { key: "solo", label: "Solo ferry (level 6): the ferry sails by itself instead of a second player sliding cube 5", type: "checkbox", def: false },
+        { key: "skins", label: "Paint the real blocks (stone, timber, basalt...) instead of showing them as they are", type: "checkbox", def: true },
+        { key: "quality", label: "Floor detail (lava / stone)", type: "select", def: "high", options: [["high", "High"], ["low", "Low (faster)"]] },
+        { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
+        { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
+        { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
+        { key: "knightCm", label: "Knight's height (3 cm climbs 5 cm blocks)", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
+        { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
+        { key: "driveSpeedCmS", label: "Manual drive: top speed", type: "number", unit: "cm/s", def: 16, min: 3, max: 35, step: 1 },
+        { key: "turnSpeedDeg", label: "Manual drive: top turning speed", type: "number", unit: "deg/s", def: 60, min: 10, max: 150, step: 5 },
+        { key: "camSpeedDeg", label: "Camera turning speed", type: "number", unit: "deg/s", def: 40, min: 2, max: 40, step: 1 },
+        { key: "camDeadzoneDeg", label: "Camera dead zone, left / right", type: "number", unit: "deg", def: 12, min: 0, max: 30, step: 1 },
+        { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
+        { key: "showBlocks", label: "Show detected blocks (cyan outlines)", type: "checkbox", def: false },
+        { key: "showTags", label: "Show tag detections (green outlines)", type: "checkbox", def: false },
+      ],
+      boards: [],
+    },
+    {
       id: "race",
       kind: "game",
       name: "Time Trial",
