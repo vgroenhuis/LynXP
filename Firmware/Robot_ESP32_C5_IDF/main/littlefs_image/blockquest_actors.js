@@ -630,25 +630,18 @@ window.Lynx = window.Lynx || {};
 
     // -- drawing -----------------------------------------------------------------------------------------------------
     const CLANG = [[0, "rgba(255,255,255,0.95)"], [0.4, "rgba(255,120,80,0.6)"], [1, "rgba(255,60,0,0)"]];
-    function enemyPrims(e, time) {
+    // The body's joints for an enemy's state (Pocket Knight's skeleton, at its own size)
+    function enemyJoints(e, time, photo) {
       const d = e.def;
       const D = G.diff;
-      const sc = d.scale;
       const T = d.windup * D.windup;
       const windT = e.state === "windup" && !d.ranged ? clamp(e.t / T, 0, 1) : 0;
       const anim = {
         time: time + e.id * 10, speed: e.speed / S, phase: e.phase, air: null, land: 0, hang: false, climb: null,
         attack: e.state === "strike" && !d.ranged ? { n: 3, u: lerp(0.35, 0.62, clamp(e.t / d.strike, 0, 1)) } : e.state === "recover" && !d.ranged ? { n: 3, u: lerp(0.62, 1, clamp(e.t / d.recover, 0, 1)) } : null,
-        hurt: e.state === "stagger" ? clamp(1 - e.t / Math.max(0.2, Math.min(e.staggerT, 0.5)), 0, 1) : 0, dead: 0, brace: windT, armed: true,
+        hurt: e.state === "stagger" ? clamp(1 - e.t / Math.max(0.2, Math.min(e.staggerT, 0.5)), 0, 1) : 0, dead: photo && e.state === "dead" ? clamp(e.deadT / 0.7, 0, 1) : 0, brace: windT, armed: true,
       };
       const J = K.bodyJoints(anim);
-      let P = K.placer(e.f, e.r, e.z, e.yaw, S * sc);
-      if (e.state === "dead") {
-        const k = ease(e.deadT / 0.6);
-        const base = P;
-        P = (v) => base([v[0] * (1 + k * 0.6), v[1] * (1 + k * 0.6), v[2] * (1 - 0.9 * k)]);
-      }
-      const look = LOOKS[e.kind];
       if (d.ranged) {
         // arms up: drawing a bow
         const draw = e.state === "windup" ? clamp(e.t / T, 0, 1) : 0;
@@ -658,6 +651,25 @@ window.Lynx = window.Lynx || {};
         J.elbow[-1] = [0.014, -0.012, J.chest[2] - 0.002];
         J.swordDir = null;
       }
+      if (photo && d.guard) {
+        // a hoplite keeps his shield up in front
+        const c = [0.0150, -0.0040, J.chest[2] + 0.0006];
+        J.hand[-1] = [c[0] - 0.002, c[1] - 0.004, c[2] - 0.002];
+        J.elbow[-1] = [(J.sh[-1][0] + c[0]) / 2 - 0.002, (J.sh[-1][1] + c[1]) / 2 - 0.006, (J.sh[-1][2] + c[2]) / 2 - 0.005];
+      }
+      return { J, windT, T };
+    }
+    function enemyPrims(e, time) {
+      const d = e.def;
+      const sc = d.scale;
+      const { J, windT, T } = enemyJoints(e, time, false);
+      let P = K.placer(e.f, e.r, e.z, e.yaw, S * sc);
+      if (e.state === "dead") {
+        const k = ease(e.deadT / 0.6);
+        const base = P;
+        P = (v) => base([v[0] * (1 + k * 0.6), v[1] * (1 + k * 0.6), v[2] * (1 - 0.9 * k)]);
+      }
+      const look = LOOKS[e.kind];
       const prims = K.skeletonPrims(J, P, look, { angry: e.state !== "idle" && e.state !== "dead" });
       prims.forEach((p) => p.rad && (p.rad *= S * sc));
       if (e.kind === "hoplite" || e.kind === "warden") {
@@ -683,6 +695,7 @@ window.Lynx = window.Lynx || {};
       }
       return { prims, J, P, windT, look };
     }
+    const windT0 = (e) => (e.state === "windup" && !e.def.ranged ? clamp(e.t / (e.def.windup * G.diff.windup), 0, 1) : 0);
     function drawEnemy(e, time) {
       const sc = e.def.scale;
       if (e.state === "dead" && e.deadT > 2.4) return;
@@ -690,18 +703,38 @@ window.Lynx = window.Lynx || {};
       if (!m) return;
       ar.queue(m.depth, () => {
         if (e.state !== "dead") fx.shadow(e.f, e.r, e.z, 0.007 * S * sc * 1.5, 0.35);
-        const { prims, J, P, windT, look } = enemyPrims(e, time);
         const fade = e.state === "dead" ? clamp(1 - (e.deadT - 1.6) / 0.8, 0, 1) : 1;
-        const blink = e.flash > 0 ? 0.7 : windT > 0.6 ? (Math.sin(time * 40) > 0 ? 0.3 : 0) : 0;
+        const blink = e.flash > 0 ? 0.7 : windT0(e) > 0.6 ? (Math.sin(time * 40) > 0 ? 0.3 : 0) : 0;
         const c = w.camLocal();
         const near = clamp((Math.hypot(c.f - e.f, c.r - e.r) - 0.04) / 0.04, 0.35, 1);
-        K.drawPrims(w, prims, ar, "rgba(20,16,12,0.7)", fade * near, blink);
+        const ph = cx.photo && cx.photo();
+        let J;
+        let P;
+        let windT;
+        let look;
+        if (ph) {
+          // a lit 3D model on the GPU (blockquest_gl.js, blockquest_figures.js)
+          const jj = enemyJoints(e, time, true);
+          J = jj.J;
+          windT = jj.windT;
+          look = LOOKS[e.kind];
+          P = K.placer(e.f, e.r, e.z, e.yaw, S * sc);
+          const F = ph.R.figure({ f: e.f, r: e.r, z: e.z, yaw: e.yaw, scale: S * sc, height: 0.07 });
+          if (F) {
+            ph.M.enemy(F, J, e, { look, time, windup: jj.T });
+            F.draw({ alpha: fade * near, flash: e.flash > 0 ? 0.6 : blink * 0.8, shadow: e.state === "dead" ? 0.5 : 1 });
+          }
+        } else {
+          const pr = enemyPrims(e, time);
+          ({ J, P, windT, look } = pr);
+          K.drawPrims(w, pr.prims, ar, "rgba(20,16,12,0.7)", fade * near, blink);
+        }
         if (windT > 0 && J.swordDir) {
           const tip = [J.hand[1][0] + J.swordDir[0] * 0.016, J.hand[1][1] + J.swordDir[1] * 0.016, J.hand[1][2] + J.swordDir[2] * 0.016];
           const s = w.project(...P(tip));
           if (s) ar.glow(s.x, s.y, Math.max(4, 0.006 * s.ppm * sc) * (0.5 + windT), CLANG);
         }
-        if (e.armor && e.state !== "dead") {
+        if (!ph && e.armor && e.state !== "dead") {
           // armor plates catching the light
           const s = w.project(e.f, e.r, e.z + BODY * 0.55 * sc);
           if (s) ar.glow(s.x, s.y, 0.012 * s.ppm * sc, [[0, "rgba(255,255,255,0.1)"], [1, "rgba(255,255,255,0)"]]);
@@ -722,6 +755,15 @@ window.Lynx = window.Lynx || {};
         let dir = [a.vf / sp, a.vr / sp, a.vz / sp];
         if (a.stuck) dir = a.dirKeep || (a.dirKeep = dir);
         if (!a.stuck) a.dirKeep = dir;
+        const ph = cx.photo && cx.photo();
+        if (ph) {
+          const F = ph.R.figure({ f: a.f, r: a.r, z: a.z, yaw: 0, scale: 1, height: 0.002 });
+          if (F) {
+            ph.M.arrow(F, dir, a.stuck);
+            F.draw({ shadow: 0 });
+            return;
+          }
+        }
         const L = 0.016;
         const tip = [a.f, a.r, a.z];
         const tail = [a.f - dir[0] * L, a.r - dir[1] * L, a.z - dir[2] * L];
@@ -765,23 +807,34 @@ window.Lynx = window.Lynx || {};
         // blast reach: a faint ring while armed
         if (!b.fuse) fx.ring(b.f, b.r, b.z + 0.0006, blastRadius(), `rgba(255,70,50,${0.18 + 0.1 * Math.sin(time * 4 + b.blink * 6)})`, 1.2);
         const R = rad * m.ppm;
-        const grad = g.createRadialGradient(m.x - R * 0.35, m.y - R * 0.4, R * 0.1, m.x, m.y, R);
-        grad.addColorStop(0, "#6a6c72");
-        grad.addColorStop(0.35, "#2a2b30");
-        grad.addColorStop(1, "#0a0a0c");
-        g.fillStyle = grad;
-        g.beginPath();
-        g.arc(m.x, m.y, R, 0, 2 * Math.PI);
-        g.fill();
+        const ph = cx.photo && cx.photo();
+        if (ph) {
+          const F = ph.R.figure({ f: b.f, r: b.r, z: b.z, yaw: 0, scale: rad, height: 2 });
+          if (F) {
+            ph.M.bomb(F, { fuse: b.fuse, led: Math.sin(time * 5 + b.blink * 6) > 0 });
+            F.draw({ shadow: 0.6 });
+          }
+        } else {
+          const grad = g.createRadialGradient(m.x - R * 0.35, m.y - R * 0.4, R * 0.1, m.x, m.y, R);
+          grad.addColorStop(0, "#6a6c72");
+          grad.addColorStop(0.35, "#2a2b30");
+          grad.addColorStop(1, "#0a0a0c");
+          g.fillStyle = grad;
+          g.beginPath();
+          g.arc(m.x, m.y, R, 0, 2 * Math.PI);
+          g.fill();
+        }
         // the cap and fuse
         const cap = w.project(b.f, b.r, b.z + rad * 2.0);
         if (cap) {
-          g.strokeStyle = "#3a2a1a";
-          g.lineWidth = Math.max(1.5, R * 0.18);
-          g.beginPath();
-          g.moveTo(m.x, m.y - R * 0.9);
-          g.quadraticCurveTo(cap.x + R * 0.4, cap.y - R * 0.2, cap.x + R * 0.2, cap.y - R * 0.7);
-          g.stroke();
+          if (!ph) {
+            g.strokeStyle = "#3a2a1a";
+            g.lineWidth = Math.max(1.5, R * 0.18);
+            g.beginPath();
+            g.moveTo(m.x, m.y - R * 0.9);
+            g.quadraticCurveTo(cap.x + R * 0.4, cap.y - R * 0.2, cap.x + R * 0.2, cap.y - R * 0.7);
+            g.stroke();
+          }
           const spark = b.fuse ? 1 : 0.5 + 0.5 * Math.sin(time * 14 + b.blink * 9);
           g.save();
           g.globalCompositeOperation = "lighter";
@@ -813,10 +866,19 @@ window.Lynx = window.Lynx || {};
       if (!m) return;
       ar.queue(m.depth, () => {
         const sh = k.state === "fuse" ? Math.sin(time * 50) * 0.0006 : 0;
-        fx.barrel(k.f + sh, k.r, k.z, k.rad, k.height, { color: [140, 92, 50], spin: k.id });
-        // "powder" in red paint
-        const s = w.project(k.f + Math.cos(k.id) * k.rad, k.r + Math.sin(k.id) * k.rad, k.z + k.height * 0.5);
-        if (s) ar.text("☠", s.x, s.y + 3, { size: Math.max(8, 0.011 * s.ppm), align: "center", color: "rgba(200,40,30,0.8)", outline: false });
+        const ph = cx.photo && cx.photo();
+        if (ph) {
+          const F = ph.R.figure({ f: k.f + sh, r: k.r, z: k.z, yaw: k.id, scale: k.rad, height: k.height / k.rad });
+          if (F) {
+            ph.M.keg(F, k);
+            F.draw({ shadow: 0.7 });
+          }
+        } else {
+          fx.barrel(k.f + sh, k.r, k.z, k.rad, k.height, { color: [140, 92, 50], spin: k.id });
+          // "powder" in red paint
+          const s = w.project(k.f + Math.cos(k.id) * k.rad, k.r + Math.sin(k.id) * k.rad, k.z + k.height * 0.5);
+          if (s) ar.text("\u2620", s.x, s.y + 3, { size: Math.max(8, 0.011 * s.ppm), align: "center", color: "rgba(200,40,30,0.8)", outline: false });
+        }
         if (k.state === "fuse") fx.flame(k.f, k.r, k.z + k.height, 0.012, time, { light: false });
       }, w.extent(k.f - k.rad, k.f + k.rad, k.r - k.rad, k.r + k.rad, k.z, k.z + k.height));
     }

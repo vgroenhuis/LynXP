@@ -119,6 +119,7 @@ Lynx.games = Lynx.games || {};
     const addScore = (n) => (G.score += n);
     const cx = {
       api, fx, hero, G, say, sfx, addScore,
+      photo: () => photo(),
       hurtHero: (...a) => hurtHero(...a),
       dropPickup: (kind, f, r, z) => addPickup(kind, { f, r, z, dyn: true }),
       shake: (k) => (G.shake = Math.max(G.shake, k)),
@@ -136,6 +137,59 @@ Lynx.games = Lynx.games || {};
     };
     const A = Lynx.bqActors(cx);
     const lv = () => G.lv;
+
+    // -- lit 3D figures (blockquest_gl.js / blockquest_figures.js), or the flat sprites without WebGL2 --------------
+    let PH = null;
+    let phTried = false;
+    function photo() {
+      if (cfg.photoreal === false || cfg.photoreal === "false" || cfg.photoreal === "off") return null;
+      if (!phTried) {
+        phTried = true;
+        try {
+          const R = Lynx.bqGL && Lynx.bqFigures ? Lynx.bqGL(ar, w, cfg) : null;
+          if (R && R.ok) PH = { R, M: Lynx.bqFigures(R) };
+        } catch {
+          PH = null;
+        }
+      }
+      return PH && PH.R.ok ? PH : null;
+    }
+    // what lights the figures this frame: braziers, fuses, blasts, geysers, the glow of lava underfoot
+    function photoEnv() {
+      const ph = photo();
+      if (!ph) return;
+      const lights = [];
+      E.props.forEach((p) => {
+        if (p.kind !== "brazier") return;
+        let l;
+        let z = 0;
+        if (p.tag !== null && p.tag !== undefined) {
+          const c = cube(p.tag);
+          if (!c) return;
+          l = { f: c.f, r: c.r };
+          z = c.top;
+        } else {
+          l = toF(p.at[0], p.at[1]);
+          z = api.groundAt(l.f, l.r, 1, 1).h;
+        }
+        lights.push({ f: l.f, r: l.r, h: z + 0.02, col: [1, 0.52, 0.2], rad: 0.13, k: 1.7 + 0.35 * Math.sin(time * 13 + l.f * 50) });
+      });
+      A.bombs.forEach((b) => lights.push({ f: b.f, r: b.r, h: b.z + 0.012, col: b.fuse ? [1, 0.7, 0.3] : [1, 0.1, 0.06], rad: b.fuse ? 0.06 : 0.03, k: b.fuse ? 1.8 : 0.9 * (0.5 + 0.5 * Math.sin(time * 5 + b.blink * 6)) }));
+      A.kegs.forEach((k) => k.state === "fuse" && lights.push({ f: k.f, r: k.r, h: k.z + k.height + 0.01, col: [1, 0.7, 0.3], rad: 0.07, k: 1.8 }));
+      A.blasts.forEach((b) => {
+        const a = clamp(1 - b.t / 0.8, 0, 1);
+        if (a > 0) lights.push({ f: b.f, r: b.r, h: b.z + 0.025, col: [1, 0.72, 0.4], rad: b.rad * 3 + 0.06, k: 5 * a });
+      });
+      E.geysers.forEach((g) => (g.state === "erupt" || g.state === "warn") && lights.push({ f: g.f, r: g.r, h: 0.015, col: [1, 0.45, 0.12], rad: 0.1, k: g.state === "erupt" ? 2.4 : 0.9 }));
+      const lava = !!E.lava && G.phase !== "menu";
+      ph.R.setEnv({
+        ground: lava ? [0.95, 0.34, 0.09] : [0.30, 0.27, 0.24],
+        sky: lava ? [0.55, 0.45, 0.45] : [0.62, 0.68, 0.8],
+        key: lava ? [1.0, 0.82, 0.62] : [1.0, 0.94, 0.82],
+        lights,
+      });
+      ph.R.setTime(time);
+    }
 
     // pickups
     function addPickup(kind, o = {}) {
@@ -1231,8 +1285,19 @@ Lynx.games = Lynx.games || {};
         if (lv() && lv().blockOver) lv().blockOver(L, b);
       },
       drawFloor() {
-        time += 0;
         drawFloor();
+        photoEnv();
+      },
+      // the knight itself, lit and in 3D
+      drawHero(J, alpha) {
+        const ph = photo();
+        if (!ph) return false;
+        const F = ph.R.figure({ f: hero.f, r: hero.r, z: hero.z, yaw: hero.yaw, scale: S, height: 0.07 });
+        if (F) {
+          ph.M.knight(F, J, { time, speed: hero.speed / S });
+          F.draw({ alpha, flash: hero.hurtT > 0 ? 0.55 * (hero.hurtT / 0.35) : 0, shadow: clamp(1 - (hero.z - api.groundAt(hero.f, hero.r, hero.z + 0.0005, 0.0005).h) / (0.2 * S), 0.2, 1) });
+        }
+        return true;
       },
       draw() {
         const l = lv();

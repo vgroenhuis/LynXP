@@ -265,6 +265,7 @@ window.Lynx = window.Lynx || {};
         { key: "solo", label: "Solo ferry (level 6): the ferry sails by itself instead of a second player sliding cube 5", type: "checkbox", def: false },
         { key: "skins", label: "Paint the real blocks (stone, timber, basalt...) instead of showing them as they are", type: "checkbox", def: true },
         { key: "quality", label: "Floor detail (lava / stone)", type: "select", def: "high", options: [["high", "High"], ["low", "Low (faster)"]] },
+        { key: "photoreal", label: "Knight and monsters: lit 3D models (needs WebGL2)", type: "select", def: "high", options: [["high", "Realistic"], ["fast", "Realistic, lighter on the GPU"], ["off", "Flat sprites"]] },
         { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
         { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
         { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },

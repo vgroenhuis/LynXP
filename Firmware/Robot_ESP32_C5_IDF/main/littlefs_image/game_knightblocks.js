@@ -39,7 +39,7 @@
 // blocks the knight can't pass: {id, cf, cr, yaw, half, h0, h1}), frozen(),
 // moveScale(), update(dt, now), drawFloor() / draw() (drawn under / among the
 // blocks), hud(), title() (true: its own title screen), helpLine(auto),
-// onFire(state) / onWeapon(w, state) (true: handled), heroJoints(J), heroPrims(J, prims, P),
+// onFire(state) / onWeapon(w, state) (true: handled), heroJoints(J), drawHero(J, alpha) (true: drew the knight itself), heroPrims(J, prims, P),
 // blockOver(b) (after a real block's silhouette is cut out: a skin, light),
 // heroAlpha(), snapshot(). See `api` below for what it gets.
 
@@ -1288,11 +1288,12 @@ Lynx.games = Lynx.games || {};
           hurt: h.hurtT > 0 ? h.hurtT / 0.35 : 0, dead: h.deadT > 0 ? clamp(h.deadT / 0.7, 0, 1) : 0, brace: 0, armed: true,
         });
         if (X && X.heroJoints) X.heroJoints(J);
+        const c = w.camLocal();
+        const near = clamp((Math.hypot(c.f - h.f, c.r - h.r) - 0.05) / 0.04, 0.35, 1);
+        if (X && X.drawHero && X.drawHero(J, near * (X.heroAlpha ? X.heroAlpha() : 1))) return;
         const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw, S), K.KNIGHT_LOOK, { speed: h.speed / S, time });
         prims.forEach((p) => p.rad && (p.rad *= S)); // limbs as thick as the knight is small
         if (X && X.heroPrims) X.heroPrims(J, prims, K.placer(h.f, h.r, h.z, h.yaw, S));
-        const c = w.camLocal();
-        const near = clamp((Math.hypot(c.f - h.f, c.r - h.r) - 0.05) / 0.04, 0.35, 1);
         K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near * (X && X.heroAlpha ? X.heroAlpha() : 1));
       }, w.extent(h.f - 0.014 * S, h.f + 0.014 * S, h.r - 0.014 * S, h.r + 0.014 * S, h.z, h.z + C.BODY_H));
     }
