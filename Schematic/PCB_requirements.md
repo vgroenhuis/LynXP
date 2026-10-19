@@ -476,6 +476,12 @@ be made smaller to make this possible.
   the outer 160 mm edges. They are **not an exclusion zone**: the PCB is mounted above them, so
   board and parts can overlap them in top view (mind the height of parts above the motors and the
   motor connectors, §8.2). They are drawn in the figure only to show where the motors are.
+- **Wheels (for orientation only)**: Ø 71 mm and 5 mm thick (O-ring tyre included), seen from above
+  a 5 × 71 mm rectangle each, centred on the wheel axis and a few mm outside the 160 mm edges
+  (drawn with a 3 mm gap, so a track width of about 171 mm; *verify against the CAD*). With a
+  3 mm gap the outer wheel corners are 94.9 mm from the robot centre, so the wheels just fit
+  inside the 190 mm circle (a gap of more than about 3 mm would stick out of it). They are
+  drawn to show where the wheels are; the board stays clear of them.
 - The mounting holes (3.2 mm on a 10 mm grid, see above) and the standoffs follow the frame and
   remain inside the same circle. The motor connectors (§8.2), the main switch, the USB-C ports and
   the large user buttons stay reachable at the board edge with the robot assembled.
