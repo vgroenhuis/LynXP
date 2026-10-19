@@ -466,7 +466,8 @@ be made smaller to make this possible.
   there must be **no high components and no vertical cable plugs** (pin headers, screw terminals,
   electrolytic capacitors, switches, potentiometers, buttons, the OLED, vertical JST/Qwiic
   connectors, etc.), because the camera pan/tilt platform rotates just above the PCB there.
-  Only flat parts (SMD passives, small ICs, copper, silkscreen) are allowed in this zone;
+  The board itself **does continue through this zone** (apart from the 30 × 30 mm cut-out), so it
+  can carry parts here, but only flat ones (SMD passives, small ICs, copper, silkscreen);
   the maximum part height is to be fixed from the clearance in the CAD of the pan/tilt platform
   *(verify; suggested ≤ 2 mm)*. Traces and planes may pass through the zone.
   Cables to the camera (§10) must leave this zone sideways; place the camera connector
