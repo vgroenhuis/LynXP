@@ -2,6 +2,7 @@
 <defs>
 <pattern id="hOrange" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="9" stroke="#f08c00" stroke-opacity="0.55" stroke-width="1.6"/></pattern>
 <pattern id="hGrey" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><rect width="10" height="10" fill="#f1f3f5"/><line x1="0" y1="0" x2="0" y2="10" stroke="#adb5bd" stroke-width="1.5"/></pattern>
+<pattern id="hBlue" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><line x1="0" y1="0" x2="0" y2="9" stroke="#1c6fd0" stroke-opacity="0.7" stroke-width="1.8"/></pattern>
 <pattern id="hRed" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffe3e3"/><line x1="0" y1="0" x2="0" y2="6" stroke="#e03131" stroke-width="2"/></pattern>
 <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#343a40"/></marker>
 </defs>
@@ -9,14 +10,14 @@
 <text x="450" y="28" text-anchor="middle" font-size="19" font-weight="bold" fill="#212529">LynXP main PCB: outline and exclusion zones (top view, to scale)</text>
 <circle cx="450" cy="372" r="304.0" fill="url(#hGrey)" stroke="#1971c2" stroke-width="2.5" stroke-dasharray="10 6"/>
 <polygon points="194.0,372.0 194.0,218.4 370.0,84.0 530.0,84.0 706.0,218.4 706.0,372.0" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="3"/>
-<rect x="194.0" y="312.8" width="176.0" height="118.4" rx="3" fill="#74a7e6" fill-opacity="0.45" stroke="#1c4f8f" stroke-width="2"/>
+<rect x="194.0" y="312.8" width="176.0" height="118.4" rx="3" fill="url(#hBlue)" stroke="#1c4f8f" stroke-width="2"/>
 <line x1="194.0" y1="372.0" x2="370.0" y2="372.0" stroke="#1c4f8f" stroke-width="1" stroke-dasharray="3 3"/>
-<text x="282.0" y="364.0" text-anchor="middle" fill="#0b2c55" font-size="13" font-weight="bold">motor</text>
-<text x="282.0" y="392.0" text-anchor="middle" fill="#0b2c55" font-size="12">55 × 37 mm</text>
-<rect x="530.0" y="312.8" width="176.0" height="118.4" rx="3" fill="#74a7e6" fill-opacity="0.45" stroke="#1c4f8f" stroke-width="2"/>
+<text x="282.0" y="364.0" text-anchor="middle" fill="#0b2c55" font-size="13" font-weight="bold" stroke="#fff" stroke-width="3" paint-order="stroke">motor</text>
+<text x="282.0" y="392.0" text-anchor="middle" fill="#0b2c55" font-size="12" stroke="#fff" stroke-width="3" paint-order="stroke">55 × 37 mm</text>
+<rect x="530.0" y="312.8" width="176.0" height="118.4" rx="3" fill="url(#hBlue)" stroke="#1c4f8f" stroke-width="2"/>
 <line x1="530.0" y1="372.0" x2="706.0" y2="372.0" stroke="#1c4f8f" stroke-width="1" stroke-dasharray="3 3"/>
-<text x="618.0" y="364.0" text-anchor="middle" fill="#0b2c55" font-size="13" font-weight="bold">motor</text>
-<text x="618.0" y="392.0" text-anchor="middle" fill="#0b2c55" font-size="12">55 × 37 mm</text>
+<text x="618.0" y="364.0" text-anchor="middle" fill="#0b2c55" font-size="13" font-weight="bold" stroke="#fff" stroke-width="3" paint-order="stroke">motor</text>
+<text x="618.0" y="392.0" text-anchor="middle" fill="#0b2c55" font-size="12" stroke="#fff" stroke-width="3" paint-order="stroke">55 × 37 mm</text>
 <rect x="168.4" y="258.4" width="16.0" height="227.20000000000002" rx="1.5" fill="#495057" stroke="#212529" stroke-width="1.5"/>
 <text x="180.4" y="372.0" font-size="11" fill="#ffffff" text-anchor="middle" transform="rotate(-90 180.4 372.0)">wheel Ø 71 × 5 mm</text>
 <rect x="715.6" y="258.4" width="16.0" height="227.20000000000002" rx="1.5" fill="#495057" stroke="#212529" stroke-width="1.5"/>
@@ -45,8 +46,9 @@
 <text x="450" y="546.0" text-anchor="middle" fill="#495057" font-size="14">no PCB (outside the board outline, inside the 190 mm circle)</text>
 <rect x="40" y="736" width="34" height="20" fill="#495057" stroke="#212529" stroke-width="2"/>
 <text x="88" y="751" fill="#212529" font-size="14">Wheels (Ø 71 × 5 mm) outside the 160 mm edges (3 mm assumed; corners 94.9 mm from the centre)</text>
-<rect x="40" y="766" width="34" height="20" fill="#9fc2ee" stroke="#1c4f8f" stroke-width="2"/>
-<text x="88" y="781" fill="#212529" font-size="14">Drive motors (Ø 37 mm: 55 × 37 mm from above): only shows where they are, the PCB can lie above them</text>
+<rect x="40" y="766" width="34" height="20" fill="#d3f9d8"/>
+<rect x="40" y="766" width="34" height="20" fill="url(#hBlue)" stroke="#1c4f8f" stroke-width="2"/>
+<text x="88" y="781" fill="#212529" font-size="14">Drive motors (Ø 37 mm: 55 × 37 mm from above): the PCB can still go over them</text>
 <rect x="40" y="796" width="34" height="20" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="2"/>
 <text x="88" y="811" fill="#212529" font-size="14">PCB area: 160 × 90 mm rectangle with 55 × 42 mm chamfers, straight edge through the robot centre</text>
 <rect x="40" y="826" width="34" height="20" fill="#d3f9d8"/>
