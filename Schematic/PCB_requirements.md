@@ -416,7 +416,7 @@ pins in §4.2 become free GPIOs. If included, the following applies:
 - Board outline and mounting holes **must** fit the LynXP frame in place of the breadboard and
   module holders (see the CAD in [CAD/LynXP One Sept 2026](<../CAD/LynXP One Sept 2026>),
   e.g. `Frame_16x10` and `BreadboardHolder_Clamp`).
-- **Must**: board size at most **160 × 100 mm**; smaller (e.g. **100 × 100 mm**) preferred. (If the outline wish of §12.2 is adopted, that outline replaces this limit.)
+- **Must**: board size at most **160 × 100 mm**; smaller (e.g. **100 × 100 mm**) preferred.
 - **Must**: **single-sided assembly**: all SMD parts on the top side. The bottom side carries only
   through-hole solder joints.
 - **Must**: mounting holes **3.2 mm** diameter (M3), positioned on a **10 mm grid** so they line up
@@ -447,19 +447,19 @@ be made smaller to make this possible.
 
 ![Top view of the PCB outline and exclusion zones](pcb_outline_topview.svg)
 
-- **Outline**: shaped as a **half octagon** (straight edges are easier to work with than a
-  semicircle). A regular octagon with a circumscribed circle of 190 mm has 72.7 mm edges; the
-  board is the half on one side of a straight edge through the robot centre: **190 mm wide and
-  95 mm deep**, with a 190 mm straight edge and four 72.7 mm edges at 45° to each other. All its
-  corners lie on the 190 mm circle, so nothing (board, components, connectors overhanging the
-  edge) may extend beyond that circle. Area about 12,700 mm². Which half of the robot it covers
-  (front or rear) follows from the frame and the powerbank position; the mirror image is equally
-  valid.
+- **Outline**: a **rectangle with chamfered corners**, **160 mm wide** (set by the wheels) and
+  **90 mm high**, with its straight 160 mm edge through the robot centre, so the board covers one
+  half of the robot. The two corners away from that edge are chamfered (straight cuts are easier
+  to work with than a semicircle): **55 × 55 mm chamfers at 45°** leave a 50 mm flat on the far
+  edge, and all corners then lie inside the 190 mm circle (the far corners of the 50 mm flat are
+  at a radius of 93.4 mm; an unchamfered rectangle would reach 120 mm). Nothing (board,
+  components, connectors overhanging the edge) may extend beyond the circle. Area about
+  11,400 mm². Which half of the robot it covers (front or rear) follows from the frame and the
+  powerbank position; the mirror image is equally valid.
 - **Cut-out for the pan servo**: cut out a **30 × 30 mm square** at the robot centre. With the
   straight edge through the centre, this becomes a 30 mm wide, 15 mm deep notch in the straight
-  edge. (If a closed hole is preferred, the straight edge can be moved beyond the centre as long
-  as the outline stays within the 190 mm circle; the 160 × 100 mm limit above does not apply
-  to this wish.)
+  edge. (If a closed hole is preferred, the straight edge can be moved beyond the centre, as long
+  as the outline stays within the 190 mm circle.)
 - **Keep-out for tall parts**: within a **circle of diameter 70 mm** centred at the robot centre
   there must be **no high components and no vertical cable plugs** (pin headers, screw terminals,
   electrolytic capacitors, switches, potentiometers, buttons, the OLED, vertical JST/Qwiic
