@@ -450,12 +450,14 @@ be made smaller to make this possible.
 - **Outline**: a **rectangle with chamfered corners**, **160 mm wide** (set by the wheels) and
   **90 mm high**, with its straight 160 mm edge through the robot centre, so the board covers one
   half of the robot. The two corners away from that edge are chamfered (straight cuts are easier
-  to work with than a semicircle): **55 × 55 mm chamfers at 45°** leave a 50 mm flat on the far
-  edge, and all corners then lie inside the 190 mm circle (the far corners of the 50 mm flat are
-  at a radius of 93.4 mm; an unchamfered rectangle would reach 120 mm). Nothing (board,
-  components, connectors overhanging the edge) may extend beyond the circle. Area about
-  11,400 mm². Which half of the robot it covers (front or rear) follows from the frame and the
-  powerbank position; the mirror image is equally valid.
+  to work with than a semicircle). Without chamfers the far corners would lie 120 mm from the
+  centre, outside the 190 mm circle. The chamfers are kept as small as the circle allows, so the
+  board keeps as much area as possible: each cuts **55 mm off the far edge and 42 mm off the
+  side edge** (about 37° from the far edge, not 45°). The sides therefore run straight up to
+  48 mm, and the far edge is a 50 mm flat. The chamfer ends are 93.3 mm from the centre, about
+  1.7 mm inside the 190 mm circle. Nothing (board, components, connectors overhanging the edge)
+  may extend beyond the circle. Area about 12,100 mm² before the servo notch. Which half of the robot it covers (front
+  or rear) follows from the frame and the powerbank position; the mirror image is equally valid.
 - **Cut-out for the pan servo**: cut out a **30 × 30 mm square** at the robot centre. With the
   straight edge through the centre, this becomes a 30 mm wide, 15 mm deep notch in the straight
   edge. (If a closed hole is preferred, the straight edge can be moved beyond the centre, as long
