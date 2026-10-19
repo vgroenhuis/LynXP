@@ -469,6 +469,11 @@ be made smaller to make this possible.
   *(verify; suggested ≤ 2 mm)*. Traces and planes may pass through the zone.
   Cables to the camera (§10) must leave this zone sideways; place the camera connector
   just outside it.
+- **Drive motors (for orientation only)**: the two 37 mm diameter motors look like **55 × 37 mm**
+  rectangles from above, one at each end of the wheel axis through the robot centre, flush with
+  the outer 160 mm edges. They are **not an exclusion zone**: the PCB is mounted above them, so
+  board and parts can overlap them in top view (mind the height of parts above the motors and the
+  motor connectors, §8.2). They are drawn in the figure only to show where the motors are.
 - The mounting holes (3.2 mm on a 10 mm grid, see above) and the standoffs follow the frame and
   remain inside the same circle. The motor connectors (§8.2), the main switch, the USB-C ports and
   the large user buttons stay reachable at the board edge with the robot assembled.

@@ -1,14 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 900" width="900" height="900" font-family="Helvetica, Arial, sans-serif" font-size="14">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 930" width="900" height="930" font-family="Helvetica, Arial, sans-serif" font-size="14">
 <defs>
 <pattern id="hOrange" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#fff3e0"/><line x1="0" y1="0" x2="0" y2="8" stroke="#f08c00" stroke-width="2"/></pattern>
 <pattern id="hGrey" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><rect width="10" height="10" fill="#f1f3f5"/><line x1="0" y1="0" x2="0" y2="10" stroke="#adb5bd" stroke-width="1.5"/></pattern>
 <pattern id="hRed" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffe3e3"/><line x1="0" y1="0" x2="0" y2="6" stroke="#e03131" stroke-width="2"/></pattern>
 <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#343a40"/></marker>
 </defs>
-<rect width="900" height="900" fill="#ffffff"/>
+<rect width="900" height="930" fill="#ffffff"/>
 <text x="450" y="28" text-anchor="middle" font-size="19" font-weight="bold" fill="#212529">LynXP main PCB: outline and exclusion zones (top view, to scale)</text>
 <circle cx="450" cy="372" r="304.0" fill="url(#hGrey)" stroke="#1971c2" stroke-width="2.5" stroke-dasharray="10 6"/>
 <polygon points="194.0,372.0 194.0,260.0 370.0,84.0 530.0,84.0 706.0,260.0 706.0,372.0" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="3"/>
+<rect x="194.0" y="312.8" width="176.0" height="118.4" rx="3" fill="#74a7e6" fill-opacity="0.45" stroke="#1c4f8f" stroke-width="2"/>
+<line x1="194.0" y1="372.0" x2="370.0" y2="372.0" stroke="#1c4f8f" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="282.0" y="364.0" text-anchor="middle" fill="#0b2c55" font-size="13" font-weight="bold">motor</text>
+<text x="282.0" y="392.0" text-anchor="middle" fill="#0b2c55" font-size="12">55 × 37 mm</text>
+<rect x="530.0" y="312.8" width="176.0" height="118.4" rx="3" fill="#74a7e6" fill-opacity="0.45" stroke="#1c4f8f" stroke-width="2"/>
+<line x1="530.0" y1="372.0" x2="706.0" y2="372.0" stroke="#1c4f8f" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="618.0" y="364.0" text-anchor="middle" fill="#0b2c55" font-size="13" font-weight="bold">motor</text>
+<text x="618.0" y="392.0" text-anchor="middle" fill="#0b2c55" font-size="12">55 × 37 mm</text>
 <path d="M338.0,372.0 A112.0,112.0 0 0 1 562.0,372.0 Z" fill="url(#hOrange)" stroke="none"/>
 <circle cx="450" cy="372" r="112.0" fill="none" stroke="#e8590c" stroke-width="2.5" stroke-dasharray="8 5"/>
 <rect x="402.0" y="324.0" width="96.0" height="96.0" fill="url(#hRed)" stroke="#c92a2a" stroke-width="2.5"/>
@@ -31,13 +39,15 @@
 <text x="450" y="179.8" text-anchor="middle" fill="#212529" font-size="13">tall parts, OLED, potentiometer, buttons,</text>
 <text x="450" y="196.8" text-anchor="middle" fill="#212529" font-size="13">switches, vertical connectors go here</text>
 <text x="450" y="530.0" text-anchor="middle" fill="#495057" font-size="14">no PCB (outside the board outline, inside the 190 mm circle)</text>
-<rect x="40" y="730" width="34" height="20" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="2"/>
-<text x="88" y="745" fill="#212529" font-size="14">PCB area: 160 × 90 mm rectangle with 55 mm chamfers, straight edge through the robot centre</text>
-<rect x="40" y="760" width="34" height="20" fill="url(#hOrange)" stroke="#e8590c" stroke-width="2"/>
-<text x="88" y="775" fill="#212529" font-size="14">Ø 70 mm: only low parts here (no tall parts, no vertical connectors), the camera pan/tilt platform rotates just above</text>
-<rect x="40" y="790" width="34" height="20" fill="url(#hRed)" stroke="#c92a2a" stroke-width="2"/>
-<text x="88" y="805" fill="#212529" font-size="14">30 × 30 mm cut-out for the pan servo (half of it lies outside the board edge)</text>
-<rect x="40" y="820" width="34" height="20" fill="url(#hGrey)" stroke="#1971c2" stroke-width="2" stroke-dasharray="6 4"/>
-<text x="88" y="835" fill="#212529" font-size="14">Ø 190 mm circle: nothing of the PCB may extend beyond it</text>
-<text x="40" y="864" fill="#495057" font-size="13">Which half of the robot the board covers (front or rear) follows from the frame and the powerbank position; the mirrored layout is equally valid.</text>
+<rect x="40" y="722" width="34" height="20" fill="#9fc2ee" stroke="#1c4f8f" stroke-width="2"/>
+<text x="88" y="737" fill="#212529" font-size="14">Drive motors (Ø 37 mm: 55 × 37 mm from above): only shows where they are, the PCB can lie above them</text>
+<rect x="40" y="752" width="34" height="20" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="2"/>
+<text x="88" y="767" fill="#212529" font-size="14">PCB area: 160 × 90 mm rectangle with 55 mm chamfers, straight edge through the robot centre</text>
+<rect x="40" y="782" width="34" height="20" fill="url(#hOrange)" stroke="#e8590c" stroke-width="2"/>
+<text x="88" y="797" fill="#212529" font-size="14">Ø 70 mm: only low parts here (no tall parts, no vertical connectors), the camera pan/tilt platform rotates just above</text>
+<rect x="40" y="812" width="34" height="20" fill="url(#hRed)" stroke="#c92a2a" stroke-width="2"/>
+<text x="88" y="827" fill="#212529" font-size="14">30 × 30 mm cut-out for the pan servo (half of it lies outside the board edge)</text>
+<rect x="40" y="842" width="34" height="20" fill="url(#hGrey)" stroke="#1971c2" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="88" y="857" fill="#212529" font-size="14">Ø 190 mm circle: nothing of the PCB may extend beyond it</text>
+<text x="40" y="886" fill="#495057" font-size="13">Which half of the robot the board covers (front or rear) follows from the frame and the powerbank position; the mirrored layout is equally valid.</text>
 </svg>
