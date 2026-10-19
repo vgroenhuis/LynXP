@@ -438,6 +438,55 @@ pins in §4.2 become free GPIOs. If included, the following applies:
   is part of the deliverables. Passive size ≥ 0603 (0805 preferred) for hand rework.
 - Silkscreen: project name, board revision, date, polarity marks, pin-1 marks, rail voltages.
 
+### 12.2 Outline wish: fit within the robot's rotation circle
+
+Wish (**should**, not **must**): when mounted on the robot, the PCB fits within a **circle of
+diameter 190 mm centred at the robot centre**. The robot can then always rotate around its own
+axis without the board hitting objects. The mounts for the 37 mm diameter motors (frame parts) can
+be made smaller to make this possible.
+
+![Top view of the PCB outline and exclusion zones](pcb_outline_topview.svg)
+
+- **Outline**: a **rectangle with chamfered corners**, **160 mm wide** (set by the wheels) and
+  **90 mm high**, with its straight 160 mm edge through the robot centre, so the board covers one
+  half of the robot. The two corners away from that edge are chamfered (straight cuts are easier
+  to work with than a semicircle). Without chamfers the far corners would lie 120 mm from the
+  centre, outside the 190 mm circle. The chamfers are kept as small as the circle allows, so the
+  board keeps as much area as possible: each cuts **55 mm off the far edge and 42 mm off the
+  side edge** (about 37° from the far edge, not 45°). The sides therefore run straight up to
+  48 mm, and the far edge is a 50 mm flat. The chamfer ends are 93.3 mm from the centre, about
+  1.7 mm inside the 190 mm circle. Nothing (board, components, connectors overhanging the edge)
+  may extend beyond the circle. Area about 12,100 mm² before the servo notch. Which half of the robot it covers (front
+  or rear) follows from the frame and the powerbank position; the mirror image is equally valid.
+- **Cut-out for the pan servo**: cut out a **30 × 30 mm square** at the robot centre. With the
+  straight edge through the centre, this becomes a 30 mm wide, 15 mm deep notch in the straight
+  edge. (If a closed hole is preferred, the straight edge can be moved beyond the centre, as long
+  as the outline stays within the 190 mm circle.)
+- **Keep-out for tall parts**: within a **circle of diameter 70 mm** centred at the robot centre
+  there must be **no high components and no vertical cable plugs** (pin headers, screw terminals,
+  electrolytic capacitors, switches, potentiometers, buttons, the OLED, vertical JST/Qwiic
+  connectors, etc.), because the camera pan/tilt platform rotates just above the PCB there.
+  The board itself **does continue through this zone** (apart from the 30 × 30 mm cut-out), so it
+  can carry parts here, but only flat ones (SMD passives, small ICs, copper, silkscreen);
+  the maximum part height is to be fixed from the clearance in the CAD of the pan/tilt platform
+  *(verify; suggested ≤ 2 mm)*. Traces and planes may pass through the zone.
+  Cables to the camera (§10) must leave this zone sideways; place the camera connector
+  just outside it.
+- **Drive motors (for orientation only)**: the two 37 mm diameter motors look like **55 × 37 mm**
+  rectangles from above, one at each end of the wheel axis through the robot centre, flush with
+  the outer 160 mm edges. They are **not an exclusion zone**: the PCB is mounted above them, so
+  board and parts can overlap them in top view (mind the height of parts above the motors and the
+  motor connectors, §8.2). They are drawn in the figure only to show where the motors are.
+- **Wheels (for orientation only)**: Ø 71 mm and 5 mm thick (O-ring tyre included), seen from above
+  a 5 × 71 mm rectangle each, centred on the wheel axis and a few mm outside the 160 mm edges
+  (drawn with a 3 mm gap, so a track width of about 171 mm; *verify against the CAD*). With a
+  3 mm gap the outer wheel corners are 94.9 mm from the robot centre, so the wheels just fit
+  inside the 190 mm circle (a gap of more than about 3 mm would stick out of it). They are
+  drawn to show where the wheels are; the board stays clear of them.
+- The mounting holes (3.2 mm on a 10 mm grid, see above) and the standoffs follow the frame and
+  remain inside the same circle. The motor connectors (§8.2), the main switch, the USB-C ports and
+  the large user buttons stay reachable at the board edge with the robot assembled.
+
 ### 12.1 Board identification
 - **Must**: firmware must be able to determine that it runs on this PCB instead of the
   breadboard + loose wires setup (the two have different pin maps), and which board revision.
