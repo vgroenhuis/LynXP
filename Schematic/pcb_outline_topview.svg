@@ -2,7 +2,7 @@
 <defs>
 <pattern id="hOrange" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="9" stroke="#f08c00" stroke-opacity="0.55" stroke-width="1.6"/></pattern>
 <pattern id="hGrey" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><rect width="10" height="10" fill="#f1f3f5"/><line x1="0" y1="0" x2="0" y2="10" stroke="#adb5bd" stroke-width="1.5"/></pattern>
-<pattern id="hBlue" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><line x1="0" y1="0" x2="0" y2="9" stroke="#1c6fd0" stroke-opacity="0.7" stroke-width="1.8"/></pattern>
+<pattern id="hBlue" width="11" height="11" patternUnits="userSpaceOnUse" patternTransform="rotate(90)"><line x1="0" y1="0" x2="0" y2="11" stroke="#1c6fd0" stroke-opacity="0.7" stroke-width="1.8"/></pattern>
 <pattern id="hRed" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#ffe3e3"/><line x1="0" y1="0" x2="0" y2="6" stroke="#e03131" stroke-width="2"/></pattern>
 <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#343a40"/></marker>
 </defs>
