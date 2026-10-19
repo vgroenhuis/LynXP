@@ -30,8 +30,9 @@ committing to the layout.
 | nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
 | Headlights | — | Two headlight outputs with connectors (new, see §11.1) |
 | Microphone, speaker | — | **Optional**: on-board I²S microphone and speaker amplifier (new, see §11.2) |
+| Dynamixel XL430 smart servos | — | **Wish**: Dynamixel TTL port with its own adjustable supply, level shifter and half-duplex converter (new, see §11.3) |
 
-Stays off-board: powerbank, motors, servos, XIAO ESP32-S3 Sense camera, nOOds LED, headlights, optional speaker/mic.
+Stays off-board: powerbank, motors, servos (including optional Dynamixel smart servos), XIAO ESP32-S3 Sense camera, nOOds LED, headlights, optional speaker/mic.
 
 ---
 
@@ -107,6 +108,7 @@ re-inserting the cable works; switching the load does not.
 | **5 V** logic | Buck from V_BUS | 3 A | Camera, nOOds, exposed |
 | **V_SERVO** (5 V default) | Separate buck from V_BUS | 3 A | 8 servo headers |
 | **3.3 V** | Regulator from 5 V | 1 A | ESP32-C5, MCP23017, PCA9685, INA260, HUSB238 I/O, encoders |
+| **V_DXL** (wish, §11.3) | Adjustable converter from V_BUS | 3 A | Dynamixel XL430 smart servos only; 6.5 V to at least 12 V, default 11.1 V |
 
 - Net names: **VBUS_PD** = raw VBUS pin of the POWER connector; **VBUS_PROG** = raw VBUS pin of
   the PROG connector; **V_BUS** = main rail (VBUS_PD after load switch and INA260). Bare
@@ -122,7 +124,7 @@ re-inserting the cable works; switching the load does not.
   programming port's VBUS)
   through an ORing diode / ideal diode, without back-feeding into the buck output or the PD side.
   V_SERVO and V_BUS stay unpowered in that case.
-- **Must**: power-good LED on each rail (V_BUS, 5 V, V_SERVO, 3.3 V).
+- **Must**: power-good LED on each rail (V_BUS, 5 V, V_SERVO, 3.3 V); **should** also on V_DXL if the Dynamixel port (§11.3) is included.
 - **Should**: test points on every rail and GND.
 
 ### 3.1 Exposed power
@@ -182,6 +184,7 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | Addressable status LED + RGB LED strip header (§11) | 7 |
 
 Any GPIOs left over (e.g. GPIO27, formerly the QR button) go to a 2.54 mm female header.
+The optional Dynamixel port (§11.3) needs a UART with TX, RX and a direction pin (or a single data pin, see there), which does not fit in the one spare GPIO (27) without further choices; the designer proposes the assignment (e.g. GPIO27 plus the I²S pins 5/6/8/10 if the microphone and speaker are left out) and documents it.
 
 Encoders **must** stay on native GPIOs (PCNT peripheral).
 
@@ -409,6 +412,61 @@ pins in §4.2 become free GPIOs. If included, the following applies:
 - Decouple the amplifier supply well (≥ 10 µF + 100 nF close to the chip) and route the speaker
   output as a short differential pair away from the microphone and the antenna cable.
 
+### 11.3 Dynamixel XL430 smart servo port (wish)
+
+Wish (**should**): a port for **Dynamixel XL430** smart servos (e.g. XL430-W250), for add-on arms,
+grippers or pan/tilt heads with position feedback. It is a separate bus with its own supply, so
+it is independent of the PCA9685 servo headers (§6). If the PCB gets too crowded, this is the first
+function to drop; the rest of the design must not depend on it.
+
+- **Connectors**: at least **two 3-pin sockets wired in parallel** (daisy chain, like the servos'
+  own two ports), mating with the standard Dynamixel XL cable (JST EH 2.5 mm, housing EHR-03;
+  e.g. PCB header B3B-EH-A or the side-entry S3B-EH) *(verify against the XL430 datasheet and
+  the cable)*. Pin order **1 GND, 2 VDD (V_DXL), 3 DATA**, marked on the silkscreen together with
+  the voltage setting, e.g. "DXL (set 11.1 V)". A vertical socket is a vertical connector: keep it
+  outside the Ø 70 mm zone of §12.2.
+- **Dedicated supply V_DXL**: the servos run at 6.5 to 12 V (nominal 11.1 V) *(verify)*, which
+  is neither V_SERVO (5 V) nor necessarily V_BUS, so a separate converter is needed:
+  - **Adjustable** output, range at least **6.5 V to 12 V**, default **11.1 V**; set with a
+    trimmer or solder-jumper/resistor options on the feedback divider (a digitally adjustable
+    output over I²C is a bonus). The adjustment range must be limited in hardware so the output
+    cannot exceed the servo's maximum (12 V for the XL430); the set voltage is printed on the
+    silkscreen next to the connectors.
+  - Rated **≥ 3 A** (the XL430 draws about 1.4 A at stall; two servos stalled together
+    ≈ 2.8 A) *(verify)*. Note the budget: the powerbank gives about 2.5 to 3 A at 12 V in total
+    (§2.4); the firmware must account for this.
+  - Input from V_BUS, which follows the PD contract (9 V to 20 V). To reach 11 to 12 V at a 12 V
+    contract (or lower) a **buck-boost** converter is preferred. A plain buck is acceptable if its
+    limitation is documented: the output is then at most about V_BUS − 1 V, so 11.1 V needs a
+    contract of at least 12 V.
+  - **Off by default**: enable pin controlled by an MCP23017 output (pull-down, so V_DXL stays off
+    until firmware has configured it). Soft start, power-good LED, test point, ≥ 100 µF bulk
+    capacitor (low ESR, rated ≥ 25 V) at the connectors, TVS diode.
+  - V_DXL is **only** present on the Dynamixel connectors and a test point, not on the general
+    exposed-power headers of §3.1, so it cannot be plugged into a logic device by mistake.
+    **Should**: a voltage divider from V_DXL to a spare ADC input so firmware can read the actual
+    voltage.
+- **Level shifter**: between the ESP32-C5 (3.3 V) and the Dynamixel data line, whose logic level
+  must be taken from the XL430 datasheet *(verify; the bus is 3.3 V TTL on the X series, in which
+  case a shifter only buffers and protects, but any level the servo needs must be supported)*.
+  Fast enough for **at least 1 Mbit/s** (the servo defaults to 57,600 baud and goes up to
+  4.5 Mbit/s).
+- **Full-duplex to half-duplex converter**: the Dynamixel bus is a single-wire, half-duplex
+  asynchronous serial bus (DATA), whereas the ESP32 UART has separate TX and RX. Implement with a
+  pair of tri-state buffers (e.g. 74LVC2G241, or two 74LVC1G125): the TX buffer drives DATA only
+  while DIR is high, the RX buffer listens while DIR is low, with a pull-up on DATA as in the
+  Robotis reference circuit *(verify value)*. DIR comes from the ESP32 UART's RS-485 half-duplex
+  mode (RTS pin, `UART_MODE_RS485_HALF_DUPLEX` in ESP-IDF), so the turn-around is done in
+  hardware; DIR must therefore be on a native ESP32 GPIO, not on the MCP23017. A weak pull-down
+  on DIR keeps the bus released during boot.
+- **Pins**: TX, RX and DIR need three native GPIOs (UART1 or a free UART; UART0 is the console).
+  See §4.2: only GPIO27 is free, so the designer must find the others and document it. An
+  alternative that needs just **one GPIO** is to let the ESP32 do the half duplex itself by
+  mapping UART TX and RX to the same pin in open-drain mode, which reduces the converter to the
+  level shifter plus pull-up *(verify in the ESP32-C5 reference manual that this works at the
+  required baud rates)*.
+- Firmware: Dynamixel Protocol 2.0 driver, scan for IDs, V_DXL enable and voltage readback (see §14).
+
 ---
 
 ## 12. Mechanical and manufacturing
@@ -513,4 +571,4 @@ PCA9685 driver for servos, headlights and nOOds (OE via MCP23017), MCP23017 driv
 DIP switch/buttons/LEDs, headlights, I²S microphone and speaker, ADC driver for the analog inputs, screen selection with the
 potentiometer (replaces the QR button), motor direction changes over I²C (only on reversal; PWM stays on LEDC), PD voltage
 handling at 12 V instead of 9 V (motor PWM limits), board detection at startup (§12.1) with
-the breadboard or PCB pin map selected accordingly, and any pin reassignments.
+the breadboard or PCB pin map selected accordingly, a Dynamixel Protocol 2.0 driver with V_DXL control if the port of §11.3 is included, and any pin reassignments.
