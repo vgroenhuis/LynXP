@@ -66,7 +66,7 @@ Lynx.games = Lynx.games || {};
       sel: 0, idx: -1, lv: null, t: 0, time: 0, levelTime: 0,
       maxHearts, hearts: maxHearts, bombs: 0, score: 0, U: clamp((+cfg.blockCm || 5) / 100, 0.02, 0.1), diff: DIFF[diffKey], diffKey,
       stats: { kills: 0, damage: 0, bombs: 0, parries: 0 },
-      okT: 0, anywayAt: -1e9, done: new Set(store.get()), userCam: api.camDist(), frameOk: false, shake: 0, flash: null, hint: false, wonT: 0, lostT: 0,
+      okT: 0, anywayAt: -1e9, focus: 0, focusManual: null, focusManualOk: false, items: null, done: new Set(store.get()), userCam: api.camDist(), frameOk: false, shake: 0, flash: null, hint: false, wonT: 0, lostT: 0,
       get heroAlive() { return this.hearts > 0; },
       skins: cfg.skins !== false,
     };
@@ -562,6 +562,7 @@ Lynx.games = Lynx.games || {};
       G.phase = "setup";
       G.t = 0;
       G.okT = 0;
+      G.focusManual = null;
       G.hint = false;
       G.U = measureU();
       resetEntities();
@@ -661,19 +662,46 @@ Lynx.games = Lynx.games || {};
       return { fr, list, allOk, missing: required.filter((x) => x.st.s !== "ok").length + (fr.s === "ok" ? 0 : 1) };
     }
     const cmText = (u) => `${Math.round(Math.abs(u) * G.U * 100)} cm`;
+    // Places are given from the frame cube's own faces (they're printed on
+    // it): +x is the way face 24 points, +y the way face 25 points -- "in
+    // front of the robot" was ambiguous (the robot's front or the camera's?).
+    const towards = (v, pos, neg) => `face ${v > 0 ? pos : neg}`;
     function moveText(st) {
       const parts = [];
-      if (Math.abs(st.dx) > 0.004 * 1) parts.push(`${Math.round(Math.abs(st.dx) * 100)} cm ${st.dx > 0 ? "farther" : "nearer"}`);
-      if (Math.abs(st.dy) > 0.004) parts.push(`${Math.round(Math.abs(st.dy) * 100)} cm to the ${st.dy > 0 ? "left" : "right"}`);
+      if (Math.abs(st.dx) > 0.004) parts.push(`${Math.round(Math.abs(st.dx) * 100)} cm toward ${towards(st.dx, 24, 29)}`);
+      if (Math.abs(st.dy) > 0.004) parts.push(`${Math.round(Math.abs(st.dy) * 100)} cm toward ${towards(st.dy, 25, 28)}`);
       return parts.join(", ") || "";
     }
     function placeText(en) {
       const [x, y] = en.at;
-      if (en.free) return `${en.label || `cube ${en.tag}`}: anywhere in the ringed area near ${Math.round(Math.abs(x) * G.U * 100)} cm ${x >= 0 ? "beyond" : "short of"} the frame cube`;
-      const fwd = Math.abs(x) < 0.15 ? "level with the frame cube" : `${cmText(x)} ${x > 0 ? "beyond" : "short of"} it`;
-      const side = Math.abs(y) < 0.15 ? "" : ` and ${cmText(y)} to the ${y > 0 ? "left" : "right"}`;
+      const name = en.label || `cube ${en.tag}`;
+      const out = (v, pos, neg) => `${cmText(v)} out from ${towards(v, pos, neg)}`;
+      if (en.free) return `${name}: anywhere in the ringed area, ${out(x, 24, 29)} of the frame cube`;
+      const parts = [];
+      if (Math.abs(x) >= 0.15) parts.push(out(x, 24, 29));
+      if (Math.abs(y) >= 0.15) parts.push(out(y, 25, 28));
       const stack = en.stack ? ` -- on top of ${en.onTag !== undefined ? `cube ${en.onTag}` : "the cube below"}` : "";
-      return `${en.label || `cube ${en.tag}`}: ${fwd}${side}${stack}`;
+      return `${name}: ${parts.join(", ") || "right next to the frame cube"}${stack}`;
+    }
+    // What the camera looks at while the cubes are laid out: the frame cube's
+    // spot first, then the next cube still to place (Tab / RB, LB: another).
+    function setupItems(S2) {
+      return [
+        { at: [0, 0], z: 0.5, ok: S2.fr.s === "ok", tag: "frame" },
+        ...S2.list.map(({ en, st }) => ({ at: en.at, z: (en.stack || 0) + 0.5, ok: st.s === "ok", tag: en.tag, optional: !!en.optional })),
+      ];
+    }
+    function updateFocus(S2) {
+      const items = setupItems(S2);
+      // (a cube chosen by hand stays chosen till it falls into place -- or, chosen in place already, till another is chosen)
+      const m = G.focusManual !== null ? items[G.focusManual] : null;
+      if (m && (G.focusManualOk || !m.ok)) G.focus = G.focusManual;
+      else {
+        G.focusManual = null;
+        const i = items.findIndex((it) => !it.ok && !it.optional);
+        G.focus = i >= 0 ? i : 0;
+      }
+      G.items = items;
     }
     function updateSetup(dt) {
       G.t += dt;
@@ -686,6 +714,7 @@ Lynx.games = Lynx.games || {};
         if (G.okT >= SETUP_OK_S) beginPlay();
       } else G.okT = 0;
       G.setup = S2;
+      updateFocus(S2);
     }
     function setupFire() {
       const S2 = G.setup || setupState();
@@ -705,7 +734,7 @@ Lynx.games = Lynx.games || {};
     const unitRect = (r) => ({ f0: r[0] * G.U, f1: r[2] * G.U, r0: r[1] * G.U, r1: r[3] * G.U });
     function drawFloor() {
       const l = lv();
-      if (!l || G.phase === "menu") return;
+      if (!l || G.phase === "menu" || G.phase === "setup") return; // (laying out: the video itself)
       const area = l.area ? unitRect(l.area) : null;
       if (l.floor === "lava" && area) {
         fx.patch("lava", area, 0, { world: true, time, tile: 0.2, flow: [0.004, 0.009], quality: cfg.quality === "low" ? 2 : 1 });
@@ -1062,19 +1091,17 @@ Lynx.games = Lynx.games || {};
       const l = lv();
       const S2 = G.setup || setupState();
       const v = ar.view;
-      const pw = Math.min(380, v.w * 0.46);
-      const size = v.w < 700 ? 11 : 13;
+      const pw = Math.min(330, v.w * 0.4); // (compact: the video is what matters while laying out)
+      const size = v.w < 700 ? 10 : 12;
       const lines = [];
-      lines.push({ t: `LEVEL ${G.idx + 1} -- ${l.name.toUpperCase()}`, c: "#ffd870", s: size + 4 });
-      wrapText(l.story, pw - 24, size).forEach((t) => lines.push({ t, c: "#e8dcc0", s: size }));
-      lines.push({ t: "", s: size * 0.5 });
-      lines.push({ t: "Lay out the cubes:", c: "#ffd870", s: size });
+      lines.push({ t: `LEVEL ${G.idx + 1} -- ${l.name.toUpperCase()}: lay out the cubes`, c: "#ffd870", s: size + 1 });
       const fr = S2.fr;
-      lines.push({ t: `${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} Frame cube (tags 24-29): about 25 cm in front of the robot, tag 24 facing away from it. It is the origin of the level.`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
-      S2.list.forEach(({ en, st }) => {
+      const focusMark = (i) => (G.focus === i ? "\u25b6 " : "");
+      lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} Frame cube (24-29) on the floor in view, face 24 pointing away from the robot. Everything below is measured from it.`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
+      S2.list.forEach(({ en, st }, i) => {
         const mark = st.s === "ok" ? "✔" : st.s === "missing" ? "✖" : "→";
         const col = st.s === "ok" ? "#80ff9c" : st.s === "missing" ? "#ffc060" : "#ffa060";
-        let t = `${mark} ${placeText(en)}`;
+        let t = `${focusMark(i + 1)}${mark} ${placeText(en)}`;
         if (st.s === "off") t += st.stackOk === false ? " -- not stacked right" : ` -- move it ${moveText(st)}`;
         lines.push({ t: en.optional ? `${t} (optional)` : t, c: col, s: size, wrap: true });
       });
@@ -1086,15 +1113,95 @@ Lynx.games = Lynx.games || {};
       const lh = (ln) => ln.s * 1.3;
       const ht = out.reduce((m, ln) => m + lh(ln), 0) + 28;
       const x = v.x + 12;
-      const y = v.y + v.h * 0.1;
-      panel(x, y, pw, ht);
+      const y = v.y + 56;
+      panel(x, y, pw, ht, 0.55);
       let yy = y + 20;
       out.forEach((ln) => {
         if (ln.t) ar.text(ln.t, x + 12, yy, { size: ln.s, color: ln.c, outline: false, weight: ln.s > size + 1 ? "bold" : "600" });
         yy += lh(ln);
       });
-      const msg = S2.allOk ? `All in place -- starting in ${Math.max(0, SETUP_OK_S - G.okT).toFixed(1)} s (Fire: now)` : "Fire: start anyway · H: hint · zoom out (−) to see all the cubes · R: look again";
+      const msg = S2.allOk ? `All in place -- starting in ${Math.max(0, SETUP_OK_S - G.okT).toFixed(1)} s (Fire: now)` : "The camera looks where the \u25b6 cube goes · Tab / RB, LB: another · Fire: start anyway · R: look again";
       ar.text(msg, v.cx, v.y + v.h - 40, { size: 14, align: "center", color: S2.allOk ? "#80ff9c" : "#ffe9a8" });
+    }
+    // A small map while laying out (top right): the robot in the middle, its
+    // front up -- the way the right stick drives it -- the frame cube, the
+    // cubes it has seen (cyan, the frame cube yellow) and where each one goes
+    // (dashed: green in place, orange not yet; the camera's one ringed).
+    function drawMap() {
+      const v = ar.view;
+      const g = ar.ctx;
+      const S2 = G.setup || setupState();
+      const size = Math.min(200, v.w * 0.3, v.h * 0.42);
+      const x0 = v.x + v.w - size - 12;
+      const y0 = v.y + 56;
+      const ch = api.chassis();
+      const body = api.robotBody();
+      const c = Math.cos(ch.th);
+      const sn = Math.sin(ch.th);
+      // a floor point -> the robot's frame (u ahead, v to its right)
+      const rel = (f, r) => [(f - ch.f) * c + (r - ch.r) * sn, -(f - ch.f) * sn + (r - ch.r) * c];
+      const spots = [[0, 0], ...S2.list.map((x) => x.en.at)].map(([x, y]) => {
+        const l = toF(x, y);
+        return rel(l.f, l.r);
+      });
+      const reach = Math.max(0.25, body.front + 0.03, body.rear, body.half, ...spots.map(([u, vv]) => Math.max(Math.abs(u), Math.abs(vv)) + G.U));
+      const sc = (size * 0.46) / reach;
+      const cx = x0 + size / 2;
+      const cy = y0 + size / 2;
+      const P = ([u, vv]) => [cx + vv * sc, cy - u * sc];
+      const poly = (pts, fill, stroke, dash) => {
+        g.beginPath();
+        pts.forEach((q, i) => (i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])));
+        g.closePath();
+        if (fill) {
+          g.fillStyle = fill;
+          g.fill();
+        }
+        if (stroke) {
+          g.setLineDash(dash || []);
+          g.strokeStyle = stroke;
+          g.lineWidth = 1.5;
+          g.stroke();
+          g.setLineDash([]);
+        }
+      };
+      const squareAt = (x, y) => {
+        const half = G.U / 2;
+        return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => {
+          const l = w.toLocal(x + a * half, y + b * half);
+          return P(rel(l.f, l.r));
+        });
+      };
+      panel(x0, y0, size, size, 0.55);
+      g.save();
+      g.beginPath();
+      g.rect(x0, y0, size, size);
+      g.clip();
+      // where they go
+      const fm = squareAt(0, 0);
+      poly(fm, null, G.focus === 0 ? "rgba(255,255,255,0.95)" : S2.fr.s === "ok" ? "rgba(90,255,150,0.9)" : "rgba(255,214,90,0.9)", [3, 3]);
+      S2.list.forEach(({ en, st }, i) => {
+        const q = squareAt(en.at[0] * G.U, en.at[1] * G.U);
+        const col = st.s === "ok" ? "rgba(90,255,150,0.9)" : "rgba(255,160,70,0.9)";
+        poly(q, null, G.focus === i + 1 ? "rgba(255,255,255,0.95)" : col, [3, 3]);
+        const m = P(rel(...(() => {
+          const l = w.toLocal(en.at[0] * G.U, en.at[1] * G.U);
+          return [l.f, l.r];
+        })()));
+        ar.text(String(en.label || en.tag), m[0], m[1] + 4, { size: 10, align: "center", color: col });
+      });
+      // the cubes seen
+      api.realSolids.forEach((b) => {
+        if (b.inferred) return;
+        const q = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, bb]) => P(rel(...api.fromB(b, a * b.half, bb * b.half))));
+        poly(q, cubes.frameCube(b.tag) ? "rgba(255,210,80,0.85)" : "rgba(80,230,255,0.75)", null);
+      });
+      // the robot, its front up
+      const R = [[body.front, -body.half], [body.front, body.half], [-body.rear, body.half], [-body.rear, -body.half]].map(P);
+      poly(R, "rgba(255,255,255,0.12)", "rgba(255,255,255,0.8)");
+      poly([P([body.front + 0.03, 0]), P([body.front - 0.005, -body.half * 0.45]), P([body.front - 0.005, body.half * 0.45])], "rgba(255,255,255,0.85)", null);
+      g.restore();
+      ar.text("map: robot's front up", x0 + size / 2, y0 + size - 6, { size: 10, align: "center", color: "rgba(255,255,255,0.6)" });
     }
     function drawGhosts() {
       const l = lv();
@@ -1279,6 +1386,7 @@ Lynx.games = Lynx.games || {};
         return out;
       },
       blockOver(b) {
+        if (G.phase === "setup") return; // (laying out: the real cubes and their tags as they are)
         const st = skinOf(b);
         if (st) fx.skin(b, st);
         if (E.lava && G.phase !== "menu") fx.glowSides(b, [255, 96, 18], 0.5, 0.75, { flicker: time });
@@ -1300,6 +1408,11 @@ Lynx.games = Lynx.games || {};
         return true;
       },
       draw() {
+        // laying out the cubes: only the guide -- the video is what matters
+        if (G.phase === "setup") {
+          drawGhosts();
+          return;
+        }
         const l = lv();
         if (l && l.draw) l.draw(L);
         drawBarricades();
@@ -1314,6 +1427,8 @@ Lynx.games = Lynx.games || {};
       },
       update(dt) {
         time += dt;
+        // laying out the cubes: the game's touch buttons out of the video's way
+        if (touch.el) touch.el.style.display = G.phase === "setup" ? "none" : "";
         G.time += dt;
         fx.parts.update(dt);
         G.shake = Math.max(0, G.shake - dt * 2.5);
@@ -1347,15 +1462,26 @@ Lynx.games = Lynx.games || {};
           drawMenu();
           return;
         }
-        if (G.phase === "setup") drawSetup();
-        else drawHud();
+        if (G.phase === "setup") {
+          drawSetup();
+          drawMap();
+        } else drawHud();
       },
       title() {
         drawMenu();
         return true;
       },
+      // laying out: no knight, the wheel tracks on, the camera on the next cube's place
+      hideHero: () => G.phase === "setup",
+      forceTracks: () => G.phase === "setup",
+      camTarget() {
+        if (G.phase !== "setup" || !G.items) return null;
+        const it = G.items[G.focus] || G.items[0];
+        const l = toF(it.at[0], it.at[1]);
+        return [l.f, l.r, it.z * G.U];
+      },
       helpLine(auto) {
-        if (G.phase === "setup") return "Robot: right stick / arrows · −/+: zoom · L: menu";
+        if (G.phase === "setup") return "Robot: right stick / arrows (the map: its front up) · Tab / RB, LB: look at another cube · L: menu";
         const bombs = lv() && (lv().bombs || G.bombs) ? " · Bomb B · Detonate E" : "";
         return `Knight: stick / WASD · Jump: Space · Sword: Fire · Shield: hold X${bombs} · L: menu`;
       },
@@ -1395,6 +1521,17 @@ Lynx.games = Lynx.games || {};
             G.sel = wpn - 1;
             sfx("click");
           }
+          return true;
+        }
+        if (G.phase === "setup" && G.items) {
+          // another cube for the camera to look at
+          const n = G.items.length;
+          const d = wpn === "prev" ? -1 : 1;
+          G.focusManual = (((G.focus + d) % n) + n) % n;
+          G.focusManualOk = G.items[G.focusManual].ok;
+          G.focus = G.focusManual;
+          api.recenter();
+          sfx("click");
           return true;
         }
         if (G.phase !== "play" || !(lv() && (lv().bombs || G.bombs || A.bombs.length))) return false;

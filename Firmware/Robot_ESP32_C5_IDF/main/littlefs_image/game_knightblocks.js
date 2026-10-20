@@ -41,7 +41,10 @@
 // blocks), hud(), title() (true: its own title screen), helpLine(auto),
 // onFire(state) / onWeapon(w, state) (true: handled), heroJoints(J), drawHero(J, alpha) (true: drew the knight itself), heroPrims(J, prims, P),
 // blockOver(b) (after a real block's silhouette is cut out: a skin, light),
-// heroAlpha(), snapshot(). See `api` below for what it gets.
+// heroAlpha(), snapshot(), camTarget() ([f, r, z]: what the camera keeps in
+// view instead of the knight, or null), hideHero() (true: no knight, shadow
+// or jump hint), forceTracks() (true: the wheel tracks shown whatever the
+// switch says). See `api` below for what it gets.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -863,7 +866,7 @@ Lynx.games = Lynx.games || {};
         man.sentAt = now;
       }
       // the camera: the knight in the middle (no lead -- as little camera movement as can be)
-      aimAt(knightMiddle(), dt, now, false, [hero.vf, hero.vr]);
+      aimAt(aimTarget(), dt, now, false, aimTargetVel());
       // pointed relative to the chassis (the robot doesn't turn to help, as with "aim")
       const th = chassisTheta();
       const panDeg = clamp((wrap(cam.aimYaw - th) * 180) / Math.PI, -88, 88);
@@ -963,10 +966,14 @@ Lynx.games = Lynx.games || {};
           cam.lastGotoMs = now;
         }
       }
-      aimAt(knightMiddle(), dt, now, true, [hero.vf, hero.vr]);
+      aimAt(aimTarget(), dt, now, true, aimTargetVel());
     }
     // what the camera keeps in the middle of the view: the knight, half way up
+    // (or what an extension points it at instead: X.camTarget)
     const knightMiddle = () => [hero.f, hero.r, hero.z + C.BODY_H / 2];
+    const camTarget = () => (X && X.camTarget && X.camTarget()) || null;
+    const aimTargetVel = () => (camTarget() ? [0, 0] : [hero.vf, hero.vr]);
+    const aimTarget = () => camTarget() || knightMiddle();
     // the camera eases toward the point, panning and tilting at a limited rate
     // (send: as "aim"; manual drive sends it itself)
     function aimAt(pt, dt, now, send = true, vel = [0, 0]) {
@@ -1124,7 +1131,7 @@ Lynx.games = Lynx.games || {};
     function recenter() {
       if (state !== "playing") return;
       if (cam.aimYaw === null) return;
-      cam.aimPt = knightMiddle(); // (turned there at the camera's speed: aimAt)
+      cam.aimPt = aimTarget(); // (turned there at the camera's speed: aimAt)
       cam.aimMoving = true;
       say("Camera: re-centering on the knight", "#c0f0ff");
     }
@@ -1333,12 +1340,13 @@ Lynx.games = Lynx.games || {};
         // (each cube's own footprint goes with it, queueBlock)
         if (showBlocks) cubes.drawGone(w);
         // (its body as the game keeps it clear of the blocks)
-        if (showTracks) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotFront, rearM: robotRear });
+        if (showTracks || (X && X.forceTracks && X.forceTracks())) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotFront, rearM: robotRear });
         if (X && X.drawFloor) X.drawFloor();
         realSolids.forEach(queueBlock);
         if (X && X.draw) X.draw();
-        if (state === "playing") queueHero();
-        if (state === "playing" && showJumpHint) queueJumpHint();
+        const heroShown = state === "playing" && !(X && X.hideHero && X.hideHero());
+        if (heroShown) queueHero();
+        if (heroShown && showJumpHint) queueJumpHint();
         ar.flush();
       }
       if (showTags) cubes.drawTags();
@@ -1356,6 +1364,9 @@ Lynx.games = Lynx.games || {};
       say, sfx, startPlay, placeHero, groundAt, inFoot, footDist, toB, fromB, recenter, stopRobot, zoom,
       collideHero: () => collide(C.STEP_UP),
       setFrameFromCube: (on) => (frameFromCube = on),
+      // the robot: where it is and which way it faces (the floor frame), its outline round the axle
+      chassis: () => chassisLocal(),
+      robotBody: () => ({ half: robotHalf, front: robotFront, rear: robotRear }),
       setShowBlocks: (on) => (showBlocks = on),
       frameFromCube: () => frameFromCube,
       camDist: () => camDist,
