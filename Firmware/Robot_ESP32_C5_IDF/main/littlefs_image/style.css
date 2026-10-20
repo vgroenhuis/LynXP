@@ -67,6 +67,21 @@ body.cam-body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  /* a long press (holding a button, the shield) is not "select this text":
+     no selection, no Copy / Select all / Share menu */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.cam-fullscreen input,
+.cam-fullscreen textarea,
+.cam-fullscreen select {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+/* the game's touch buttons: no browser gestures (scroll, zoom) on them */
+.game-touch-ui .cam-overlay-btn {
+  touch-action: none;
 }
 
 .cam-overlay-btn {

@@ -944,6 +944,8 @@ window.Lynx = window.Lynx || {};
     if (!bar) {
       bar = document.createElement("div");
       bar.className = "game-touch-ui";
+      // (a long press on a button: no context menu -- see style.css for the selection menu)
+      bar.addEventListener("contextmenu", (e) => e.preventDefault());
       document.querySelector(".cam-fullscreen").appendChild(bar);
     }
     return {
