@@ -1336,32 +1336,54 @@ Lynx.games = Lynx.games || {};
       }
     }
     const world = (at) => ({ x: at[0] * G.U, y: at[1] * G.U });
+    // The level menu, laid out to the screen: the title, the levels (rows as
+    // high as there's room for), the chosen one's description, and the line
+    // at the bottom kept clear of the buttons in the corner.
     function drawMenu() {
       const v = ar.view;
+      const small = Lynx.smallScreen();
       ar.flash("rgba(8,5,2,0.78)", 1);
-      ar.text("BLOCK QUEST", v.cx, v.y + 66, { size: Math.min(56, v.w / 11), align: "center", color: "#e8c050", font: "Impact, 'Arial Black', sans-serif", weight: "normal" });
-      ar.text("Knight on Blocks, with real levels", v.cx, v.y + 92, { size: 14, align: "center", color: "#d8c8a0" });
-      const rowH = 26;
-      const top = v.y + 118;
-      LEVELS.forEach((l, i) => {
-        const y = top + i * rowH;
+      const titleSize = Math.max(22, Math.min(56, v.w / 11, v.h / 8));
+      let y = v.y + titleSize + 8;
+      ar.text("BLOCK QUEST", v.cx, y, { size: titleSize, align: "center", color: "#e8c050", font: "Impact, 'Arial Black', sans-serif", weight: "normal" });
+      if (!small) {
+        y += 24;
+        ar.text("Knight on Blocks, with real levels", v.cx, y, { size: 14, align: "center", color: "#d8c8a0" });
+      }
+      const bottomY = v.y + v.h - (small ? 64 : 58); // (above the buttons in the bottom corners)
+      const rw = Math.min(500, v.w - 40);
+      const l = LEVELS[G.sel];
+      const blurbSize = small ? 11 : 13;
+      const blurb = l ? wrapText(l.blurb || l.story, rw - 20, blurbSize) : [];
+      const blurbShown = small ? blurb.slice(0, 2) : blurb;
+      const blurbH = (blurbShown.length + 1) * (blurbSize + 4) + 10;
+      const top = y + (small ? 20 : 28);
+      const rowH = clamp((bottomY - top - blurbH) / Math.max(1, LEVELS.length), 14, 26);
+      const rowSize = clamp(rowH * 0.62, 10, 16);
+      LEVELS.forEach((lv2, i) => {
+        const ry = top + i * rowH + rowSize * 0.5;
         const sel = i === G.sel;
         if (sel) {
           ar.ctx.fillStyle = "rgba(210,170,80,0.18)";
-          ar.ctx.fillRect(v.cx - 250, y - 17, 500, rowH - 2);
+          ar.ctx.fillRect(v.cx - rw / 2, ry - rowSize * 1.05, rw, rowH - 1);
         }
-        ar.text(`${i + 1}. ${l.name}`, v.cx - 236, y, { size: 16, color: sel ? "#ffe9a8" : "#c8b890" });
-        ar.text(l.tags || "", v.cx + 236, y, { size: 13, align: "right", color: sel ? "#a0e0ff" : "#8aa0b0" });
-        if (G.done.has(l.id)) ar.text("✔", v.cx - 262, y, { size: 16, color: "#80ff9c" });
+        ar.text(`${i + 1}. ${lv2.name}`, v.cx - rw / 2 + 14, ry, { size: rowSize, color: sel ? "#ffe9a8" : "#c8b890" });
+        if (rw > 380) ar.text(lv2.tags || "", v.cx + rw / 2 - 14, ry, { size: rowSize - 2, align: "right", color: sel ? "#a0e0ff" : "#8aa0b0" });
+        if (G.done.has(lv2.id)) ar.text("✔", v.cx - rw / 2 - 2, ry, { size: rowSize, color: "#80ff9c" });
       });
-      const l = LEVELS[G.sel];
       if (l) {
-        const lines = wrapText(l.blurb || l.story, 480, 13);
-        lines.forEach((t, i) => ar.text(t, v.cx, top + LEVELS.length * rowH + 24 + i * 17, { size: 13, align: "center", color: "#e8dcc0" }));
+        let by = top + LEVELS.length * rowH + blurbSize + 8;
+        blurbShown.forEach((t) => {
+          ar.text(t, v.cx, by, { size: blurbSize, align: "center", color: "#e8dcc0" });
+          by += blurbSize + 4;
+        });
         const need = `Cubes: frame cube${(l.cubes || []).length ? ` + tags ${[...new Set(l.cubes.map((c) => c.tag))].sort().join(", ")}` : ""}`;
-        ar.text(need, v.cx, top + LEVELS.length * rowH + 28 + lines.length * 17 + 8, { size: 13, align: "center", color: "#a0e0ff" });
+        ar.text(need, v.cx, by + 2, { size: blurbSize, align: "center", color: "#a0e0ff" });
       }
-      ar.text("Choose: LB / RB, Tab or the number keys · Fire: start · tags 0-5 (40 mm) and the frame cube, see /tags.html", v.cx, v.y + v.h - 26, { size: 13, align: "center", color: "#ffe9a8" });
+      ar.text(
+        small ? "\u25b2 \u25bc: choose · \u2694 Sword: start" : "Choose: LB / RB, Tab or the number keys · Fire: start · tags 0-5 (40 mm) and the frame cube, see /tags.html",
+        v.cx, bottomY + 26, { size: small ? 12 : 13, align: "center", color: "#ffe9a8" },
+      );
     }
 
     // -- input -------------------------------------------------------------------------------------------------------------
@@ -1394,12 +1416,17 @@ Lynx.games = Lynx.games || {};
     const touch = Lynx.touchButtons();
     const shieldBtn = touch.addHold ? touch.addHold("🛡 Shield", () => Lynx.shieldAction("touch", true), () => Lynx.shieldAction("touch", false)) : null;
     const nextBtn = touch.add("⇄ Next cube", () => focusStep(1));
-    // laying out: of the touch buttons only Next cube (the rest out of the video's way), afterwards as they were
-    function setupBar(on) {
+    // the level menu: choosing with the touch buttons (a phone has no LB / RB / Tab)
+    const menuBtns = [touch.add("\u25b2 Previous level", () => G.phase === "menu" && choose(-1)), touch.add("\u25bc Next level", () => G.phase === "menu" && choose(1))];
+    // laying out: of the touch buttons only Next cube; the menu: only the level choice
+    // (the rest out of the way); afterwards as they were
+    function setupBar() {
       if (!touch.el) return;
+      const keep = G.phase === "setup" ? [nextBtn] : G.phase === "menu" ? menuBtns : null;
+      const on = !!keep;
       [...touch.el.children].forEach((b) => {
-        if (b === nextBtn) {
-          b.style.display = on ? "" : "none";
+        if (b === nextBtn || menuBtns.includes(b)) {
+          b.style.display = keep && keep.includes(b) ? "" : "none";
           return;
         }
         if (on && !("setupHidden" in b.dataset)) {
@@ -1484,7 +1511,7 @@ Lynx.games = Lynx.games || {};
       update(dt) {
         time += dt;
         // laying out the cubes: the game's touch buttons out of the video's way
-        setupBar(G.phase === "setup");
+        setupBar();
         showGameBtns();
         G.time += dt;
         fx.parts.update(dt);
@@ -1525,6 +1552,7 @@ Lynx.games = Lynx.games || {};
         } else drawHud();
       },
       title() {
+        setupBar(); // (before the game starts its updates don't run)
         drawMenu();
         return true;
       },
