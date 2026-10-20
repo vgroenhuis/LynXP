@@ -1332,7 +1332,8 @@ Lynx.games = Lynx.games || {};
           v.cx, v.y + v.h - 20, { size: 13, align: "center" },
         );
         const mode = autoDrive ? "auto drive" : "manual drive";
-        ar.text(`Robot: ${mode}${cam.why ? ` -- ${cam.why}` : ""}`, v.x + 12, v.y + 42, { size: 12, color: cam.why ? "#ffd080" : "#c0f0ff" });
+        // (a phone: only when there's something to say -- the top is kept for the game)
+        if (!Lynx.smallScreen() || cam.why) ar.text(`Robot: ${mode}${cam.why ? ` -- ${cam.why}` : ""}`, v.x + 12, v.y + 42, { size: 12, color: cam.why ? "#ffd080" : "#c0f0ff" });
         const k = w.toWorld(hero.f, hero.r);
         ar.edgeArrow(k.x, k.y, hero.z + 0.035 * S, "#80d0ff");
       }

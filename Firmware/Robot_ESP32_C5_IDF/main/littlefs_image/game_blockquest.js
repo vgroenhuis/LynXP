@@ -1105,10 +1105,10 @@ Lynx.games = Lynx.games || {};
       const pw = Lynx.smallScreen() ? Math.min(250, v.w * 0.42) : Math.min(330, v.w * 0.4); // (compact: the video is what matters while laying out)
       const size = v.w < 700 ? 10 : 12;
       const lines = [];
-      lines.push({ t: `LEVEL ${G.idx + 1} -- ${l.name.toUpperCase()}: lay out the cubes`, c: "#ffd870", s: size + 1 });
+      lines.push({ t: Lynx.smallScreen() ? `Level ${G.idx + 1}: lay out the cubes` : `LEVEL ${G.idx + 1} -- ${l.name.toUpperCase()}: lay out the cubes`, c: "#ffd870", s: size + 1 });
       const fr = S2.fr;
       const focusMark = (i) => (G.focus === i ? "\u25b6 " : "");
-      if (!Lynx.smallScreen() || G.focus === 0) lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} Frame cube (24-29) on the floor about 30 cm ahead of the robot, where the camera looks, face 24 pointing away from the robot. Everything below is measured from it.`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
+      if (!Lynx.smallScreen() || G.focus === 0) lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} ${Lynx.smallScreen() ? "Frame cube (24-29): ~30 cm ahead, where the camera looks; face 24 away from the robot" : "Frame cube (24-29) on the floor about 30 cm ahead of the robot, where the camera looks, face 24 pointing away from the robot. Everything below is measured from it."}`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
       const small = Lynx.smallScreen();
       S2.list.forEach(({ en, st }, i) => {
         // (a phone: only the one the camera is on -- the rest are on the map)
@@ -1131,7 +1131,7 @@ Lynx.games = Lynx.games || {};
       const lh = (ln) => ln.s * 1.3;
       const ht = out.reduce((m, ln) => m + lh(ln), 0) + 28;
       const x = v.x + 12;
-      const y = v.y + 56;
+      const y = Lynx.smallScreen() ? v.y + 4 : v.y + 56; // (a phone: right at the top, out of the middle of the picture)
       panel(x, y, pw, ht, 0.55);
       let yy = y + 20;
       out.forEach((ln) => {
@@ -1149,9 +1149,9 @@ Lynx.games = Lynx.games || {};
       const v = ar.view;
       const g = ar.ctx;
       const S2 = G.setup || setupState();
-      const size = Math.min(200, v.w * 0.3, v.h * 0.42);
+      const size = Lynx.smallScreen() ? Math.min(160, v.w * 0.26, v.h * 0.36) : Math.min(200, v.w * 0.3, v.h * 0.42);
       const x0 = v.x + v.w - size - 12;
-      const y0 = v.y + 56;
+      const y0 = Lynx.smallScreen() ? v.y + 4 : v.y + 56;
       const ch = api.chassis();
       const body = api.robotBody();
       const c = Math.cos(ch.th);
@@ -1195,6 +1195,31 @@ Lynx.games = Lynx.games || {};
       g.beginPath();
       g.rect(x0, y0, size, size);
       g.clip();
+      // what the camera sees: a wedge from the robot the way the camera looks
+      // (it pans on its own -- the robot may face elsewhere), as wide as the lens
+      {
+        const v2 = ar.view;
+        const halfFov = Math.atan(v2.imgW / 2 / Math.max(1, v2.f));
+        const camYaw = wrap(w.anchor().th - ar.camTheta - ch.th); // (the floor frame's headings run clockwise)
+        const len = reach * 1.6;
+        const ray = (a) => P([Math.cos(a) * len, Math.sin(a) * len]);
+        const fan = [P([0, 0])];
+        for (let k = 0; k <= 8; k++) fan.push(ray(camYaw - halfFov + (2 * halfFov * k) / 8));
+        poly(fan, "rgba(255,255,255,0.1)", null);
+        g.save();
+        g.strokeStyle = "rgba(255,255,255,0.45)";
+        g.lineWidth = 1;
+        g.setLineDash([4, 3]);
+        [camYaw - halfFov, camYaw + halfFov].forEach((a) => {
+          const e = ray(a);
+          const o = P([0, 0]);
+          g.beginPath();
+          g.moveTo(o[0], o[1]);
+          g.lineTo(e[0], e[1]);
+          g.stroke();
+        });
+        g.restore();
+      }
       // where they go
       const fm = squareAt(0, 0);
       poly(fm, null, G.focus === 0 ? "rgba(255,255,255,0.95)" : S2.fr.s === "ok" ? "rgba(90,255,150,0.9)" : "rgba(255,214,90,0.9)", [3, 3]);
@@ -1223,7 +1248,7 @@ Lynx.games = Lynx.games || {};
       poly(R, "rgba(255,255,255,0.12)", "rgba(255,255,255,0.8)");
       poly([P([body.front + 0.03, 0]), P([body.front - 0.005, -body.half * 0.45]), P([body.front - 0.005, body.half * 0.45])], "rgba(255,255,255,0.85)", null);
       g.restore();
-      ar.text("map: robot's front up", x0 + size / 2, y0 + size - 6, { size: 10, align: "center", color: "rgba(255,255,255,0.6)" });
+      ar.text("map: robot's front up · light: camera view", x0 + size / 2, y0 + size - 6, { size: 10, align: "center", color: "rgba(255,255,255,0.6)" });
     }
     // laying out: each cube seen labelled with its tag number, on top of it
     function drawCubeNumbers() {
