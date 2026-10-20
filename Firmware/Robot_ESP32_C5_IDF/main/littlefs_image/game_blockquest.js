@@ -674,7 +674,7 @@ Lynx.games = Lynx.games || {};
     }
     function placeText(en) {
       const [x, y] = en.at;
-      const name = en.label || `cube ${en.tag}`;
+      const name = en.label ? `${en.label} (cube #${en.tag})` : `cube #${en.tag}`;
       const out = (v, pos, neg) => `${cmText(v)} out from ${towards(v, pos, neg)}`;
       if (en.free) return `${name}: anywhere in the ringed area, ${out(x, 24, 29)} of the frame cube`;
       const parts = [];
@@ -1195,6 +1195,10 @@ Lynx.games = Lynx.games || {};
         if (b.inferred) return;
         const q = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, bb]) => P(rel(...api.fromB(b, a * b.half, bb * b.half))));
         poly(q, cubes.frameCube(b.tag) ? "rgba(255,210,80,0.85)" : "rgba(80,230,255,0.75)", null);
+        if (!cubes.frameCube(b.tag)) {
+          const m = P(rel(b.cf, b.cr));
+          ar.text(String(b.tag), m[0], m[1] + 4, { size: 10, align: "center", color: "#062030", outline: false, weight: "bold" });
+        }
       });
       // the robot, its front up
       const R = [[body.front, -body.half], [body.front, body.half], [-body.rear, body.half], [-body.rear, -body.half]].map(P);
@@ -1202,6 +1206,16 @@ Lynx.games = Lynx.games || {};
       poly([P([body.front + 0.03, 0]), P([body.front - 0.005, -body.half * 0.45]), P([body.front - 0.005, body.half * 0.45])], "rgba(255,255,255,0.85)", null);
       g.restore();
       ar.text("map: robot's front up", x0 + size / 2, y0 + size - 6, { size: 10, align: "center", color: "rgba(255,255,255,0.6)" });
+    }
+    // laying out: each cube seen labelled with its tag number, on top of it
+    function drawCubeNumbers() {
+      api.realSolids.forEach((b) => {
+        if (b.inferred) return;
+        const m = w.project(b.cf, b.cr, b.h1 + 0.006);
+        if (!m) return;
+        const frame = cubes.frameCube(b.tag);
+        ar.queue(m.depth - 0.001, () => ar.text(frame ? "frame" : `#${b.tag}`, m.x, m.y, { size: 17, align: "center", color: frame ? "#ffd870" : "#ffffff", weight: "bold" }));
+      });
     }
     function drawGhosts() {
       const l = lv();
@@ -1411,6 +1425,7 @@ Lynx.games = Lynx.games || {};
         // laying out the cubes: only the guide -- the video is what matters
         if (G.phase === "setup") {
           drawGhosts();
+          drawCubeNumbers();
           return;
         }
         const l = lv();
@@ -1474,6 +1489,7 @@ Lynx.games = Lynx.games || {};
       // laying out: no knight, the wheel tracks on, the camera on the next cube's place
       hideHero: () => G.phase === "setup",
       forceTracks: () => G.phase === "setup",
+      forceTags: () => G.phase === "setup",
       camTarget() {
         if (G.phase !== "setup" || !G.items) return null;
         const it = G.items[G.focus] || G.items[0];

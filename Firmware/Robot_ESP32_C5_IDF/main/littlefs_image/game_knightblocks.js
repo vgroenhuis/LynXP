@@ -44,7 +44,7 @@
 // heroAlpha(), snapshot(), camTarget() ([f, r, z]: what the camera keeps in
 // view instead of the knight, or null), hideHero() (true: no knight, shadow
 // or jump hint), forceTracks() (true: the wheel tracks shown whatever the
-// switch says). See `api` below for what it gets.
+// switch says), forceTags() (the same for the tags found). See `api` below for what it gets.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -1349,7 +1349,7 @@ Lynx.games = Lynx.games || {};
         if (heroShown && showJumpHint) queueJumpHint();
         ar.flush();
       }
-      if (showTags) cubes.drawTags();
+      if (showTags || (X && X.forceTags && X.forceTags())) cubes.drawTags();
       cubes.drawStatus();
       hud();
     }
