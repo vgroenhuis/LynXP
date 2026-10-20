@@ -365,12 +365,19 @@ window.Lynx = window.Lynx || {};
     frameSkin: "dark",
     floor: "flags",
     floorTex: "darkflag",
-    area: [-2.6, -6, 11.6, 6],
+    area: [-2.6, -6.6, 12.4, 6],
     init(L) {
       L.wall({ at: [2.5, 0], len: 2.2, angle: 90, thick: 2.2, height: 1.2, style: "basalt" }); // the obsidian block
-      L.wall({ at: [9.6, -4.4], len: 3.0, angle: 90, height: 1.4 });
-      L.wall({ at: [10.9, -0.1], len: 2.6, angle: 0, height: 1.4 });
-      L.flag("gate", L.gate({ at: [9.6, -1.5], len: 2.8, angle: 90, height: 1.4 }));
+      // The treasure room: walled all round (the corners overlap: no gap to
+      // slip through), the gate the only way in -- and too tall to climb, even
+      // from the top of a cube pushed against it (the knight's hands reach
+      // ~1.3 blocks above its feet; 2.4 blocks is out of reach from a cube).
+      const VAULT_H = 2.4;
+      L.wall({ at: [9.6, -4.5], len: 3.2, angle: 90, height: VAULT_H }); // (west, beside the gate)
+      L.wall({ at: [10.6, -0.1], len: 2.7, angle: 0, height: VAULT_H }); // (north)
+      L.wall({ at: [11.9, -3.1], len: 6.1, angle: 90, height: VAULT_H }); // (east)
+      L.wall({ at: [10.75, -6.1], len: 2.9, angle: 0, height: VAULT_H }); // (south)
+      L.flag("gate", L.gate({ at: [9.6, -1.5], len: 2.8, angle: 90, height: VAULT_H }));
       L.pickup("crown", [11.0, -1.8], { size: 1.4, name: "treasure", onTake: (L2) => L2.win("The vault is open -- the treasure is yours") });
       L.pickup("coin", [1.2, 1.8]);
       L.pickup("coin", [1.2, -1.8]);
