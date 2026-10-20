@@ -691,6 +691,16 @@ Lynx.games = Lynx.games || {};
         ...S2.list.map(({ en, st }) => ({ at: en.at, z: (en.stack || 0) + 0.5, ok: st.s === "ok", tag: en.tag, optional: !!en.optional })),
       ];
     }
+    // another cube for the camera to look at (Tab / RB, LB, the touch button)
+    function focusStep(d) {
+      if (G.phase !== "setup" || !G.items) return;
+      const n = G.items.length;
+      G.focusManual = (((G.focus + d) % n) + n) % n;
+      G.focusManualOk = G.items[G.focusManual].ok;
+      G.focus = G.focusManual;
+      api.recenter();
+      sfx("click");
+    }
     function updateFocus(S2) {
       const items = setupItems(S2);
       // (a cube chosen by hand stays chosen till it falls into place -- or, chosen in place already, till another is chosen)
@@ -1091,20 +1101,27 @@ Lynx.games = Lynx.games || {};
       const l = lv();
       const S2 = G.setup || setupState();
       const v = ar.view;
-      const pw = Math.min(330, v.w * 0.4); // (compact: the video is what matters while laying out)
+      const pw = Lynx.smallScreen() ? Math.min(250, v.w * 0.42) : Math.min(330, v.w * 0.4); // (compact: the video is what matters while laying out)
       const size = v.w < 700 ? 10 : 12;
       const lines = [];
       lines.push({ t: `LEVEL ${G.idx + 1} -- ${l.name.toUpperCase()}: lay out the cubes`, c: "#ffd870", s: size + 1 });
       const fr = S2.fr;
       const focusMark = (i) => (G.focus === i ? "\u25b6 " : "");
-      lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} Frame cube (24-29) on the floor in view, face 24 pointing away from the robot. Everything below is measured from it.`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
+      if (!Lynx.smallScreen() || G.focus === 0) lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} Frame cube (24-29) on the floor in view, face 24 pointing away from the robot. Everything below is measured from it.`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
+      const small = Lynx.smallScreen();
       S2.list.forEach(({ en, st }, i) => {
+        // (a phone: only the one the camera is on -- the rest are on the map)
+        if (small && G.focus !== i + 1) return;
         const mark = st.s === "ok" ? "✔" : st.s === "missing" ? "✖" : "→";
         const col = st.s === "ok" ? "#80ff9c" : st.s === "missing" ? "#ffc060" : "#ffa060";
         let t = `${focusMark(i + 1)}${mark} ${placeText(en)}`;
         if (st.s === "off") t += st.stackOk === false ? " -- not stacked right" : ` -- move it ${moveText(st)}`;
         lines.push({ t: en.optional ? `${t} (optional)` : t, c: col, s: size, wrap: true });
       });
+      if (small) {
+        const placed = (G.items || []).filter((it) => it.ok).length;
+        lines.push({ t: `${placed} of ${(G.items || []).length} in place · \u21c4: another`, c: "#e8dcc0", s: size });
+      }
       const out = [];
       lines.forEach((ln) => {
         if (ln.wrap) wrapText(ln.t, pw - 24, ln.s).forEach((t, i) => out.push({ ...ln, t: i ? `   ${t}` : t }));
@@ -1121,7 +1138,7 @@ Lynx.games = Lynx.games || {};
         yy += lh(ln);
       });
       const msg = S2.allOk ? `All in place -- starting in ${Math.max(0, SETUP_OK_S - G.okT).toFixed(1)} s (Fire: now)` : "The camera looks where the \u25b6 cube goes · Tab / RB, LB: another · Fire: start anyway · R: look again";
-      ar.text(msg, v.cx, v.y + v.h - 40, { size: 14, align: "center", color: S2.allOk ? "#80ff9c" : "#ffe9a8" });
+      if (!Lynx.smallScreen() || S2.allOk) ar.text(msg, v.cx, v.y + v.h - 40, { size: Lynx.smallScreen() ? 12 : 14, align: "center", color: S2.allOk ? "#80ff9c" : "#ffe9a8" });
     }
     // A small map while laying out (top right): the robot in the middle, its
     // front up -- the way the right stick drives it -- the frame cube, the
@@ -1375,9 +1392,33 @@ Lynx.games = Lynx.games || {};
     ar.onDestroy(() => window.removeEventListener("keydown", onKey));
     Lynx.onAction("shield", () => {});
     const touch = Lynx.touchButtons();
-    if (touch.addHold) touch.addHold("🛡 Shield", () => Lynx.shieldAction("touch", true), () => Lynx.shieldAction("touch", false));
-    touch.add("💣 Bomb", () => G.phase === "play" && placeBomb());
-    touch.add("💥 Detonate", () => G.phase === "play" && A.detonate());
+    const shieldBtn = touch.addHold ? touch.addHold("🛡 Shield", () => Lynx.shieldAction("touch", true), () => Lynx.shieldAction("touch", false)) : null;
+    const nextBtn = touch.add("⇄ Next cube", () => focusStep(1));
+    // laying out: of the touch buttons only Next cube (the rest out of the video's way), afterwards as they were
+    function setupBar(on) {
+      if (!touch.el) return;
+      [...touch.el.children].forEach((b) => {
+        if (b === nextBtn) {
+          b.style.display = on ? "" : "none";
+          return;
+        }
+        if (on && !("setupHidden" in b.dataset)) {
+          b.dataset.setupHidden = b.style.display;
+          b.style.display = "none";
+        } else if (!on && "setupHidden" in b.dataset) {
+          b.style.display = b.dataset.setupHidden;
+          delete b.dataset.setupHidden;
+        }
+      });
+    }
+    const bombBtns = [touch.add("💣 Bomb", () => G.phase === "play" && placeBomb()), touch.add("💥 Detonate", () => G.phase === "play" && A.detonate())];
+    // only what can be used now: the shield while playing, bombs in a level that has them
+    function showGameBtns() {
+      const play = G.phase === "play";
+      if (shieldBtn) shieldBtn.style.display = play ? "" : "none";
+      const bombs = play && !!(lv() && (lv().bombs || G.bombs || A.bombs.length));
+      bombBtns.forEach((b) => (b.style.display = bombs ? "" : "none"));
+    }
 
     // -- the hooks ------------------------------------------------------------------------------------------------------------
     function skinOf(b) {
@@ -1443,7 +1484,8 @@ Lynx.games = Lynx.games || {};
       update(dt) {
         time += dt;
         // laying out the cubes: the game's touch buttons out of the video's way
-        if (touch.el) touch.el.style.display = G.phase === "setup" ? "none" : "";
+        setupBar(G.phase === "setup");
+        showGameBtns();
         G.time += dt;
         fx.parts.update(dt);
         G.shake = Math.max(0, G.shake - dt * 2.5);
@@ -1540,14 +1582,7 @@ Lynx.games = Lynx.games || {};
           return true;
         }
         if (G.phase === "setup" && G.items) {
-          // another cube for the camera to look at
-          const n = G.items.length;
-          const d = wpn === "prev" ? -1 : 1;
-          G.focusManual = (((G.focus + d) % n) + n) % n;
-          G.focusManualOk = G.items[G.focusManual].ok;
-          G.focus = G.focusManual;
-          api.recenter();
-          sfx("click");
+          focusStep(wpn === "prev" ? -1 : 1);
           return true;
         }
         if (G.phase !== "play" || !(lv() && (lv().bombs || G.bombs || A.bombs.length))) return false;

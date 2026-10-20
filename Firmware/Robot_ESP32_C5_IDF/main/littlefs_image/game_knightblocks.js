@@ -913,6 +913,7 @@ Lynx.games = Lynx.games || {};
       cam.why = "";
       if (state === "playing") stopRobot();
       applyControl();
+      showAutoBtns();
       say(on ? "Auto drive: the robot follows the knight" : "Manual drive: right stick / arrows drive the robot", "#c0f0ff");
     }
 
@@ -1158,10 +1159,15 @@ Lynx.games = Lynx.games || {};
     window.addEventListener("keydown", onKey);
     const touch = Lynx.touchButtons();
     touch.add("⤒ Jump", () => Lynx.jumpAction());
-    touch.add("\u{1F3A5} Behind", () => Lynx.cameraAction());
     touch.add("\u2316 Center", () => recenter());
-    touch.add("\u2795 Zoom in", () => zoom(1));
-    touch.add("\u2796 Zoom out", () => zoom(-1));
+    // (auto drive only: the robot circling round behind the knight, how far it keeps)
+    const autoBtns = [
+      touch.add("\u{1F3A5} Behind", () => Lynx.cameraAction()),
+      touch.add("\u2795 Zoom in", () => zoom(1)),
+      touch.add("\u2796 Zoom out", () => zoom(-1)),
+    ];
+    const showAutoBtns = () => autoBtns.forEach((b) => (b.style.display = autoDrive ? "" : "none"));
+    showAutoBtns();
     // Rescan in the Menu panel, the outline switches with the other overlays
     const panelItems = [];
     let driveToggle = null;
@@ -1317,7 +1323,8 @@ Lynx.games = Lynx.games || {};
         return;
       }
       if (state === "scan") ar.text(`Looking around... ${Math.min(100, Math.round((SCAN_RATE * stateTime * 100) / (2 * Math.PI)))}%  (Fire: start now)`, v.cx, v.y + v.h - 20, { size: 14, align: "center" });
-      if (state === "playing") {
+      // (a phone: no keyboard to explain, and no room for the line)
+      if (state === "playing" && !Lynx.smallScreen()) {
         ar.text(
           X && X.helpLine ? X.helpLine(autoDrive) : autoDrive
             ? "Run: stick / WASD · Jump: A / Space · Behind: Y / C · Center: V · Zoom: + / \u2212, RB / LB · Rescan: R · Manual drive: M"
@@ -1330,7 +1337,9 @@ Lynx.games = Lynx.games || {};
         ar.edgeArrow(k.x, k.y, hero.z + 0.035 * S, "#80d0ff");
       }
       if (X && X.hud) X.hud();
-      if (note && note.t < 3) ar.text(note.text, v.cx, v.y + 70, { size: 16, align: "center", color: note.color, alpha: clamp(3 - note.t, 0, 1) });
+      // (a phone: at the bottom, where the help line would be -- clear of the hearts and panels at the top)
+      const small = Lynx.smallScreen();
+      if (note && note.t < 3) ar.text(note.text, v.cx, small ? v.y + v.h - 22 : v.y + 70, { size: small ? 13 : 16, align: "center", color: note.color, alpha: clamp(3 - note.t, 0, 1) });
     }
 
     function draw() {

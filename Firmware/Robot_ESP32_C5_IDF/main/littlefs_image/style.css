@@ -1151,7 +1151,30 @@ button {
   z-index: 10;
   display: flex;
   flex-direction: column;
+  /* too many for the height: a second column to the left, not up over the panels */
+  flex-wrap: wrap-reverse;
+  align-content: flex-start;
+  max-height: calc(100% - 140px);
   gap: 6px;
+}
+
+/* a small screen (a phone): the buttons as their icons, smaller */
+@media (max-width: 760px), (max-height: 480px) {
+  .game-touch-ui {
+    right: 6px;
+    bottom: 52px;
+    gap: 4px;
+    max-height: calc(100% - 110px);
+  }
+  .game-touch-ui .cam-overlay-btn {
+    min-width: 40px;
+    padding: 5px 6px;
+    font-size: 1.05rem;
+    line-height: 1.1;
+  }
+  .game-touch-ui .touch-lbl {
+    display: none;
+  }
 }
 
 .game-touch-ui:empty {

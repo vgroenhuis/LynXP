@@ -919,6 +919,26 @@ window.Lynx = window.Lynx || {};
 
   // Touch-friendly on-screen buttons for games (bottom-right, above the
   // action button). Returns the container; games add buttons with add().
+  // A small screen (a phone): as style.css's media query for the touch buttons
+  Lynx.smallScreen = () => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px), (max-height: 480px)").matches;
+  // A button's label as its icon (the first word) and the rest -- on a small
+  // screen only the icon shows (style.css), so the buttons fit beside the video.
+  function touchLabel(b, label) {
+    const i = String(label).indexOf(" ");
+    b.textContent = "";
+    if (i <= 0) {
+      b.textContent = label;
+      return;
+    }
+    const ic = document.createElement("span");
+    ic.className = "touch-ic";
+    ic.textContent = label.slice(0, i);
+    const lbl = document.createElement("span");
+    lbl.className = "touch-lbl";
+    lbl.textContent = label.slice(i);
+    b.title = label.slice(i + 1);
+    b.append(ic, lbl);
+  }
   Lynx.touchButtons = () => {
     let bar = document.querySelector(".game-touch-ui");
     if (!bar) {
@@ -931,7 +951,7 @@ window.Lynx = window.Lynx || {};
       add(label, onClick) {
         const b = document.createElement("button");
         b.className = "cam-overlay-btn";
-        b.textContent = label;
+        touchLabel(b, label);
         // Fire on pointerdown: while another finger holds the drive stick,
         // phones often don't synthesize a click for a second touch. The click
         // that follows a pointerdown is swallowed; a click with no preceding
@@ -962,7 +982,7 @@ window.Lynx = window.Lynx || {};
       addHold(label, onDown, onUp) {
         const b = document.createElement("button");
         b.className = "cam-overlay-btn";
-        b.textContent = label;
+        touchLabel(b, label);
         let downNow = false;
         const up = (e) => {
           if (!downNow) return;
