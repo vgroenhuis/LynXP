@@ -352,14 +352,26 @@ window.Lynx = window.Lynx || {};
         cx.say(def.boss ? "The Warden's armor cracks!" : "The armor cracks open!", "#ffe080");
         stagger(e, def.boss ? 3.2 : 2.4);
       }
-      // a raised shield turns away what comes from the front
-      if (e.guard && front && !o.blast && e.state !== "stagger") {
+      // A raised shield turns away what comes from the front -- not while it
+      // swings (its shield arm comes down: the parry-then-strike rhythm works
+      // on it too), and the second blow on it knocks the shield aside.
+      const guardFront = fromAng === null ? false : Math.abs(wrap(fromAng - e.yaw)) < 0.9;
+      const swinging = e.state === "strike" || e.state === "recover";
+      if (e.guard && guardFront && !o.blast && e.state !== "stagger" && !swinging) {
         cx.sfx("knock");
         fx.parts.emit("spark", e.f + Math.cos(e.yaw) * 0.006, e.r + Math.sin(e.yaw) * 0.006, e.z + BODY * 0.6, 8, 0.003, { speed: 0.07 });
         e.flash = 0.06;
+        e.guardHits = (e.guardHits || 0) + 1;
+        if (e.guardHits >= 2 && !e.def.boss) {
+          e.guardHits = 0;
+          stagger(e, 1.3);
+          setTimeout(() => (e.guard = !!e.def.guard), 2500);
+          cx.say("The shield is knocked aside -- strike now!", "#ffe080");
+          return false;
+        }
         if (!e.guardNote) {
           e.guardNote = true;
-          cx.say("Its shield holds -- strike from the side, or bash it with your shield (Fire while raised)", "#ffd080");
+          cx.say("Its shield holds -- strike right after it swings, from the side, or hit the shield twice (a shield bash, Fire with yours raised, works too)", "#ffd080");
         }
         return false;
       }
@@ -624,7 +636,7 @@ window.Lynx = window.Lynx || {};
         cx.sfx("crate");
         setTimeout(() => {
           e.guard = !!e.def.guard;
-        }, 1700);
+        }, 2500);
       });
     };
 

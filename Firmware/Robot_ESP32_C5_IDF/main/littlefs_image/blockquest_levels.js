@@ -138,9 +138,9 @@ window.Lynx = window.Lynx || {};
     id: "court",
     name: "The Sentinels' Court",
     tags: "melee · shield · archers",
-    blurb: "Three waves of skeletons: parry their blows with your shield, flank the hoplites, hide behind the pillars from the archer on the tower -- then climb to the relic on the altar.",
-    story: "The court is guarded by the dead. Their blows are slow, and tell you when they come: raise your shield just as one lands to parry it, then strike. Hoplites hide behind their own shields; the archer on the tower shoots over the pillars you leave him.",
-    intro: "Three waves guard the altar -- shield up!",
+    blurb: "Three waves of skeletons: parry their blows with your shield, then strike; hit a hoplite's shield twice or strike right after it swings; hide behind the pillars from the archer on the tower -- then climb to the relic on the altar. The cubes stay where they are.",
+    story: "The court is guarded by the dead. Their blows are slow, and tell you when they come: raise your shield just as one lands to parry it, then strike. Hoplites hide behind their own shields -- but lower them to swing, and two blows knock a shield aside. The cubes are the court's pillars and tower: leave them where they are, they're your cover.",
+    intro: "Three waves -- shield up! The cubes stay put: they're your cover",
     cubes: [
       { tag: 0, at: [3.2, -2.3], label: "Pillar" },
       { tag: 1, at: [3.2, 2.3], label: "Pillar" },

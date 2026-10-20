@@ -743,9 +743,42 @@ Lynx.games = Lynx.games || {};
 
     // -- drawing: the floor --------------------------------------------------------------------------------------------
     const unitRect = (r) => ({ f0: r[0] * G.U, f1: r[2] * G.U, r0: r[1] * G.U, r1: r[3] * G.U });
+    // How opaque the painted floors are (setting floorOpacity; F in the game
+    // steps through 100 / 50 / 25 / 0 %, remembered): see-through, the real
+    // floor -- and marks put on it -- help to find one's way round the level.
+    const FLOOR_KEY = "blockquestFloorOpacity";
+    let floorOpacity = (() => {
+      try {
+        const v = localStorage.getItem(FLOOR_KEY);
+        if (v !== null && Number.isFinite(+v)) return clamp(+v, 0, 1);
+      } catch (e) {
+        // (not remembered)
+      }
+      return clamp((Number.isFinite(+cfg.floorOpacity) && cfg.floorOpacity !== "" ? +cfg.floorOpacity : 50) / 100, 0, 1);
+    })();
+    function stepFloorOpacity() {
+      const steps = [1, 0.5, 0.25, 0];
+      const i = steps.findIndex((x) => Math.abs(x - floorOpacity) < 0.01);
+      floorOpacity = steps[(i + 1) % steps.length];
+      try {
+        localStorage.setItem(FLOOR_KEY, String(floorOpacity));
+      } catch (e) {
+        // (not remembered)
+      }
+      say(`Floor: ${Math.round(floorOpacity * 100)}% opaque`, "#c0f0ff");
+    }
     function drawFloor() {
       const l = lv();
       if (!l || G.phase === "menu" || G.phase === "setup") return; // (laying out: the video itself)
+      if (floorOpacity <= 0.001) return;
+      const g = ar.ctx;
+      g.save();
+      g.globalAlpha *= floorOpacity; // (fx.patch draws at its own alpha times this)
+      drawFloorPainted(l);
+      g.restore();
+      if (l.drawFloor) l.drawFloor(L);
+    }
+    function drawFloorPainted(l) {
       const area = l.area ? unitRect(l.area) : null;
       if (l.floor === "lava" && area) {
         fx.patch("lava", area, 0, { world: true, time, tile: 0.2, flow: [0.004, 0.009], quality: cfg.quality === "low" ? 2 : 1 });
@@ -759,7 +792,6 @@ Lynx.games = Lynx.games || {};
         fx.patch("water", area, 0, { world: true, time, tile: 0.22, flow: [0.006, 0.01] });
         rim(area, "rgba(30,50,60,0.9)", 3);
       }
-      if (l.drawFloor) l.drawFloor(L);
     }
     function rim(a, color, width) {
       const c = [[a.f0, a.r0], [a.f1, a.r0], [a.f1, a.r1], [a.f0, a.r1], [a.f0, a.r0]].map(([x, y]) => {
@@ -1454,6 +1486,7 @@ Lynx.games = Lynx.games || {};
       if (e.code === "KeyB" && G.phase === "play") placeBomb();
       else if (e.code === "KeyE" && G.phase === "play") A.detonate();
       else if (e.code === "KeyH" && (G.phase === "setup" || G.phase === "play")) G.hint = !G.hint;
+      else if (e.code === "KeyF" && G.phase !== "menu") stepFloorOpacity();
       else if (e.code === "KeyL" && api.state === "playing") {
         G.phase = "menu";
         api.setFrameFromCube(false);
@@ -1635,7 +1668,7 @@ Lynx.games = Lynx.games || {};
       helpLine(auto) {
         if (G.phase === "setup") return "Robot: right stick / arrows (the map: its front up) · Tab / RB, LB: look at another cube · L: menu";
         const bombs = lv() && (lv().bombs || G.bombs) ? " · Bomb B · Detonate E" : "";
-        return `Knight: stick / WASD · Jump: Space · Sword: Fire · Shield: hold X${bombs} · L: menu`;
+        return `Knight: stick / WASD · Jump: Space · Sword: Fire · Shield: hold X${bombs} · F: floor see-through · L: menu`;
       },
       onFire(state) {
         if (G.phase === "menu") {
