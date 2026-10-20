@@ -369,13 +369,39 @@ window.Lynx = window.Lynx || {};
 
     // The same through the calibrated lens (its barrel distortion, Lynx.lens):
     // for overlays that must sit on what the video shows -- cube outlines, the
-    // calibration check. Null behind the lens or over LENS_MAX_OFF_AXIS off its
-    // axis (where the distortion model folds back toward the middle).
-    const LENS_MAX_OFF_AXIS = (65 * Math.PI) / 180;
+    // calibration check. Null behind the lens or past the lens limit off its
+    // axis: where this calibration's distortion model would fold back toward
+    // the middle (found by sweeping outward; at most LENS_MAX_DEG). A fixed
+    // 65 deg cut away floor textures drawn over the bars beside the video.
+    const LENS_MAX_DEG = 85;
+    const lensLimit = { rad: (65 * Math.PI) / 180, key: "", at: -1e9 };
+    function lensMaxOffAxis() {
+      // (the calibration rarely changes: looked at once a second)
+      const now = performance.now();
+      if (now - lensLimit.at < 1000) return lensLimit.rad;
+      lensLimit.at = now;
+      const v = ar.view;
+      const P = Lynx.lens.params(v.imgW, v.imgH);
+      const key = JSON.stringify(P);
+      if (key === lensLimit.key) return lensLimit.rad;
+      lensLimit.key = key;
+      let last = 0;
+      let deg = 1;
+      for (; deg <= LENS_MAX_DEG; deg++) {
+        const t = Math.tan((deg * Math.PI) / 180);
+        // (the worst way: along the image's diagonal, where the distortion is largest)
+        const q = Lynx.lens.project(t * Math.SQRT1_2, t * Math.SQRT1_2, 1, v.imgW, v.imgH);
+        const r = q ? Math.hypot(q.u - P.cx, q.v - P.cy) : -1;
+        if (!(r > last)) break;
+        last = r;
+      }
+      lensLimit.rad = (Math.max(30, deg - 2) * Math.PI) / 180;
+      return lensLimit.rad;
+    }
     ar.projectLens = (wx, wy, h) => {
       const v = ar.view;
       const [xc, yc, zc] = camPoint(wx, wy, h);
-      if (zc < NEAR_M || Math.atan2(Math.hypot(xc, yc), zc) > LENS_MAX_OFF_AXIS) return null;
+      if (zc < NEAR_M || Math.atan2(Math.hypot(xc, yc), zc) > lensMaxOffAxis()) return null;
       const p = Lynx.lens.project(xc, yc, zc, v.imgW, v.imgH);
       if (!p) return null;
       return { x: v.offX + p.u * v.scale, y: v.offY + p.v * v.scale, depth: zc, ppm: (p.scale * v.scale) / zc };
