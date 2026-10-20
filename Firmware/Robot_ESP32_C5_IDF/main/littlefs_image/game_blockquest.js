@@ -1056,7 +1056,11 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- drawing: the placement guide, the HUD, the menu ----------------------------------------------------------
-    function ghost(en, st, t) {
+    // focused: the cube being placed now (the camera's): its target flashes
+    // yellow / white, the real cube gets a flashing box, and a thick arrow
+    // with a head runs from it to the target (or, not seen yet, a pulsing
+    // ring and "put cube #N here")
+    function ghost(en, st, t, focused) {
       const half = G.U / 2;
       const ex = en.at[0] * G.U;
       const ey = en.at[1] * G.U;
@@ -1065,8 +1069,9 @@ Lynx.games = Lynx.games || {};
       const ok = st.s === "ok";
       const miss = st.s === "missing";
       const pulse = 0.5 + 0.5 * Math.sin(t * 4);
-      const col = ok ? "90,255,150" : miss ? "255,214,90" : "255,150,60";
-      const alpha = ok ? 0.25 : 0.22 + 0.2 * pulse;
+      const blink = focused && !ok && Math.sin(t * 19) > 0; // (3 times a second)
+      const col = ok ? "90,255,150" : blink ? "255,255,255" : miss || focused ? "255,214,90" : "255,150,60";
+      const alpha = ok ? 0.25 : focused ? 0.45 : 0.22 + 0.2 * pulse;
       const rad = en.free ? en.free * G.U : null;
       if (rad) {
         const pts = [];
@@ -1094,10 +1099,48 @@ Lynx.games = Lynx.games || {};
         if (!en.free) ar.text(`#${en.tag}`, lab.x, lab.y + 12, { size: 11, align: "center", color: "rgba(255,255,255,0.85)" });
       }
       // an arrow from where it is to where it goes
-      if (st.s === "off" && st.c && st.dist < 0.45) {
+      if (st.s === "off" && st.c && (focused || st.dist < 0.45)) {
         const a = w.toLocal(st.c.mx, st.c.my);
         const b = w.toLocal(ex, ey);
-        w.line3([[a.f, a.r, st.c.top + 0.002], [b.f, b.r, h1 + 0.002]], "rgba(255,170,80,0.9)", 2, 0.02);
+        if (!focused) w.line3([[a.f, a.r, st.c.top + 0.002], [b.f, b.r, h1 + 0.002]], "rgba(255,170,80,0.9)", 2, 0.02);
+        else {
+          const g = ar.ctx;
+          const acol = blink ? "rgba(255,255,255,0.95)" : "rgba(255,200,40,0.95)";
+          // along the floor, from the cube's edge to the target's, a head at the target
+          const df = b.f - a.f;
+          const dr = b.r - a.r;
+          const d = Math.hypot(df, dr) || 1;
+          const uf = df / d;
+          const ur = dr / d;
+          const s0 = Math.min(half, d * 0.3);
+          const s1 = Math.max(s0, d - half);
+          const P = (k) => [a.f + uf * k, a.r + ur * k, 0.002];
+          g.save();
+          g.shadowColor = "rgba(0,0,0,0.6)";
+          g.shadowBlur = 4;
+          w.line3([P(s0), P(s1 - half * 0.5)], acol, 5, 0.01);
+          const head = [P(s1), [P(s1 - half * 0.9)[0] - ur * half * 0.55, P(s1 - half * 0.9)[1] + uf * half * 0.55, 0.002], [P(s1 - half * 0.9)[0] + ur * half * 0.55, P(s1 - half * 0.9)[1] - uf * half * 0.55, 0.002]];
+          const hp = w.polyScreen(head, 1);
+          if (hp) w.fillPoly(hp, acol, "rgba(0,0,0,0.5)", 1);
+          g.restore();
+          // how far, beside the arrow
+          const mid = w.project(...P(d / 2));
+          if (mid) ar.text(`${Math.round(st.dist * 100)} cm`, mid.x, mid.y - 8, { size: 13, align: "center", color: "#ffe080", weight: "bold" });
+          // the cube to pick up: a flashing box round it
+          const c = st.c;
+          const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => api.fromB(c.b, u * (c.b.half + 0.002), v * (c.b.half + 0.002)));
+          const box = blink ? "rgba(255,255,255,0.95)" : "rgba(255,200,40,0.95)";
+          const top = cs.map(([f, r]) => [f, r, c.top + 0.002]);
+          w.line3([...top, top[0]], box, 3, 0.01);
+          cs.forEach(([f, r]) => w.line3([[f, r, c.b.h0], [f, r, c.top + 0.002]], box, 2, 0.01));
+        }
+      }
+      // not seen yet: a pulsing ring where it goes, and what to do
+      if (focused && miss) {
+        const l = w.toLocal(ex, ey);
+        fx.ring(l.f, l.r, h0 + 0.0012, half * (1.25 + 0.35 * pulse), blink ? "rgba(255,255,255,0.9)" : "rgba(255,214,90,0.9)", 3);
+        const m = w.project(l.f, l.r, h1 + 0.012);
+        if (m) ar.text(`put cube #${en.tag} here`, m.x, m.y - 14, { size: 13, align: "center", color: "#ffe080", weight: "bold" });
       }
     }
     function wrapText(text, width, size) {
@@ -1296,13 +1339,14 @@ Lynx.games = Lynx.games || {};
       const l = lv();
       if (!l || G.phase !== "setup" || !G.setup) return;
       // the frame cube's own mark
-      G.setup.list.forEach(({ en, st }) => {
+      G.setup.list.forEach(({ en, st }, i) => {
         const m = w.project(...(() => {
           const p = w.toLocal(en.at[0] * G.U, en.at[1] * G.U);
           return [p.f, p.r, 0.01];
         })());
         if (!m) return;
-        ar.queue(m.depth + 0.2, () => ghost(en, st, time));
+        const focused = G.focus === i + 1;
+        ar.queue(focused ? m.depth - 0.5 : m.depth + 0.2, () => ghost(en, st, time, focused)); // (the focused one over the rest)
       });
     }
     function heart(g, x, y, R, fill) {

@@ -268,9 +268,11 @@ window.Lynx = window.Lynx || {};
       blurb:
         "Knight on Blocks with real levels, built around the tagged cubes (tags 0-5, 40 mm) and the frame cube. Each level starts with a placement guide: " +
         "a checklist and ghost footprints on the floor tell where every cube goes (the frame cube is the origin), and the level starts when they are there. " +
-        "Seven levels: a first climb; the floor is lava (hop from block to block, move a block to bridge a gap); a courtyard of skeletons, hoplites and archers " +
+        "Twelve levels: a first climb; the floor is lava (hop from block to block, move a block to bridge a gap); a courtyard of skeletons, hoplites and archers " +
         "(sword, shield, parry, bash); a cellar where bombs are set by hand and set off from a distance (and a powder keg is a cube you carry); a vault where the cubes " +
-        "are mirrors for a sunbeam (turn them 45 degrees); a two-player ferry over a lava river (a second human slides one cube by hand); and a bone-and-iron boss. " +
+        "are mirrors for a sunbeam (turn them 45 degrees); a two-player ferry over a lava river (a second human slides one cube by hand); a bone-and-iron boss; " +
+        "pressure plates weighed down with cubes lifted by hand; stepping-stones in lava that heat under the knight; a memory game of lit pillars; a crypt " +
+        "against the clock; and a staircase of one, two and three cubes under falling fire. " +
         "Same drive and camera as Knight on Blocks. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
         { key: "difficulty", label: "Difficulty", type: "select", def: "normal",

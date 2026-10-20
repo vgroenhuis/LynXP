@@ -799,5 +799,505 @@ window.Lynx = window.Lynx || {};
     },
   });
 
+
+  // ================================================================================================
+  // 8. The Weighing Hall -- pressure plates: the real cubes are the weights
+  // ================================================================================================
+  // Three bronze plates hold the treasury gate down. A plate is pressed by a real cube standing on
+  // it, or by the knight on the floor on it. All three pressed: the gate rises; one let go: it drops
+  // PLATE_HOLD_S later.
+  const PLATES = [[3.0, -2.4], [3.0, 2.4], [5.0, 0]];
+  const PLATE_R = 0.6;
+  const PLATE_HOLD_S = 5;
+  function plateDown(L, p) {
+    for (const tag of [0, 1, 2, 3]) {
+      const c = L.cube(tag);
+      if (c && c.stack === 0 && dist([c.x, c.y], p) < PLATE_R) return "cube";
+    }
+    const h = L.api.hero;
+    if (h.onGround && h.standOn === null && h.z < 0.004 && dist(L.heroU(), p) < PLATE_R) return "knight";
+    return null;
+  }
+  LEVELS.push({
+    id: "plates",
+    name: "The Weighing Hall",
+    tags: "puzzle · move the cubes · plates",
+    blurb: "Three pressure plates hold the treasury gate shut. The knight weighs down one; for the other two, lift real cubes onto them by hand. Let a plate go and the gate drops five seconds later -- and something waits inside.",
+    story: "The treasury of the old kings opens only while all three bronze plates are pressed. The knight is heavy enough for one. The hall's weights -- cubes 0 and 1 -- will do for the others: lift them onto the plates by hand. Release a plate and the gate falls five heartbeats later.",
+    intro: "Weigh down all three plates: two with cubes (by hand), one with the knight",
+    cubes: [
+      { tag: 0, at: [1.0, -3.6], free: 1.2, label: "Weight" },
+      { tag: 1, at: [1.0, 3.6], free: 1.2, label: "Weight" },
+      { tag: 2, at: [5.4, -2.6], label: "Pillar" },
+      { tag: 3, at: [5.4, 2.6], label: "Pillar" },
+    ],
+    spawn: { at: [1.2, 0], yaw: 0 },
+    skins: { 0: "crate", 1: "crate", 2: "stone", 3: "stone" },
+    frameSkin: "ivory",
+    floor: "flags",
+    floorTex: "darkflag",
+    area: [-1.8, -5.5, 10.0, 5.5],
+    init(L) {
+      // the treasury: walled all round, too tall to climb; the gate the only way in
+      const VH = 2.4;
+      L.wall({ at: [6.6, -2.35], len: 2.9, angle: 90, height: VH });
+      L.wall({ at: [6.6, 2.35], len: 2.9, angle: 90, height: VH });
+      L.wall({ at: [7.85, -3.75], len: 2.8, angle: 0, height: VH });
+      L.wall({ at: [7.85, 3.75], len: 2.8, angle: 0, height: VH });
+      L.wall({ at: [9.15, 0], len: 7.8, angle: 90, height: VH });
+      L.flag("gate", L.gate({ at: [6.6, 0], len: 1.8, angle: 90, height: VH }));
+      L.flag("guard", L.enemy("skeleton", [8.2, 2.2], { dormant: true, yawDeg: 180 }));
+      L.flag("guard2", L.enemy("hoplite", [8.2, -2.2], { dormant: true, yawDeg: 180 }));
+      L.pickup("crown", [8.3, 0], { size: 1.4, name: "treasure", onTake: (L2) => L2.win("The treasury of the old kings is yours") });
+      L.pickup("heart", [2.0, 0.0]);
+      L.pickup("coin", [3.0, -2.4]);
+      L.pickup("coin", [3.0, 2.4]);
+      L.brazier([0.6, 2.2]);
+      L.brazier([0.6, -2.2]);
+      L.flag("hold", 0);
+      L.flag("down", [null, null, null]);
+    },
+    update(L, dt) {
+      const down = PLATES.map((p) => plateDown(L, p));
+      const before = L.flag("down");
+      down.forEach((d, i) => {
+        if (d && !before[i]) L.sfx("click");
+      });
+      L.flag("down", down);
+      const gate = L.flag("gate");
+      if (down.every(Boolean)) {
+        L.flag("hold", PLATE_HOLD_S);
+        if (!gate.open) {
+          gate.open = true;
+          L.sfx("power");
+          L.say("The treasury gate rises!", "#ffe080");
+          L.A.wake(L.flag("guard"));
+          L.A.wake(L.flag("guard2"));
+        }
+      } else if (gate.open) {
+        L.flag("hold", L.flag("hold") - dt);
+        if (L.flag("hold") <= 0) {
+          gate.open = false;
+          L.sfx("knock");
+          L.shake(0.4);
+          L.say("The gate slams down!", "#ff9070");
+        }
+      }
+    },
+    draw(L) {
+      const down = L.flag("down") || [];
+      PLATES.forEach((p, i) => {
+        const l = L.f(p[0], p[1]);
+        const on = !!down[i];
+        L.fx.disc(l.f, l.r, 0.0009, PLATE_R * L.U * 0.85, on ? "rgba(90,240,200,0.42)" : "rgba(170,120,50,0.5)", on ? "rgba(160,255,230,0.95)" : "rgba(90,60,20,0.9)", 2);
+      });
+      const gate = L.flag("gate");
+      if (gate && gate.open && !down.every(Boolean)) {
+        const l = L.f(6.2, 0);
+        const m = L.w.project(l.f, l.r, L.U * 2.6);
+        if (m) L.api.ar.text(`${Math.max(0, L.flag("hold")).toFixed(1)} s`, m.x, m.y, { size: 16, align: "center", color: "#ff9070", weight: "bold" });
+      }
+    },
+    objective(L) {
+      const down = L.flag("down") || [];
+      const n = down.filter(Boolean).length;
+      const gate = L.flag("gate");
+      if (gate.open) return { text: down.every(Boolean) ? "The gate is up -- into the treasury! (It drops 5 s after a plate is let go)" : "Quick, before the gate drops!", at: [8.3, 0], h: 0.03 };
+      if (n === 0) return { text: "Lift cubes 0 and 1 by hand onto two of the bronze plates, then walk the knight onto the third", at: PLATES[2], h: 0.01 };
+      return { text: `${n} of 3 plates pressed -- a cube by hand on each, the knight on the last`, at: PLATES[down.findIndex((d) => !d)], h: 0.01 };
+    },
+  });
+
+  // ================================================================================================
+  // 9. The Ashen Isles -- lava; the stones heat under the knight; embers to fetch, one by one
+  // ================================================================================================
+  const ISLES = { 0: [1.55, 0.55], 1: [3.2, 0.9], 2: [4.8, 0.4], 3: [4.4, -1.2], 4: [2.8, -1.5], 5: [1.3, -1.0] };
+  const EMBER_ORDER = [2, 4, 0, 3, 5, 1, "frame", 2, 3];
+  const HEAT_S = 2.4; // standing this long on one stone burns
+  const isleKey = (L, b) => (L.api.cubes.frameCube(b.tag) ? "frame" : b.tag);
+  function nextEmber(L) {
+    const n = L.flag("n");
+    if (n >= EMBER_ORDER.length) {
+      L.pickup("crown", null, { tag: "frame", lift: 0.008, size: 1.4, name: "crown", onTake: (L2) => L2.win("The Ashen Crown is yours -- the isles cool at last") });
+      L.say("All the embers! The Ashen Crown rises on the frame cube", "#ffe080");
+      L.sfx("power");
+      return;
+    }
+    const tag = EMBER_ORDER[n];
+    L.flag("emberOn", tag);
+    L.pickup("gem", null, {
+      tag, lift: 0.006, color: "255,140,40", size: 1.1, name: "ember",
+      onTake: (L2) => {
+        L2.flag("n", n + 1);
+        L2.say(`Ember ${n + 1} of ${EMBER_ORDER.length}`, "#ffb060");
+        nextEmber(L2);
+      },
+    });
+  }
+  LEVELS.push({
+    id: "ashen",
+    name: "The Ashen Isles",
+    tags: "lava · speed · don't stand still",
+    blurb: "Six stepping-stones in a lake of lava, and embers that appear one stone at a time. Fetch nine -- but a stone heats under the knight's feet: linger and it burns. Geysers guard the gaps.",
+    story: "The isles are the last cool stones in a lake of fire, and they are not cool for long: stand on one and it glows, then burns. The embers of the old forge appear one by one -- fetch each, keep moving, time your hops between the geysers.",
+    intro: "Fetch the embers -- and never stand still: the stones heat up!",
+    cubes: Object.keys(ISLES).map((t) => ({ tag: +t, at: ISLES[t], label: "Isle" })),
+    spawn: { at: [0, 0], yaw: 0 },
+    skins: { 0: "basalt", 1: "basalt", 2: "basalt", 3: "basalt", 4: "basalt", 5: "basalt" },
+    frameSkin: "basalt",
+    floor: "lava",
+    area: [-1.8, -4.2, 7.2, 3.8],
+    init(L) {
+      L.lava([-1.8, -4.2, 7.2, 3.8]);
+      L.geyser([2.4, 0.75], { phase: 0.0 });
+      L.geyser([4.65, -0.4], { phase: 1.6 });
+      L.geyser([2.05, -1.3], { phase: 3.0 });
+      L.geyser([0.7, -0.5], { phase: 2.2 });
+      L.brazier([-1.0, 2.6]);
+      L.brazier([6.4, -3.2]);
+      L.pickup("heart", null, { tag: 4, lift: 0.006 });
+      L.flag("heat", {});
+      L.flag("n", 0);
+      nextEmber(L);
+    },
+    update(L, dt) {
+      const on = L.heroOn();
+      const heat = L.flag("heat");
+      Object.keys(heat).forEach((k) => {
+        if (String(k) !== String(on)) heat[k] = Math.max(0, heat[k] - dt * 0.6);
+      });
+      if (on !== null && L.api.hero.mode === "move") {
+        heat[on] = (heat[on] || 0) + dt;
+        if (heat[on] > HEAT_S) {
+          heat[on] = HEAT_S * 0.5;
+          L.hurt(1, L.api.hero.f, L.api.hero.r, { unblockable: true, say: "The stone is white-hot -- keep moving!" });
+        }
+      }
+      if (Math.random() < dt * 14) {
+        const h = L.heroU();
+        const p = L.f(h[0] + L.rnd(-3, 3), h[1] + L.rnd(-3, 3));
+        L.fx.parts.emit("ember", p.f, p.r, 0.002, 1, 0.01, { up: 0.05 });
+      }
+    },
+    blockOver(L, b) {
+      const k = (L.flag("heat") || {})[isleKey(L, b)] || 0;
+      const f = Math.min(1, k / HEAT_S);
+      if (f > 0.05) L.fx.glowSides(b, [255, Math.round(200 - 140 * f), 40], 0.35 + 0.65 * f, 0.35 + 0.65 * f, { flicker: L.clock() });
+    },
+    objective(L) {
+      const n = L.flag("n");
+      if (n >= EMBER_ORDER.length) return { text: "Take the Ashen Crown from the frame cube", at: [0, 0], h: 0.06 };
+      const tag = L.flag("emberOn");
+      const c = tag === "frame" ? L.frame() : L.cube(tag);
+      return { text: `Ember ${n + 1}/${EMBER_ORDER.length} on ${tag === "frame" ? "the frame cube" : `stone ${tag}`} -- keep moving, the stones heat up`, at: c ? [c.x, c.y] : null, h: 0.07 };
+    },
+  });
+
+  // ================================================================================================
+  // 10. The Echo Chamber -- remember the order the pillars light, climb them in it
+  // ================================================================================================
+  const ECHO = { 0: [3.4, -1.8], 1: [5.2, 0], 2: [3.4, 1.8], 3: [1.6, 0] };
+  const ECHO_ROUNDS = [3, 4, 5];
+  function echoSeq(n) {
+    const tags = [0, 1, 2, 3];
+    const out = [];
+    while (out.length < n) {
+      const t = tags[Math.floor(Math.random() * 4)];
+      if (t !== out[out.length - 1]) out.push(t);
+    }
+    return out;
+  }
+  function echoShow(L, again) {
+    const st = L.flag("st");
+    if (!again) st.seq = echoSeq(ECHO_ROUNDS[st.round]);
+    st.phase = "show";
+    st.t = -0.6;
+    st.pos = 0;
+    st.lit = null;
+    L.say(`Round ${st.round + 1}/${ECHO_ROUNDS.length}: watch the pillars`, "#a0e0ff");
+  }
+  LEVELS.push({
+    id: "echo",
+    name: "The Echo Chamber",
+    tags: "memory · climbing · skeletons",
+    blurb: "Four pillars light up in a sequence -- climb them in the same order. Three rounds, each one longer. A wrong pillar wakes the dead, so fight while you remember.",
+    story: "The chamber remembers. Its four pillars sing a tune of light; sing it back by standing on them in the same order and the vault answers. Get it wrong and the echo calls the chamber's dead. Three tunes, each longer than the last.",
+    intro: "Watch the pillars light up -- then climb them in that order",
+    cubes: Object.keys(ECHO).map((t) => ({ tag: +t, at: ECHO[t], label: "Pillar" })),
+    spawn: { at: [0.9, 1.2], yaw: 0 },
+    skins: { 0: "moon", 1: "moon", 2: "moon", 3: "moon" },
+    frameSkin: "ivory",
+    floor: "flags",
+    floorTex: "crypt",
+    area: [-1.8, -4.6, 7.4, 4.6],
+    init(L) {
+      L.brazier([0.4, 3.4]);
+      L.brazier([0.4, -3.4]);
+      L.brazier([6.6, 3.4]);
+      L.brazier([6.6, -3.4]);
+      L.pickup("heart", [3.4, 0]);
+      L.flag("st", { round: 0, phase: "pause", t: 1.5, seq: [], pos: 0, lit: null, last: null, flash: null, wrong: 0 });
+      echoShow(L);
+    },
+    update(L, dt) {
+      const st = L.flag("st");
+      st.t += dt;
+      if (st.flash) {
+        st.flash.t -= dt;
+        if (st.flash.t <= 0) st.flash = null;
+      }
+      if (st.phase === "show") {
+        const k = Math.floor(st.t / 0.9);
+        const lit = st.t >= 0 && k < st.seq.length && st.t % 0.9 < 0.6 ? st.seq[k] : null;
+        if (lit !== null && lit !== st.lit) L.sfx("coin");
+        st.lit = lit;
+        if (k >= st.seq.length) {
+          st.phase = "input";
+          st.lit = null;
+          st.last = L.heroOn();
+          L.say("Your turn: climb the pillars in that order", "#a0e0ff");
+        }
+      } else if (st.phase === "input") {
+        const on = L.heroOn();
+        if (on !== st.last && typeof on === "number" && on in ECHO) {
+          if (on === st.seq[st.pos]) {
+            st.pos++;
+            st.flash = { tag: on, t: 0.5, ok: true };
+            L.sfx("zap");
+            if (st.pos >= st.seq.length) {
+              st.round++;
+              L.score(200);
+              if (st.round >= ECHO_ROUNDS.length) {
+                st.phase = "done";
+                L.say("The chamber answers -- the crown rises on the frame cube!", "#ffe080");
+                L.sfx("power");
+                L.pickup("crown", null, { tag: "frame", lift: 0.008, size: 1.4, name: "crown", onTake: (L2) => L2.win("The echo is silent; the crown is yours") });
+              } else {
+                L.say("Right! The next tune is longer", "#80ff9c");
+                st.phase = "pause";
+                st.t = 0;
+                st.next = "new";
+              }
+            }
+          } else {
+            st.flash = { tag: on, t: 0.8, ok: false };
+            st.wrong++;
+            L.sfx("growl");
+            L.shake(0.4);
+            L.say("Wrong pillar -- the echo calls the dead!", "#ff9070");
+            if (L.A.alive().length < 4) {
+              const side = Math.random() < 0.5 ? -1 : 1;
+              L.enemy("skeleton", [6.6, side * 3.0], { yawDeg: 180 });
+            }
+            st.phase = "pause";
+            st.t = 0;
+            st.next = "again";
+          }
+        }
+        st.last = on;
+      } else if (st.phase === "pause") {
+        if (st.t > 2.2) echoShow(L, st.next === "again");
+      }
+    },
+    blockOver(L, b) {
+      const st = L.flag("st");
+      if (!st) return;
+      if (st.lit === b.tag) L.fx.glowSides(b, [140, 210, 255], 1, 1);
+      if (st.flash && st.flash.tag === b.tag) L.fx.glowSides(b, st.flash.ok ? [90, 255, 150] : [255, 70, 50], 1, 1);
+    },
+    draw(L) {
+      const st = L.flag("st");
+      if (!st || st.phase !== "show" || st.lit === null) return;
+      const c = L.cube(st.lit);
+      if (!c) return;
+      const m = L.w.project(c.f, c.r, c.top + 0.012);
+      if (m) L.api.ar.text(String(Math.floor(st.t / 0.9) + 1), m.x, m.y, { size: 20, align: "center", color: "#c8ecff", weight: "bold" });
+    },
+    objective(L) {
+      const st = L.flag("st");
+      if (st.phase === "done") return { text: "Take the crown from the frame cube", at: [0, 0], h: 0.06 };
+      if (st.phase === "show") return { text: `Round ${st.round + 1}/${ECHO_ROUNDS.length}: watch the order the pillars light up` };
+      if (st.phase === "input") return { text: `Round ${st.round + 1}/${ECHO_ROUNDS.length}: climb the pillars in that order -- ${st.pos} of ${st.seq.length} done` };
+      return { text: "..." };
+    },
+  });
+
+  // ================================================================================================
+  // 11. The Clockwork Crypt -- three keys before the crypt seals
+  // ================================================================================================
+  const CRYPT_S = 120;
+  LEVELS.push({
+    id: "crypt",
+    name: "The Clockwork Crypt",
+    tags: "time attack · keys · hoplites · archer",
+    blurb: "The crypt seals in two minutes. Three keys lie on top of cubes -- one on a tower you must climb -- guarded by hoplites, a skeleton and an archer. Hourglasses buy time. Three keys open the treasure gate.",
+    story: "The clockwork of the crypt has started to turn: in two minutes the doors seal for another century. The three keys of the treasure gate lie where the old priests left them, on top of the stones -- and the guards are still at their posts. Hourglasses hold a little stolen time.",
+    intro: "Two minutes! Three keys, then the gate",
+    cubes: [
+      { tag: 0, at: [3.0, -2.6], label: "Key stone" },
+      { tag: 1, at: [3.0, 2.6], label: "Key stone" },
+      { tag: 3, at: [5.8, -0.7], stack: 0, label: "Tower" },
+      { tag: 4, at: [5.8, -0.7], stack: 1, onTag: 3, label: "Tower top" },
+      { tag: 5, at: [5.8, 0.55], label: "Step" },
+      { tag: 2, at: [7.0, 3.2], label: "Archer's perch" },
+    ],
+    spawn: { at: [1.2, 0], yaw: 0 },
+    skins: { 0: "dark", 1: "dark", 2: "basalt", 3: "dark", 4: "dark", 5: "stone" },
+    frameSkin: "ivory",
+    floor: "flags",
+    floorTex: "crypt",
+    area: [-1.8, -5.2, 11.6, 5.2],
+    init(L) {
+      const VH = 2.4;
+      L.wall({ at: [8.6, -1.65], len: 1.1, angle: 90, height: VH });
+      L.wall({ at: [8.6, 1.65], len: 1.1, angle: 90, height: VH });
+      L.wall({ at: [9.6, -2.2], len: 2.3, angle: 0, height: VH });
+      L.wall({ at: [9.6, 2.2], len: 2.3, angle: 0, height: VH });
+      L.wall({ at: [10.7, 0], len: 4.6, angle: 90, height: VH });
+      L.flag("gate", L.gate({ at: [8.6, 0], len: 2.2, angle: 90, height: VH }));
+      L.pickup("crown", [9.7, 0], { size: 1.4, name: "treasure", onTake: (L2) => L2.win(`The crypt's treasure -- with ${Math.ceil(L2.flag("left"))} s to spare`) });
+      L.flag("keys", 0);
+      const key = (tag) =>
+        L.pickup("key", null, {
+          tag, lift: 0.006, size: 1.2, name: "key",
+          onTake: (L2) => {
+            const k = L2.flag("keys") + 1;
+            L2.flag("keys", k);
+            if (k >= 3) {
+              L2.flag("gate").open = true;
+              L2.say("Three keys -- the treasure gate opens!", "#ffe080");
+              L2.sfx("power");
+            } else L2.say(`Key ${k} of 3`, "#ffe080");
+          },
+        });
+      key(0);
+      key(1);
+      key(4);
+      const hourglass = (at) => L.pickup("gem", at, { color: "120,200,255", size: 1.1, name: "hourglass", onTake: (L2) => {
+        L2.flag("left", L2.flag("left") + 15);
+        L2.say("+15 s", "#a0e0ff");
+      } });
+      hourglass([1.6, -4.4]);
+      hourglass([7.4, -4.4]);
+      L.pickup("heart", [4.6, 4.2]);
+      L.enemy("hoplite", [4.4, -3.6], { yawDeg: 160 });
+      L.enemy("skeleton", [4.4, 3.4], { yawDeg: 200 });
+      L.enemy("hoplite", [7.4, 0.2], { yawDeg: 180 });
+      L.enemy("archer", [0, 0], { perch: 2, yawDeg: 200, reloadK: 1.2 });
+      L.brazier([0.4, 2.6]);
+      L.brazier([0.4, -2.6]);
+      L.flag("left", CRYPT_S);
+    },
+    update(L, dt) {
+      const left = L.flag("left") - dt;
+      L.flag("left", left);
+      if (left <= 0 && !L.flag("sealed")) {
+        L.flag("sealed", true);
+        L.say("The crypt seals...", "#ff7060");
+        L.hurt(99, L.api.hero.f, L.api.hero.r, { unblockable: true, force: true });
+      } else if (left < 20 && Math.floor(left) !== Math.floor(left + dt)) L.sfx("click");
+    },
+    hud(L) {
+      const v = L.api.ar.view;
+      const left = Math.max(0, L.flag("left"));
+      const mm = Math.floor(left / 60);
+      const ss = Math.floor(left % 60);
+      L.api.ar.text(`⌛ ${mm}:${String(ss).padStart(2, "0")}`, v.x + v.w - 16, v.y + 30, { size: 22, align: "right", color: left < 20 ? "#ff6050" : "#ffe9a8", weight: "bold" });
+    },
+    objective(L) {
+      const k = L.flag("keys");
+      if (k >= 3) return { text: "The gate is open -- take the treasure!", at: [9.7, 0], h: 0.03 };
+      const left = [0, 1, 4].filter((t) => !L.E.pickups.some((p) => p.name === "key" && p.tag === t && p.taken));
+      const t = left[0];
+      const c = t === undefined ? null : L.cube(t);
+      return { text: `Keys: ${k}/3 -- they lie on top of the stones (one on the tower: use the step). Hourglasses: +15 s`, at: c ? [c.x, c.y] : null, h: 0.08 };
+    },
+  });
+
+  // ================================================================================================
+  // 12. The Sky Stair -- a staircase of one, two and three cubes over lava, fire from the sky
+  // ================================================================================================
+  const METEOR_WARN = 1.3;
+  function meteorGround(L, f, r) {
+    return L.api.groundAt(f, r, 1, 1).h;
+  }
+  LEVELS.push({
+    id: "sky",
+    name: "The Sky Stair",
+    tags: "climbing · lava · fire rain · archer",
+    blurb: "A staircase of one, two and three cubes rises out of the lava, an archer on its summit. Fire rains where the knight stands -- a ring warns where -- so climb, dodge, beat the archer and take the crown at the top.",
+    story: "The Sky Stair climbs out of the burning lake to the Crown of Dawn, and the sky itself defends it: fire falls wherever the climber stands -- watch for the ring, and move. At the top waits the last archer of the temple.",
+    intro: "Climb! Fire falls where you stand -- watch for the ring",
+    cubes: [
+      { tag: 0, at: [1.5, 0], stack: 0, label: "Step" },
+      { tag: 1, at: [2.75, 0], stack: 0, label: "Tower" },
+      { tag: 2, at: [2.75, 0], stack: 1, onTag: 1, label: "Tower top" },
+      { tag: 3, at: [4.0, 0], stack: 0, label: "Spire" },
+      { tag: 4, at: [4.0, 0], stack: 1, onTag: 3, label: "Spire" },
+      { tag: 5, at: [4.0, 0], stack: 2, onTag: 4, label: "Spire top" },
+    ],
+    spawn: { at: [0, 0], yaw: 0 },
+    skins: { 0: "red", 1: "red", 2: "red", 3: "basalt", 4: "basalt", 5: "basalt" },
+    frameSkin: "stone",
+    floor: "lava",
+    area: [-1.8, -3.8, 7.0, 3.8],
+    init(L) {
+      L.lava([-1.8, -3.8, 7.0, 3.8]);
+      L.flag("archer", L.enemy("archer", [0, 0], { perch: 5, yawDeg: 180, reloadK: 1.3 }));
+      L.flag("crown", L.pickup("crown", null, { tag: 5, lift: 0.008, size: 1.5, hidden: true, name: "crown", onTake: (L2) => L2.win("The Crown of Dawn -- the sky falls silent") }));
+      L.pickup("heart", null, { tag: 0, lift: 0.006 });
+      L.pickup("heart", null, { tag: 2, lift: 0.006 });
+      L.flag("meteors", []);
+      L.flag("nextMeteor", 4); // (a moment to get going)
+      L.brazier([-1.0, 2.4]);
+      L.brazier([-1.0, -2.4]);
+    },
+    update(L, dt) {
+      const ms = L.flag("meteors");
+      L.flag("nextMeteor", L.flag("nextMeteor") - dt);
+      const hero = L.api.hero;
+      if (L.flag("nextMeteor") <= 0) {
+        L.flag("nextMeteor", L.flag("archer").state === "dead" ? 3.0 : 2.4);
+        const h = L.heroU();
+        const p = L.f(h[0] + L.rnd(-0.9, 0.9), h[1] + L.rnd(-0.9, 0.9));
+        ms.push({ f: p.f, r: p.r, z: meteorGround(L, p.f, p.r), t: 0 });
+      }
+      for (let i = ms.length - 1; i >= 0; i--) {
+        const m = ms[i];
+        m.t += dt;
+        if (m.t >= METEOR_WARN) {
+          ms.splice(i, 1);
+          L.A.blasts.push({ f: m.f, r: m.r, z: m.z, rad: 0.7 * L.U, t: 0 });
+          L.sfx("explode");
+          L.fx.parts.emit("ember", m.f, m.r, m.z + 0.004, 12, 0.006, { up: 0.08, speed: 0.06 });
+          L.shake(0.25);
+          if (Math.hypot(hero.f - m.f, hero.r - m.r) < 0.65 * L.U && hero.z > m.z - 0.012 && hero.z < m.z + L.U) {
+            L.hurt(1, m.f, m.r, { unblockable: true, say: "Fire from the sky!" });
+          }
+        }
+      }
+      const archer = L.flag("archer");
+      if (archer.state === "dead" && !L.flag("open")) {
+        L.flag("open", true);
+        L.flag("crown").hidden = false;
+        L.say("The archer falls -- the Crown of Dawn appears on the summit!", "#ffe080");
+        L.sfx("power");
+      }
+    },
+    draw(L) {
+      const t = L.clock();
+      (L.flag("meteors") || []).forEach((m) => {
+        const k = Math.min(1, m.t / METEOR_WARN);
+        L.fx.ring(m.f, m.r, m.z + 0.001, L.U * 0.65 * (1.15 - 0.4 * k), `rgba(255,${Math.round(200 - 120 * k)},60,${(0.5 + 0.5 * k).toFixed(2)})`, 2 + 2 * k);
+        L.fx.flame(m.f, m.r, m.z + 0.2 * (1 - k) * (1 - k), 0.012 + 0.01 * k, t);
+      });
+    },
+    objective(L) {
+      const archer = L.flag("archer");
+      if (archer.state !== "dead") return { text: "Up the stair -- step, tower, spire -- and beat the archer on the summit. Fire falls where you stand: keep moving!", at: [4.0, 0], h: 0.17 };
+      return { text: "Take the Crown of Dawn from the summit", at: [4.0, 0], h: 0.17 };
+    },
+  });
+
   Lynx.blockQuestLevels = LEVELS;
 })(window.Lynx);
