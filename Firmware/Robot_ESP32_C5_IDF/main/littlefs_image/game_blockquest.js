@@ -35,6 +35,7 @@ Lynx.games = Lynx.games || {};
   const HIT = { 1: [0.32, 0.56], 2: [0.32, 0.56], 3: [0.4, 0.62] };
   const POWER = { 1: 1, 2: 1, 3: 2 };
   const SETUP_OK_S = 2.0;
+  const FRAME_AHEAD_M = 0.3; // laying out, the frame cube not found yet: the camera looks this far ahead of the robot
   const STORE = "blockquestDone";
 
   Lynx.blockQuest = (api) => {
@@ -1107,7 +1108,7 @@ Lynx.games = Lynx.games || {};
       lines.push({ t: `LEVEL ${G.idx + 1} -- ${l.name.toUpperCase()}: lay out the cubes`, c: "#ffd870", s: size + 1 });
       const fr = S2.fr;
       const focusMark = (i) => (G.focus === i ? "\u25b6 " : "");
-      if (!Lynx.smallScreen() || G.focus === 0) lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} Frame cube (24-29) on the floor in view, face 24 pointing away from the robot. Everything below is measured from it.`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
+      if (!Lynx.smallScreen() || G.focus === 0) lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} Frame cube (24-29) on the floor about 30 cm ahead of the robot, where the camera looks, face 24 pointing away from the robot. Everything below is measured from it.`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
       const small = Lynx.smallScreen();
       S2.list.forEach(({ en, st }, i) => {
         // (a phone: only the one the camera is on -- the rest are on the map)
@@ -1360,9 +1361,11 @@ Lynx.games = Lynx.games || {};
       const top = y + (small ? 20 : 28);
       const rowH = clamp((bottomY - top - blurbH) / Math.max(1, LEVELS.length), 14, 26);
       const rowSize = clamp(rowH * 0.62, 10, 16);
+      menuRows = [];
       LEVELS.forEach((lv2, i) => {
         const ry = top + i * rowH + rowSize * 0.5;
         const sel = i === G.sel;
+        menuRows.push({ i, x0: v.cx - rw / 2, x1: v.cx + rw / 2, y0: ry - rowSize * 1.05, y1: ry - rowSize * 1.05 + rowH });
         if (sel) {
           ar.ctx.fillStyle = "rgba(210,170,80,0.18)";
           ar.ctx.fillRect(v.cx - rw / 2, ry - rowSize * 1.05, rw, rowH - 1);
@@ -1381,10 +1384,38 @@ Lynx.games = Lynx.games || {};
         ar.text(need, v.cx, by + 2, { size: blurbSize, align: "center", color: "#a0e0ff" });
       }
       ar.text(
-        small ? "\u25b2 \u25bc: choose · \u2694 Sword: start" : "Choose: LB / RB, Tab or the number keys · Fire: start · tags 0-5 (40 mm) and the frame cube, see /tags.html",
+        small ? "Tap a level · tap it again (or \u2694 Sword): start" : "Click a level, again to start · LB / RB, Tab, 1-7: choose · Fire: start · tags: /tags.html",
         v.cx, bottomY + 26, { size: small ? 12 : 13, align: "center", color: "#ffe9a8" },
       );
     }
+
+    // A level in the menu clicked or tapped: chosen -- and, already chosen,
+    // started. Caught before the page's own handlers (a click on the picture
+    // is Fire in a game; a touch there starts a stick), and kept from them.
+    let menuRows = [];
+    function rowAt(e) {
+      if (G.phase !== "menu" || !menuRows.length) return null;
+      const pt = e.touches ? e.touches[0] : e;
+      if (!pt) return null;
+      const r = ar.ctx.canvas.getBoundingClientRect();
+      const x = pt.clientX - r.left;
+      const y = pt.clientY - r.top;
+      return menuRows.find((m) => x >= m.x0 && x <= m.x1 && y >= m.y0 && y <= m.y1) || null;
+    }
+    const onRowDown = (e) => {
+      const m = rowAt(e);
+      if (!m) return;
+      e.stopPropagation();
+      if (e.type !== "pointerdown") return; // (the touch and mouse events of the same press: only kept away)
+      e.preventDefault();
+      if (m.i === G.sel) startSelected(api.state);
+      else {
+        G.sel = m.i;
+        sfx("click");
+      }
+    };
+    ["pointerdown", "mousedown", "touchstart"].forEach((t) => window.addEventListener(t, onRowDown, { capture: true, passive: false }));
+    ar.onDestroy(() => ["pointerdown", "mousedown", "touchstart"].forEach((t) => window.removeEventListener(t, onRowDown, { capture: true })));
 
     // -- input -------------------------------------------------------------------------------------------------------------
     function choose(dir) {
@@ -1422,7 +1453,9 @@ Lynx.games = Lynx.games || {};
     // (the rest out of the way); afterwards as they were
     function setupBar() {
       if (!touch.el) return;
-      const keep = G.phase === "setup" ? [nextBtn] : G.phase === "menu" ? menuBtns : null;
+      // (the level buttons: on a touch screen only -- with a mouse, a level is clicked)
+      const touchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+      const keep = G.phase === "setup" ? [nextBtn] : G.phase === "menu" ? (touchDevice ? menuBtns : []) : null;
       const on = !!keep;
       [...touch.el.children].forEach((b) => {
         if (b === nextBtn || menuBtns.includes(b)) {
@@ -1562,8 +1595,16 @@ Lynx.games = Lynx.games || {};
       forceTags: () => G.phase === "setup",
       camTarget() {
         if (G.phase !== "setup" || !G.items) return null;
-        const it = G.items[G.focus] || G.items[0];
+        const focus = G.focus || 0;
+        const it = G.items[focus] || G.items[0];
         const l = toF(it.at[0], it.at[1]);
+        // The frame cube not found yet: the world's origin is just where the
+        // robot started (it's on top of it -- the camera looked straight
+        // down). Then the camera looks ahead, where the frame cube should go.
+        const ch = api.chassis();
+        if (focus === 0 && (!G.setup || G.setup.fr.s !== "ok" || Math.hypot(l.f - ch.f, l.r - ch.r) < 0.15)) {
+          return [ch.f + Math.cos(ch.th) * FRAME_AHEAD_M, ch.r + Math.sin(ch.th) * FRAME_AHEAD_M, G.U / 2];
+        }
         return [l.f, l.r, it.z * G.U];
       },
       helpLine(auto) {
