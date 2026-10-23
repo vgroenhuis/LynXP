@@ -19,6 +19,7 @@
 #include "ota.hpp"
 #include "debug_pan.hpp"
 #include "pose_persist.hpp"
+#include "closer_report.hpp"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -83,6 +84,7 @@ extern "C" void app_main(void) {
     ws_broadcast_start();
     ota_register_routes();
     debug_pan_register_routes();
+    closer_report_start(); // heartbeats to the CloSer lab demos page, once a device key is stored
 
     // Both tasks now exist -- subscribe them to the task watchdog and start
     // measuring their tick timing/stack usage.

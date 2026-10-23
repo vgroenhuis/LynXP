@@ -8,6 +8,7 @@
 #include "waypoints.hpp"
 #include "wifi_connect.hpp"
 #include "wifi_networks.hpp"
+#include "closer_report.hpp"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -112,6 +113,18 @@ void handle_line(const char *line) {
     // below all go through the real control_modes.cpp state instead.
     if (std::strcmp(line, "wifi") == 0 || std::strncmp(line, "wifi ", 5) == 0) {
         handle_wifi_command(line + 4);
+
+    } else if (std::strcmp(line, "closer") == 0) {
+        printf("lab demos: %s, last report: %s\n",
+               closer_report_demo_id()[0] ? closer_report_demo_id() : "no key",
+               closer_report_last_result()[0] ? closer_report_last_result() : "none yet");
+
+    } else if (std::strncmp(line, "closer key", 10) == 0) {
+        const char *key = line + 10;
+        while (*key == ' ') key++;
+        // The secret is never echoed: the console may be logged.
+        printf(closer_report_set_key(key) ? "lab demos key %s\n" : "lab demos key: not stored\n",
+               key[0] ? "stored" : "cleared");
 
     } else if (std::sscanf(line, "mode %d", &mode_val) == 1) {
         settings.mode = mode_val;
@@ -229,7 +242,7 @@ void print_help() {
            "lab2turn left|right | goto <x> <y> | reset_encoders | reset_pose | "
            "logging on|off | pose | mp | stop | servo <us> | enc | ticks | "
            "settings show|save|load|default|set kp <v> | wp save|load | "
-           "wifi list|add <ssid> [pw]|forget <ssid>|connect <ssid>\n");
+           "wifi list|add <ssid> [pw]|forget <ssid>|connect <ssid> | closer [key <key>]\n");
 }
 
 void console_task(void *arg) {

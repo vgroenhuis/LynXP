@@ -34,6 +34,7 @@ idf_component_register(
         "ota.cpp"
         "app_data.cpp"
         "debug_pan.cpp"
+        "closer_report.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         driver          # gpio, ledc, pulse_cnt, gptimer
@@ -50,6 +51,8 @@ idf_component_register(
         esp_event
         esp_netif
         esp_http_server
+        esp_http_client # closer_report.cpp: heartbeats to the lab demos page
+        mbedtls         # esp_crt_bundle.h
         app_update      # esp_ota_ops.h
         esp_partition
         cjson           # espressif/cjson managed component
