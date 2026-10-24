@@ -149,6 +149,25 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "echo", title: "Echo", better: "higher", format: "points" }],
     },
     {
+      id: "lightwall",
+      kind: "game",
+      name: "Lightwall",
+      icon: "\u{1F6E4}\u{FE0F}",
+      blurb:
+        "Tron on your floor. The robot lays a wall of light behind it as it drives, and so do the rival light-cycles racing round the arena. " +
+        "Whatever touches a wall -- or the arena's edge -- is derezzed. Your own wall is harmless to you but deadly to them: " +
+        "cut them off and box them in, and keep clear of their trails. FIRE sends a pulse that wipes nearby rival walls when you are trapped. " +
+        "Every level adds a rival and speeds them up.",
+      settings: [
+        { key: "areaRadiusM", label: "Arena radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
+        { key: "lives", label: "Lives", type: "number", def: 3, min: 1, max: 9, step: 1 },
+        { key: "trailS", label: "How long walls last", type: "number", unit: "s", def: 10, min: 3, max: 30, step: 1 },
+        { key: "enemySpeedMps", label: "Rival speed", type: "number", unit: "m/s", def: 0.2, min: 0.05, max: 0.6, step: 0.025 },
+        { key: "radar", label: "Radar", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "lightwall", title: "Lightwall", better: "higher", format: "points" }],
+    },
+    {
       id: "shepherd",
       kind: "game",
       name: "Shepherd",
