@@ -29,7 +29,7 @@ committing to the layout.
 | OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED integrated on the PCB** (strongly recommended; 4-pin header acceptable, see §5.1) |
 | nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
 | Headlights | — | Two headlight outputs with connectors (new, see §11.1) |
-| Microphone, speaker | — | **Optional**: on-board I²S microphone and speaker amplifier (new, see §11.2) |
+| Microphone, speaker | — | **Optional, very low priority**: on-board I²S microphone and speaker amplifier (new, see §11.2); better done on the camera's ESP32-S3 |
 | Dynamixel XL430 smart servos | — | **Wish**: Dynamixel TTL port with its own adjustable supply, level shifter and half-duplex converter (new, see §11.3) |
 
 Stays off-board: powerbank, motors, servos (including optional Dynamixel smart servos), XIAO ESP32-S3 Sense camera, nOOds LED, headlights, optional speaker/mic.
@@ -179,12 +179,12 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | Camera UART RX / TX | 4 / 28 |
 | Screen-select potentiometer (§5.1) | GPIO1 (ADC1_CH0) |
 | UART0 TX / RX | 11 / 12 *(verify)* |
-| I²S BCLK / WS (optional microphone and amplifier, §11.2) | 5 / 6 |
-| I²S DIN (microphone) / DOUT (amplifier) | 8 / 10 |
+| I²S BCLK / WS (optional microphone and amplifier, §11.2, very low priority) | 5 / 6 (free for other uses, e.g. §11.3, unless audio is built) |
+| I²S DIN (microphone) / DOUT (amplifier) | 8 / 10 (idem) |
 | Addressable status LED + RGB LED strip header (§11) | 7 |
 
 Any GPIOs left over (e.g. GPIO27, formerly the QR button) go to a 2.54 mm female header.
-The optional Dynamixel port (§11.3) needs a UART with TX, RX and a direction pin (or a single data pin, see there), which does not fit in the one spare GPIO (27) without further choices; the designer proposes the assignment (e.g. GPIO27 plus the I²S pins 5/6/8/10 if the microphone and speaker are left out) and documents it.
+The optional Dynamixel port (§11.3) needs a UART with TX, RX and a direction pin (or a single data pin, see there), which does not fit in the one spare GPIO (27) without further choices; the designer proposes the assignment (e.g. GPIO27 plus the I²S pins 5/6/8/10, which are free as long as the microphone and speaker, a very low priority, are not built on this board) and documents it.
 
 Encoders **must** stay on native GPIOs (PCNT peripheral).
 
@@ -397,9 +397,15 @@ All three options on the board, electrically in parallel (only one used at a tim
   1 W power LEDs can be used. A small constant-current LED driver instead of the resistor is
   acceptable.
 
-### 11.2 Microphone and speaker (optional)
-Microphone and speaker are optional; include them if board space allows. If left out, the I²S
-pins in §4.2 become free GPIOs. If included, the following applies:
+### 11.2 Microphone and speaker (optional, very low priority)
+Microphone and speaker are **really low priority**: leave them out of the first board revisions and
+use the I²S pins (§4.2) for other functions. **Preferred way if audio is wanted at all**: use the
+GPIOs of the **camera's XIAO ESP32-S3** instead of the main ESP32-C5. That ESP32 already streams the
+video, so it can stream the audio over the same connection, without any audio signals having to
+cross to the main board *(verify which XIAO ESP32-S3 Sense pins are free; the Sense board already
+carries a PDM microphone, which may be enough for the microphone)*. A speaker amplifier would then
+sit at the camera head, powered through the 5 V of the camera cable (§10). Only if audio on the
+main board is really wanted, the following applies:
 - On-board **I²S MEMS microphone** (e.g. ICS-43434 or INMP441-compatible, available at
   JLCPCB/LCSC), top-port so it fits single-sided assembly. Placed at a board edge, away from the
   motor driver, bucks and speaker connector; keep the sound port free (no silkscreen/solder mask
@@ -503,6 +509,11 @@ diameter 190 mm centred at the robot centre**. The robot can then always rotate 
 axis without the board hitting objects. The mounts for the 37 mm diameter motors (frame parts) can
 be made smaller to make this possible.
 
+**Allowance**: if parts do not fit on the PCB, it is OK to **increase the envelope radius by 1 to
+2 cm** (circle diameter 210 to 230 mm instead of 190 mm). Prefer the 190 mm circle, and use this
+allowance only for what really does not fit, then as little of it as possible; the exclusion
+zones below stay as drawn (the figure shows the 190 mm baseline).
+
 ![Top view of the PCB outline and exclusion zones](pcb_outline_topview.svg)
 
 - **Outline**: a **rectangle with chamfered corners**, **160 mm wide** (set by the wheels) and
@@ -568,7 +579,7 @@ be made smaller to make this possible.
 
 The following firmware changes follow from this board and are not part of the PCB design:
 PCA9685 driver for servos, headlights and nOOds (OE via MCP23017), MCP23017 driver for motor direction,
-DIP switch/buttons/LEDs, headlights, I²S microphone and speaker, ADC driver for the analog inputs, screen selection with the
+DIP switch/buttons/LEDs, headlights, (very low priority) I²S microphone and speaker, ADC driver for the analog inputs, screen selection with the
 potentiometer (replaces the QR button), motor direction changes over I²C (only on reversal; PWM stays on LEDC), PD voltage
 handling at 12 V instead of 9 V (motor PWM limits), board detection at startup (§12.1) with
 the breadboard or PCB pin map selected accordingly, a Dynamixel Protocol 2.0 driver with V_DXL control if the port of §11.3 is included, and any pin reassignments.
