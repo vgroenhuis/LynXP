@@ -1014,6 +1014,11 @@ button {
   white-space: nowrap;
 }
 
+.wifi-tag-warn,
+.wifi-tag-dim {
+  white-space: normal;
+}
+
 .wifi-tag-ok {
   color: #1a7f1a;
   font-weight: bold;
