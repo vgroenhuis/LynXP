@@ -167,11 +167,28 @@ function initWifiManager(root) {
       if (isCurrent) tags.push(span("connected", "wifi-tag wifi-tag-ok"));
       else if (seen && seen.robotHears === false) tags.push(span("only the camera hears it", "wifi-tag wifi-tag-warn"));
       else if (seen) tags.push(span(`in range ${bars(seen.rssi)}`, "wifi-tag"));
-      else tags.push(span("not in range", "wifi-tag wifi-tag-dim"));
+      else if (s.nearby.length === 0) tags.push(span("not scanned yet", "wifi-tag wifi-tag-dim"));
+      else {
+        const t = span("not heard in the last scan", "wifi-tag wifi-tag-dim");
+        t.title = "The last scan didn't hear this network, so it is probably out of range (a scan can miss one; press Scan to check).";
+        tags.push(t);
+      }
       if (seen && seen.has5 && !seen.has24) tags.push(span("5 GHz only", "wifi-tag wifi-tag-warn"));
       if (net.open) tags.push(span("open", "wifi-tag wifi-tag-dim"));
       const pinned = s.pinned && s.pinned.ssid === net.ssid ? s.pinned : null;
-      if (pinned) tags.push(span(`access point ${pinned.bssid}${pinned.channel ? ` (ch ${pinned.channel})` : ""}`, "wifi-tag wifi-tag-ok"));
+      if (pinned) {
+        // The chosen access point is a preference, not the live connection: say which it is
+        const where = `${pinned.bssid}${pinned.channel ? ` (ch ${pinned.channel})` : ""}`;
+        if (isCurrent && s.bssid === pinned.bssid) {
+          tags.push(span(`on its chosen access point ${where}`, "wifi-tag wifi-tag-ok"));
+        } else if (isCurrent) {
+          const t = span(`not on its chosen access point ${where}`, "wifi-tag wifi-tag-warn");
+          t.title = `LynXP is on another access point of this network (${s.bssid || "unknown"}, ch ${s.channel}) than the chosen one, which may be out of range right now.`;
+          tags.push(t);
+        } else {
+          tags.push(span(`chosen access point ${where}`, "wifi-tag wifi-tag-dim"));
+        }
+      }
 
       const name = span(net.ssid, "wifi-ssid");
       const actions = document.createElement("span");
@@ -228,8 +245,11 @@ function initWifiManager(root) {
       }
       if (net.secure) main.append(span("\u{1F512}", "wifi-tag"));
       const band = net.has24 && net.has5 ? "2.4+5 GHz" : net.has5 ? "5 GHz only" : "2.4 GHz";
-      main.append(span(net.channel ? `${band} · ch ${net.channel}` : band, net.has5 && !net.has24 ? "wifi-tag wifi-tag-warn" : "wifi-tag wifi-tag-dim"));
+      // (one row per network: the signal and channel shown are those of its strongest access point)
+      const many = (net.aps && net.aps.length > 1) || (net.has24 && net.has5);
+      main.append(span(net.channel ? `${band} · ${many ? "strongest on " : ""}ch ${net.channel}` : band, net.has5 && !net.has24 ? "wifi-tag wifi-tag-warn" : "wifi-tag wifi-tag-dim"));
       if (savedSet.has(net.ssid)) main.append(span("saved", "wifi-tag wifi-tag-ok"));
+      if (s.connected && net.ssid === s.ssid) main.append(span(`connected · ch ${s.channel}`, "wifi-tag wifi-tag-ok"));
       const row = li(main);
       row.classList.add("wifi-pickable");
       row.title = "Use this network";
@@ -252,21 +272,31 @@ function initWifiManager(root) {
       details.addEventListener("click", (e) => e.stopPropagation()); // not "use this network"
       details.addEventListener("toggle", () => (details.open ? openApLists.add(net.ssid) : openApLists.delete(net.ssid)));
       const summary = document.createElement("summary");
-      summary.textContent = `${net.aps.length} access point${net.aps.length > 1 ? "s" : ""}`;
+      const aps = net.aps.slice();
+      const isLive = s.connected && s.ssid === net.ssid && s.bssid;
+      // the access point LynXP is on (and the chosen one) may be missing from the last scan: list them anyway
+      if (isLive && !aps.some((a) => a.bssid === s.bssid)) aps.unshift({ bssid: s.bssid, rssi: s.rssi, channel: s.channel, missing: true });
+      if (s.pinned && s.pinned.ssid === net.ssid && !aps.some((a) => a.bssid === s.pinned.bssid)) {
+        aps.push({ bssid: s.pinned.bssid, rssi: null, channel: s.pinned.channel, missing: true });
+      }
+      summary.textContent = `${net.aps.length} access point${net.aps.length > 1 ? "s" : ""} heard in the last scan${aps.length > net.aps.length ? " (+ others listed below)" : ""}`;
       details.appendChild(summary);
       const list = document.createElement("ul");
       list.className = "wifi-list";
-      net.aps.forEach((ap) => {
+      aps.forEach((ap) => {
         const main = document.createElement("span");
         main.className = "wifi-main";
-        main.append(span(ap.bssid, "wifi-bssid"), span(`${bars(ap.rssi)} ${ap.rssi} dBm`, "wifi-tag"), span(`ch ${ap.channel}${ap.channel > 14 ? " (5 GHz)" : ""}`, "wifi-tag wifi-tag-dim"));
+        main.append(span(ap.bssid, "wifi-bssid"));
+        if (ap.rssi !== null) main.append(span(`${bars(ap.rssi)} ${ap.rssi} dBm`, "wifi-tag"));
+        if (ap.channel) main.append(span(`ch ${ap.channel}${ap.channel > 14 ? " (5 GHz)" : ""}`, "wifi-tag wifi-tag-dim"));
+        if (ap.missing) main.append(span("not heard in the last scan", "wifi-tag wifi-tag-dim"));
         const isCurrent = s.connected && s.ssid === net.ssid && s.bssid === ap.bssid;
         const isPinned = s.pinned && s.pinned.ssid === net.ssid && s.pinned.bssid === ap.bssid;
         if (isCurrent) main.append(span("connected", "wifi-tag wifi-tag-ok"));
         if (isPinned) main.append(span("chosen", "wifi-tag wifi-tag-ok"));
         const actions = document.createElement("span");
         actions.className = "wifi-actions";
-        if (!isPinned) {
+        if (!isPinned && !ap.missing) {
           actions.appendChild(
             button("Use", () => {
               if (s.connected && !confirm(`Move LynXP to access point ${ap.bssid} (channel ${ap.channel})? This page may lose its connection for a moment.`)) return;
