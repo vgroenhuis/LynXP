@@ -12,6 +12,8 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_rom_sys.h"
+#include "esp_rom_crc.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -42,6 +44,7 @@ constexpr int LINK_CS_HOLD_US = 5;
 constexpr int LINK_SPI_CLOCK_HZ = 10 * 1000 * 1000;
 constexpr TickType_t POLL_FAST = pdMS_TO_TICKS(5);   // while either side has something to say
 constexpr TickType_t POLL_IDLE = pdMS_TO_TICKS(25);
+constexpr TickType_t POLL_VIDEO = pdMS_TO_TICKS(2);  // video on, between frames (1.1.3: with 25 ms half the time went there)
 constexpr TickType_t PEER_STALE_TICKS = pdMS_TO_TICKS(6000);
 
 cam_link_t s_link;
@@ -297,6 +300,111 @@ void apply_clock(int hz) {
     ESP_LOGI(TAG, "link clock %d Hz (actual %d kHz)", s_clockHz, s_actualKHz);
 }
 
+// --- Video from the camera (cam_link_proto.h, "Video") -----------------------
+// The camera sends its JPEGs in chunks, one per transaction after a promise;
+// they are put together in s_asm and a complete frame is swapped into s_jpg
+// (cam_link_copy_frame). Everything big is in PSRAM: the SPI DMA reads the
+// video area straight into it (SPI_TRANS_DMA_USE_PSRAM).
+constexpr size_t VIDEO_FRAME_MAX = 160 * 1024;
+constexpr size_t VIDEO_DMA_ALIGN = 128;    // cache-line multiple for DMA into PSRAM
+volatile int s_videoFps = 0;               // asked of the camera, 0: off
+volatile int s_videoGapMs = 3;             // pause before clocking a promised area: the camera sets it up
+                                           // meanwhile (copies the chunk, CRC); too short and it isn't ready
+bool s_videoNext = false;                  // the camera promised a video area for the next transaction
+uint8_t *s_vrx = nullptr, *s_vtx = nullptr; // video area in / out (out is zeros)
+uint8_t *s_asm = nullptr, *s_jpg = nullptr;
+size_t s_asmLen = 0, s_asmGot = 0, s_jpgLen = 0;
+uint16_t s_asmId = 0;
+bool s_asmActive = false;
+uint32_t s_jpgSeq = 0;
+SemaphoreHandle_t s_jpgMutex = nullptr;
+uint32_t s_vFrames = 0, s_vChunks = 0, s_vBadChunks = 0, s_vDropped = 0, s_vAreas = 0, s_vAreaErrors = 0;
+uint64_t s_vBytes = 0;
+int64_t s_vWindowStart = 0;
+uint32_t s_vWindowFrames = 0;
+uint64_t s_vWindowBytes = 0;
+float s_vFpsMeasured = 0, s_vKBpsMeasured = 0;
+// Where the time goes while video runs (sums over s_tLoops loops with a video area, microseconds).
+uint64_t s_tFrameUs = 0, s_tAreaUs = 0, s_tProcUs = 0, s_tLoopUs = 0;
+uint32_t s_tLoops = 0;
+int64_t s_tLoopStart = 0;
+
+bool video_alloc() {
+    if (s_vrx) return true;
+    s_vrx = (uint8_t *) heap_caps_aligned_calloc(VIDEO_DMA_ALIGN, 1, CAM_LINK_VIDEO_AREA, MALLOC_CAP_SPIRAM);
+    s_vtx = (uint8_t *) heap_caps_aligned_calloc(VIDEO_DMA_ALIGN, 1, CAM_LINK_VIDEO_AREA, MALLOC_CAP_SPIRAM);
+    s_asm = (uint8_t *) heap_caps_malloc(VIDEO_FRAME_MAX, MALLOC_CAP_SPIRAM);
+    s_jpg = (uint8_t *) heap_caps_malloc(VIDEO_FRAME_MAX, MALLOC_CAP_SPIRAM);
+    s_jpgMutex = xSemaphoreCreateMutex();
+    if (s_vrx && s_vtx && s_asm && s_jpg && s_jpgMutex) return true;
+    ESP_LOGE(TAG, "out of PSRAM for video");
+    return false;
+}
+
+void video_area_received(const uint8_t *a) {
+    s_vAreas++;
+    uint16_t id = (uint16_t) (a[2] | (a[3] << 8));
+    uint32_t total, off, crc;
+    std::memcpy(&total, a + 4, 4);
+    std::memcpy(&off, a + 8, 4);
+    std::memcpy(&crc, a + 16, 4);
+    uint16_t n = (uint16_t) (a[12] | (a[13] << 8));
+    if (a[0] != 'V' || a[1] != 'F' || n > CAM_LINK_VIDEO_DATA_MAX) {
+        s_vBadChunks++;
+        return;
+    }
+    uint32_t c = esp_rom_crc32_le(0, a, 16);
+    c = esp_rom_crc32_le(c, a + CAM_LINK_VIDEO_HEADER, n);
+    if (c != crc) {
+        s_vBadChunks++;
+        return;
+    }
+    if (n == 0) return;
+    s_vChunks++;
+    s_vBytes += n;
+    if (off == 0) {
+        if (s_asmActive && s_asmGot < s_asmLen) s_vDropped++;
+        s_asmActive = total > 0 && total <= VIDEO_FRAME_MAX;
+        s_asmId = id;
+        s_asmLen = total;
+        s_asmGot = 0;
+    }
+    if (!s_asmActive || id != s_asmId || off != s_asmGot || off + n > s_asmLen) {
+        if (s_asmActive) s_vDropped++; // a chunk went missing: wait for the next frame
+        s_asmActive = false;
+        return;
+    }
+    std::memcpy(s_asm + off, a + CAM_LINK_VIDEO_HEADER, n);
+    s_asmGot += n;
+    if (s_asmGot < s_asmLen) return;
+    s_asmActive = false;
+    xSemaphoreTake(s_jpgMutex, portMAX_DELAY);
+    uint8_t *done = s_asm;
+    s_asm = s_jpg;
+    s_jpg = done;
+    s_jpgLen = s_asmLen;
+    s_jpgSeq++;
+    xSemaphoreGive(s_jpgMutex);
+    s_vFrames++;
+    int64_t now = esp_timer_get_time();
+    s_vWindowFrames++;
+    s_vWindowBytes += s_asmLen;
+    if (now - s_vWindowStart >= 2000000) {
+        float secs = (float) (now - s_vWindowStart) / 1e6f;
+        s_vFpsMeasured = (float) s_vWindowFrames / secs;
+        s_vKBpsMeasured = (float) s_vWindowBytes / 1024.0f / secs;
+        s_vWindowStart = now;
+        s_vWindowFrames = 0;
+        s_vWindowBytes = 0;
+    }
+}
+
+void video_send_request() {
+    char line[32];
+    int len = std::snprintf(line, sizeof(line), "VIDEO fps=%d\n", s_videoFps);
+    link_write(line, (size_t) len);
+}
+
 // The SPI master: one full-duplex 128-byte frame with the camera every few ms.
 void cam_link_task(void *arg) {
     (void) arg;
@@ -310,6 +418,7 @@ void cam_link_task(void *arg) {
             s_lastCamWifiCheck = xTaskGetTickCount();
             maybe_sync_cam_wifi();
             maybe_sync_cam_ota();
+            if (s_videoFps > 0 && !cam_link_peer_is_stale()) video_send_request(); // (again: the camera may have restarted)
         }
 
         xSemaphoreTake(s_linkMutex, portMAX_DELAY);
@@ -325,7 +434,23 @@ void cam_link_task(void *arg) {
         gpio_set_level(CAM_SPI_CS_PIN, 0);
         esp_rom_delay_us(LINK_CS_SETUP_US);
         if (s_wantClockHz && s_wantClockHz != s_clockHz) apply_clock(s_wantClockHz);
+        int64_t t0 = esp_timer_get_time();
+        int64_t prevStart = s_tLoopStart;
+        s_tLoopStart = t0;
         esp_err_t sent = spi_device_transmit(s_dev, &t);
+        int64_t t1 = esp_timer_get_time();
+        bool video = s_videoNext && s_vrx != nullptr;
+        esp_err_t sentVideo = ESP_FAIL;
+        if (sent == ESP_OK && video) { // the promised video area, same CS-low period: one transaction for the camera
+            spi_transaction_t v = {};
+            v.length = CAM_LINK_VIDEO_AREA * 8;
+            v.tx_buffer = s_vtx;
+            v.rx_buffer = s_vrx;
+            v.flags = SPI_TRANS_DMA_USE_PSRAM;
+            sentVideo = spi_device_transmit(s_dev, &v);
+            if (sentVideo != ESP_OK) s_vAreaErrors++;
+        }
+        int64_t t2 = esp_timer_get_time();
         esp_rom_delay_us(LINK_CS_HOLD_US);
         gpio_set_level(CAM_SPI_CS_PIN, 1);
         if (sent == ESP_OK) {
@@ -334,9 +459,22 @@ void cam_link_task(void *arg) {
             std::memcpy(s_lastRx, s_rxFrame, CAM_LINK_FRAME_BYTES);
             s_transfers++;
             n = cam_link_parse(&s_link, s_rxFrame, payload);
+            s_videoNext = n >= 0 && (s_link.peerFlags & CAM_LINK_FLAG_VIDEO_NEXT);
             xSemaphoreGive(s_linkMutex);
+            if (video && sentVideo == ESP_OK) {
+                video_area_received(s_vrx);
+                int64_t t3 = esp_timer_get_time();
+                if (prevStart) {
+                    s_tFrameUs += (uint64_t) (t1 - t0);
+                    s_tAreaUs += (uint64_t) (t2 - t1);
+                    s_tProcUs += (uint64_t) (t3 - t2);
+                    s_tLoopUs += (uint64_t) (t0 - prevStart);
+                    s_tLoops++;
+                }
+            }
         } else {
             s_transferErrors++;
+            s_videoNext = false;
         }
         TickType_t now = xTaskGetTickCount();
         if (n >= 0) {
@@ -358,7 +496,13 @@ void cam_link_task(void *arg) {
                          (unsigned) s_link.framesBad, (int) CAM_SPI_SCLK_PIN, (int) CAM_SPI_MOSI_PIN, (int) CAM_SPI_MISO_PIN, (int) CAM_SPI_CS_PIN);
             }
         }
-        vTaskDelay(busy || n > 0 ? POLL_FAST : POLL_IDLE);
+        // Video promised: the next chunk after s_videoGapMs (the camera needs a moment to set it up;
+        // +1 tick: a delay of n ticks may be up to one tick shorter). Video on but nothing promised
+        // (between frames): ask again soon, or half the time goes to waiting for the next frame.
+        TickType_t pause = busy || n > 0 ? POLL_FAST : POLL_IDLE;
+        if (s_videoFps > 0) pause = POLL_VIDEO;
+        if (s_videoNext) pause = pdMS_TO_TICKS(s_videoGapMs) + 1;
+        vTaskDelay(pause);
     }
 }
 
@@ -381,7 +525,7 @@ void cam_link_start() {
     bus.sclk_io_num = CAM_SPI_SCLK_PIN;
     bus.quadwp_io_num = -1;
     bus.quadhd_io_num = -1;
-    bus.max_transfer_sz = CAM_LINK_FRAME_BYTES;
+    bus.max_transfer_sz = CAM_LINK_VIDEO_AREA; // (the video area is the larger transaction)
     ESP_ERROR_CHECK(spi_bus_initialize(LINK_SPI_HOST, &bus, SPI_DMA_CH_AUTO));
 
     if (!add_device(LINK_SPI_CLOCK_HZ)) {
@@ -462,4 +606,41 @@ bool cam_link_set_clock(int hz) {
     if (hz < 100 * 1000 || hz > 40 * 1000 * 1000 || s_dev == nullptr) return false;
     s_wantClockHz = hz;
     return true;
+}
+
+void cam_link_set_video_gap(int ms) {
+    if (ms >= 0 && ms <= 50) s_videoGapMs = ms;
+}
+
+bool cam_link_video_running() { return s_videoFps > 0; }
+
+bool cam_link_set_video(int fps) {
+    if (fps < 0 || fps > 30 || s_linkMutex == nullptr) return false;
+    if (fps > 0 && !video_alloc()) return false;
+    s_videoFps = fps;
+    video_send_request();
+    return true;
+}
+
+int cam_link_video_json(char *out, size_t len) {
+    return std::snprintf(out, len,
+                         "{\"fpsAsked\":%d,\"gapMs\":%d,\"fps\":%.1f,\"kBps\":%.1f,\"frames\":%lu,\"lastBytes\":%u,\"chunks\":%lu,"
+                         "\"badChunks\":%lu,\"dropped\":%lu,\"areas\":%lu,\"areaErrors\":%lu,\"bytes\":%llu,\"clockKHz\":%d,"
+                         "\"avgUs\":{\"frame\":%lu,\"area\":%lu,\"proc\":%lu,\"loop\":%lu}}",
+                         s_videoFps, s_videoGapMs, (double) s_vFpsMeasured, (double) s_vKBpsMeasured, (unsigned long) s_vFrames,
+                         (unsigned) s_jpgLen, (unsigned long) s_vChunks, (unsigned long) s_vBadChunks,
+                         (unsigned long) s_vDropped, (unsigned long) s_vAreas, (unsigned long) s_vAreaErrors,
+                         (unsigned long long) s_vBytes, s_actualKHz,
+                         (unsigned long) (s_tLoops ? s_tFrameUs / s_tLoops : 0), (unsigned long) (s_tLoops ? s_tAreaUs / s_tLoops : 0),
+                         (unsigned long) (s_tLoops ? s_tProcUs / s_tLoops : 0), (unsigned long) (s_tLoops ? s_tLoopUs / s_tLoops : 0));
+}
+
+size_t cam_link_copy_frame(uint8_t *out, size_t cap, uint32_t *seq) {
+    if (s_jpgMutex == nullptr) return 0;
+    xSemaphoreTake(s_jpgMutex, portMAX_DELAY);
+    size_t n = s_jpgLen <= cap ? s_jpgLen : 0;
+    if (n) std::memcpy(out, s_jpg, n);
+    if (seq) *seq = s_jpgSeq;
+    xSemaphoreGive(s_jpgMutex);
+    return n;
 }

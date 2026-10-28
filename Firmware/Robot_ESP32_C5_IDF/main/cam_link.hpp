@@ -87,3 +87,22 @@ int cam_link_raw_json(char *out, size_t len);
 // GET /camraw?clock=<Hz>, console "camclock <Hz>"), to find how fast the
 // wires allow. False if out of range or the link isn't running.
 bool cam_link_set_clock(int hz);
+
+// Video from the camera over the link (cam_link_proto.h, "Video"): asks the
+// camera for at most fps JPEGs per second (0: stop). False if out of range
+// (0..30), out of PSRAM, or the link isn't running.
+bool cam_link_set_video(int fps);
+
+// True while video is asked of the camera (fps > 0).
+bool cam_link_video_running();
+
+// Video statistics as JSON (GET /camvideo): asked and measured frame rate,
+// frames, chunks, bad chunks, dropped frames.
+int cam_link_video_json(char *out, size_t len);
+
+// Pause before each promised video area (0..50 ms, GET /camvideo?gap=<ms>).
+void cam_link_set_video_gap(int ms);
+
+// Copies the latest complete JPEG into out (up to cap bytes); returns its
+// length (0: none yet, or it doesn't fit), *seq counts frames.
+size_t cam_link_copy_frame(uint8_t *out, size_t cap, uint32_t *seq);

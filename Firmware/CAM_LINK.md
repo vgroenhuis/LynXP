@@ -51,8 +51,27 @@ identical) defines it; the header comment has the byte layout.
   sides resynchronise when one restarts.
 - Frame type `VIDEO` (2) is reserved for camera frames. Receivers ignore types they do not know, so an
   older peer does not break when it is used.
-- Next step for streaming (not done): a data-ready line from the S3 (so the C5 does not have to poll),
-  bigger or back-to-back transactions for VIDEO frames, and an MJPEG endpoint on the C5.
+
+## Video through the robot (since robot 1.2.0, camera 1.1.0)
+
+The camera's JPEGs go over the link to the robot, which streams them over its own (5 GHz capable) Wi-Fi:
+`http://<robot>:81/stream` (MJPEG, at most 2 viewers; `cam_stream.cpp`). Without a free pin for a
+data-ready line the robot polls: a flag bit in the camera's control frame promises a 4 KB video area in
+the next transaction, which the robot clocks right after the 128-byte frame with CS still low, straight
+into PSRAM. Each area carries a chunk of a JPEG with frame id, offset and CRC32; a frame with a missing
+or damaged chunk is dropped (layout in `cam_link_proto.h`). The robot asks for video with the line
+`VIDEO fps=<n>`; the stream does that by itself while someone watches.
+
+- The camera needs ~3 ms to set up the next chunk: the robot pauses that long before each area
+  (`/camvideo?gap=<ms>`), and polls every 2 ms between frames while video is on.
+- Test endpoints on the robot: `/camvideo?fps=<n>` (start/stop, statistics and timings),
+  `/camframe.jpg` (the last frame that came over the link).
+- Measured 2026-10-28, frames ~22 KB (VGA, quality 12): link alone 18.4 fps at 10 MHz, 26.5 fps at
+  26.7 MHz, no errors. With one viewer of the robot's stream: 14-16 fps, at most 91 ms between frames
+  (the camera's own 2.4 GHz stream: 16 fps but gaps up to 390 ms). Robot meanwhile: control loop
+  >= 993 Hz (average 126 -> ~290 us, worst ~2.4 ms), internal RAM free 34 -> 24 KB.
+- Next: bigger video areas (fewer pauses), the camera preparing chunks ahead, the robot's camera page
+  showing this stream.
 
 ## Test
 

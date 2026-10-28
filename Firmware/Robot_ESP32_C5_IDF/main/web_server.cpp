@@ -10,6 +10,7 @@
 #include "app_data.hpp"
 #include "oled.hpp"
 #include "cam_link.hpp"
+#include "cam_stream.hpp"
 #include "ping_diag.hpp"
 #include "motors.hpp"
 #include "watchdog.hpp"
@@ -686,6 +687,49 @@ esp_err_t handle_cam_raw(httpd_req_t *req) {
     return httpd_resp_send(req, json, len);
 }
 
+// GET /camvideo[?fps=<n>][&gap=<ms>]: video from the camera over the SPI link
+// (asks the camera for at most n frames per second, 0: stop; gap: pause before
+// each chunk) and its statistics.
+esp_err_t handle_cam_video(httpd_req_t *req) {
+    char query[32], value[12];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+        httpd_query_key_value(query, "fps", value, sizeof(value)) == ESP_OK) {
+        cam_link_set_video(std::atoi(value));
+    }
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+        httpd_query_key_value(query, "gap", value, sizeof(value)) == ESP_OK) {
+        cam_link_set_video_gap(std::atoi(value));
+    }
+    char json[600];
+    int len = cam_link_video_json(json, sizeof(json) - 200);
+    if (len > 0 && json[len - 1] == '}') { // the MJPEG viewers of port 81 too (cam_stream.cpp)
+        len += std::snprintf(json + len - 1, sizeof(json) - (size_t) len + 1, ",\"stream\":") - 1;
+        len += cam_stream_json(json + len, sizeof(json) - (size_t) len - 1);
+        json[len++] = '}';
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, json, len);
+}
+
+// GET /camframe.jpg: the latest JPEG that came over the SPI link.
+esp_err_t handle_cam_frame(httpd_req_t *req) {
+    constexpr size_t cap = 160 * 1024;
+    uint8_t *buf = (uint8_t *) heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "out of memory");
+    size_t n = cam_link_copy_frame(buf, cap, nullptr);
+    esp_err_t err;
+    if (n == 0) {
+        err = httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no frame yet: start with /camvideo?fps=10");
+    } else {
+        httpd_resp_set_type(req, "image/jpeg");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        err = httpd_resp_send(req, (const char *) buf, n);
+    }
+    heap_caps_free(buf);
+    return err;
+}
+
 // GET /camdiag: the S3 CAM's self-reported diagnostics (relayed over SPI,
 // see cam_link.cpp) plus this board's own live ICMP-ping stats to it (see
 // ping_diag.cpp). Kept separate from /params (a big, load-once settings
@@ -1088,6 +1132,8 @@ esp_err_t handle_set_wrapper(httpd_req_t *req) { return handle_set(req); }
 esp_err_t handle_params_wrapper(httpd_req_t *req) { return handle_params(req); }
 esp_err_t handle_cam_diag_wrapper(httpd_req_t *req) { return handle_cam_diag(req); }
 esp_err_t handle_cam_raw_wrapper(httpd_req_t *req) { return handle_cam_raw(req); }
+esp_err_t handle_cam_video_wrapper(httpd_req_t *req) { return handle_cam_video(req); }
+esp_err_t handle_cam_frame_wrapper(httpd_req_t *req) { return handle_cam_frame(req); }
 esp_err_t handle_pose_wrapper(httpd_req_t *req) { return handle_pose(req); }
 esp_err_t handle_wifi_status_wrapper(httpd_req_t *req) { return handle_wifi_status(req); }
 esp_err_t handle_wifi_scan_wrapper(httpd_req_t *req) { return handle_wifi_scan(req); }
@@ -1144,6 +1190,10 @@ void web_server_init() {
                               .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t camRawUri = {.uri = "/camraw", .method = HTTP_GET, .handler = handle_cam_raw_wrapper, .user_ctx = nullptr,
                              .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t camVideoUri = {.uri = "/camvideo", .method = HTTP_GET, .handler = handle_cam_video_wrapper, .user_ctx = nullptr,
+                               .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t camFrameUri = {.uri = "/camframe.jpg", .method = HTTP_GET, .handler = handle_cam_frame_wrapper, .user_ctx = nullptr,
+                               .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t poseUri = {.uri = "/pose", .method = HTTP_GET, .handler = handle_pose_wrapper, .user_ctx = nullptr,
                            .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t wifiStatusUri = {.uri = "/wifi/status", .method = HTTP_GET, .handler = handle_wifi_status_wrapper, .user_ctx = nullptr,
@@ -1167,6 +1217,8 @@ void web_server_init() {
     httpd_register_uri_handler(g_server, &paramsUri);
     httpd_register_uri_handler(g_server, &camDiagUri);
     httpd_register_uri_handler(g_server, &camRawUri);
+    httpd_register_uri_handler(g_server, &camVideoUri);
+    httpd_register_uri_handler(g_server, &camFrameUri);
     httpd_register_uri_handler(g_server, &poseUri);
     httpd_register_uri_handler(g_server, &wifiStatusUri);
     httpd_register_uri_handler(g_server, &wifiScanUri);

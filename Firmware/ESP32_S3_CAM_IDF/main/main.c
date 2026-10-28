@@ -27,6 +27,7 @@
 #include "esp_heap_caps.h"
 #include "esp_random.h"
 #include "cam_link_proto.h"
+#include "esp_rom_crc.h"
 #include "nvs.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
@@ -528,6 +529,82 @@ static SemaphoreHandle_t s_link_mutex;
 // short, the length of the last one, and the start of the last frame received.
 static volatile uint32_t s_link_transfers, s_link_short, s_link_last_bits;
 static uint8_t s_link_last_rx[16];
+#define LINK_TRANSFER_BYTES (CAM_LINK_FRAME_BYTES + CAM_LINK_VIDEO_AREA)
+
+// Video to the robot (cam_link_proto.h, "Video"): the robot asks for it with
+// "VIDEO fps=<n>" and streams it over its own (5 GHz capable) Wi-Fi. The
+// latest frame of the capture task (s_frame_buf, defined further down) is
+// copied whole into s_vbuf, then sent in chunks, one per transaction.
+static SemaphoreHandle_t s_frame_mutex;
+static uint8_t *s_frame_buf;
+static size_t s_frame_len;
+static volatile uint32_t s_frame_seq;
+static volatile int s_video_fps;          // asked by the robot, 0: off
+static uint8_t *s_vbuf;                   // the frame being sent (PSRAM)
+static size_t s_vcap, s_vlen, s_voff;
+static uint16_t s_vid;
+static uint32_t s_vseq;                   // s_frame_seq of the frame in s_vbuf
+static int64_t s_vlast_us;
+static bool s_vpromised, s_vattached;     // area promised for the next transaction / attached to this one
+static uint16_t s_vattached_len;
+static volatile uint32_t s_video_frames, s_video_chunks, s_video_missed;
+
+static bool video_frame_due(void) {
+    int fps = s_video_fps;
+    return fps > 0 && s_frame_mutex != NULL && s_frame_seq != s_vseq && esp_timer_get_time() - s_vlast_us >= 1000000 / fps;
+}
+
+static void video_start_frame(void) {
+    xSemaphoreTake(s_frame_mutex, portMAX_DELAY);
+    if (s_frame_len > s_vcap) {
+        uint8_t *grown = heap_caps_malloc(s_frame_len, MALLOC_CAP_SPIRAM);
+        if (grown) {
+            free(s_vbuf);
+            s_vbuf = grown;
+            s_vcap = s_frame_len;
+        }
+    }
+    if (s_vbuf && s_frame_len > 0 && s_frame_len <= s_vcap) {
+        memcpy(s_vbuf, s_frame_buf, s_frame_len);
+        s_vlen = s_frame_len;
+        s_voff = 0;
+        s_vid++;
+    }
+    s_vseq = s_frame_seq;
+    xSemaphoreGive(s_frame_mutex);
+    s_vlast_us = esp_timer_get_time();
+}
+
+// Fills the video area of the next transaction if one was promised, and
+// decides whether to promise one for the transaction after it.
+static void video_prepare(uint8_t *area) {
+    s_vattached = s_vpromised;
+    s_vattached_len = 0;
+    if (s_vattached) {
+        if (s_voff >= s_vlen && video_frame_due()) video_start_frame();
+        size_t n = s_voff < s_vlen ? s_vlen - s_voff : 0;
+        if (n > CAM_LINK_VIDEO_DATA_MAX) n = CAM_LINK_VIDEO_DATA_MAX;
+        memset(area, 0, CAM_LINK_VIDEO_HEADER);
+        area[0] = 'V';
+        area[1] = 'F';
+        area[2] = (uint8_t) s_vid;
+        area[3] = (uint8_t) (s_vid >> 8);
+        uint32_t total = (uint32_t) s_vlen, off = (uint32_t) s_voff;
+        memcpy(area + 4, &total, 4);
+        memcpy(area + 8, &off, 4);
+        area[12] = (uint8_t) n;
+        area[13] = (uint8_t) (n >> 8);
+        if (n) memcpy(area + CAM_LINK_VIDEO_HEADER, s_vbuf + s_voff, n);
+        uint32_t crc = esp_rom_crc32_le(0, area, 16);
+        crc = esp_rom_crc32_le(crc, area + CAM_LINK_VIDEO_HEADER, n);
+        memcpy(area + 16, &crc, 4);
+        s_vattached_len = (uint16_t) n;
+    }
+    bool more = s_voff + s_vattached_len < s_vlen;
+    s_vpromised = s_video_fps > 0 && (more || video_frame_due());
+    s_link.txFlags = s_vpromised ? CAM_LINK_FLAG_VIDEO_NEXT : 0;
+}
+
 static uint8_t *s_link_tx; // DMA-capable
 static uint8_t *s_link_rx;
 
@@ -535,8 +612,9 @@ static void status_link_init(void) {
     uint8_t epoch = (uint8_t) (esp_random() & 0xFF);
     cam_link_init(&s_link, epoch ? epoch : 1, s_link_ring, sizeof(s_link_ring));
     s_link_mutex = xSemaphoreCreateMutex();
-    s_link_tx = heap_caps_calloc(1, CAM_LINK_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    s_link_rx = heap_caps_calloc(1, CAM_LINK_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    // Room for a video area after the frame (the robot clocks it only when promised).
+    s_link_tx = heap_caps_calloc(1, LINK_TRANSFER_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    s_link_rx = heap_caps_calloc(1, LINK_TRANSFER_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (s_link_mutex == NULL || s_link_tx == NULL || s_link_rx == NULL) {
         ESP_LOGE(TAG, "out of memory, robot link not started");
         return;
@@ -553,7 +631,7 @@ static void status_link_init(void) {
         .sclk_io_num = STATUS_SPI_SCLK_GPIO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = CAM_LINK_FRAME_BYTES,
+        .max_transfer_sz = LINK_TRANSFER_BYTES,
     };
     spi_slave_interface_config_t slave = {
         .mode = 3,
@@ -727,7 +805,14 @@ static bool ota_authorized(httpd_req_t *req) {
 //   WIFI ssid=<hex> pass=<hex>   join this network
 //   OTA user=<hex> pass=<hex>    credentials for /update
 //   SCAN                         report what this camera hears
+//   VIDEO fps=<n>                send frames over the link, at most n per second (0: stop)
 static void status_link_handle_line(char *line) {
+    if (strncmp(line, "VIDEO ", 6) == 0) {
+        const char *f = strstr(line, "fps=");
+        int fps = f ? atoi(f + 4) : 0;
+        s_video_fps = fps < 0 ? 0 : fps > 30 ? 30 : fps;
+        return;
+    }
     if (strcmp(line, "SCAN") == 0) {
         xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_BIT);
         return;
@@ -778,11 +863,12 @@ static void status_link_transport_task(void *arg) {
     int64_t lastGoodUs = 0;
     while (true) {
         xSemaphoreTake(s_link_mutex, portMAX_DELAY);
+        video_prepare(s_link_tx + CAM_LINK_FRAME_BYTES);
         cam_link_build(&s_link, s_link_tx);
         xSemaphoreGive(s_link_mutex);
 
         spi_slave_transaction_t t = {0};
-        t.length = CAM_LINK_FRAME_BYTES * 8;
+        t.length = LINK_TRANSFER_BYTES * 8; // the robot clocks 128 bytes, or all of it after a promise
         t.tx_buffer = s_link_tx;
         t.rx_buffer = s_link_rx;
         if (spi_slave_transmit(STATUS_SPI_HOST, &t, portMAX_DELAY) != ESP_OK) {
@@ -792,9 +878,20 @@ static void status_link_transport_task(void *arg) {
         int n = -1;
         s_link_transfers++;
         s_link_last_bits = t.trans_len;
-        if (t.trans_len != CAM_LINK_FRAME_BYTES * 8) s_link_short++;
+        if (t.trans_len < CAM_LINK_FRAME_BYTES * 8) s_link_short++;
         memcpy(s_link_last_rx, s_link_rx, sizeof(s_link_last_rx));
-        if (t.trans_len == CAM_LINK_FRAME_BYTES * 8) {
+        if (s_vattached) {
+            if (t.trans_len >= LINK_TRANSFER_BYTES * 8) {
+                if (s_vattached_len) {
+                    s_voff += s_vattached_len;
+                    s_video_chunks++;
+                    if (s_voff >= s_vlen) s_video_frames++;
+                }
+            } else {
+                s_video_missed++; // the robot didn't clock the area: the same chunk goes again
+            }
+        }
+        if (t.trans_len >= CAM_LINK_FRAME_BYTES * 8) {
             xSemaphoreTake(s_link_mutex, portMAX_DELAY);
             n = cam_link_parse(&s_link, s_link_rx, payload);
             xSemaphoreGive(s_link_mutex);
@@ -938,7 +1035,8 @@ static esp_err_t diag_handler(httpd_req_t *req) {
         "\"frameCount\":%lu,\"lastFrameIntervalMs\":%lu,\"maxFrameIntervalMs\":%lu,"
         "\"slowFrameCount\":%lu,"
         "\"lastSendMs\":%lu,\"maxSendMs\":%lu,\"slowSendCount\":%lu,"
-        "\"link\":{\"transfers\":%lu,\"short\":%lu,\"lastBits\":%lu,\"framesGood\":%lu,\"framesBad\":%lu,\"lastRx16\":\"%s\"}}",
+        "\"link\":{\"transfers\":%lu,\"short\":%lu,\"lastBits\":%lu,\"framesGood\":%lu,\"framesBad\":%lu,\"lastRx16\":\"%s\","
+        "\"videoFps\":%d,\"videoFrames\":%lu,\"videoChunks\":%lu,\"videoMissed\":%lu}}",
         s_mac_str, s_ip_str, rssi, (long long) (esp_timer_get_time() / 1000000),
         (unsigned) esp_get_free_heap_size(), (unsigned) esp_get_minimum_free_heap_size(),
         (unsigned long) s_cam_fail_count, (unsigned long) s_reboot_count,
@@ -948,7 +1046,8 @@ static esp_err_t diag_handler(httpd_req_t *req) {
         (unsigned long) s_last_send_ms, (unsigned long) s_max_send_ms,
         (unsigned long) s_slow_send_count,
         (unsigned long) s_link_transfers, (unsigned long) s_link_short, (unsigned long) s_link_last_bits,
-        (unsigned long) s_link.framesGood, (unsigned long) s_link.framesBad, rx_hex);
+        (unsigned long) s_link.framesGood, (unsigned long) s_link.framesBad, rx_hex,
+        s_video_fps, (unsigned long) s_video_frames, (unsigned long) s_video_chunks, (unsigned long) s_video_missed);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, json, len);
 }
@@ -1061,11 +1160,9 @@ static esp_err_t update_handler(httpd_req_t *req) {
 
 #define MAX_STREAM_CLIENTS 4
 
-static SemaphoreHandle_t s_frame_mutex;
-static uint8_t *s_frame_buf = NULL;
-static size_t s_frame_len = 0;
+// (s_frame_mutex, s_frame_buf, s_frame_len and s_frame_seq are declared above
+// the link code, which sends these frames to the robot too.)
 static size_t s_frame_cap = 0;
-static volatile uint32_t s_frame_seq = 0;
 static int64_t s_frame_ts_us = 0; // capture time of s_frame_buf
 
 static SemaphoreHandle_t s_stream_slots; // counting semaphore, one per free viewer slot

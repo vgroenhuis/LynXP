@@ -19,6 +19,7 @@ idf_component_register(
         "wifi_networks.cpp"
         "captive_dns.cpp"
         "cam_link.cpp"
+        "cam_stream.cpp"
         "ping_diag.cpp"
         "oled.cpp"
         "ina260.cpp"

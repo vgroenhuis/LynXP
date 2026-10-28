@@ -31,6 +31,24 @@
 //        8..    payload, zero padded up to the CRC
 //  last 2 bytes CRC16-CCITT (poly 0x1021, init 0xFFFF) of all bytes before, little endian
 //
+// Video (camera -> robot, since 1.1.0): bit 7 of the type byte
+// (CAM_LINK_FLAG_VIDEO_NEXT) in a camera frame promises that the camera's
+// *next* transaction carries a video area: the robot then clocks
+// CAM_LINK_VIDEO_AREA more bytes right after that 128-byte frame, with CS
+// still low. The camera only promises when it has video to send, so the link
+// is no busier than before while video is off. A video area:
+//  byte  0..1   'V' 'F'
+//        2..3   frame id (little endian, counts up per JPEG)
+//        4..7   total length of the JPEG
+//        8..11  offset of this chunk in the JPEG
+//        12..13 chunk length (0: nothing this time)
+//        14..15 0
+//        16..19 CRC32 (esp_rom_crc32_le, start 0) of bytes 0..15, then of the chunk
+//        20..   the chunk
+// Chunks are not repeated: a frame with a missing or damaged chunk is dropped
+// (the next one is only a frame time away). The camera repeats a chunk only
+// when the robot didn't clock its area at all (it missed the promise).
+//
 // Not thread safe: callers lock around calls (the transport task and the
 // functions that enqueue text are different tasks).
 
@@ -46,6 +64,10 @@
 #define CAM_LINK_CRC_BYTES 2
 #define CAM_LINK_PAYLOAD_MAX (CAM_LINK_FRAME_BYTES - CAM_LINK_HEADER_BYTES - CAM_LINK_CRC_BYTES)
 #define CAM_LINK_MAGIC 0xA5
+#define CAM_LINK_FLAG_VIDEO_NEXT 0x80
+#define CAM_LINK_VIDEO_AREA 4096
+#define CAM_LINK_VIDEO_HEADER 20
+#define CAM_LINK_VIDEO_DATA_MAX (CAM_LINK_VIDEO_AREA - CAM_LINK_VIDEO_HEADER)
 
 enum { CAM_LINK_TYPE_IDLE = 0, CAM_LINK_TYPE_STREAM = 1, CAM_LINK_TYPE_VIDEO = 2 };
 
@@ -63,6 +85,8 @@ typedef struct {
     uint16_t ringCount;
     uint32_t framesGood;
     uint32_t framesBad;
+    uint8_t txFlags;    // OR'ed into the type byte of the frames we send (CAM_LINK_FLAG_*)
+    uint8_t peerFlags;  // the flags of the peer's last valid frame
 } cam_link_t;
 
 static inline uint16_t cam_link_crc16(const uint8_t *p, size_t n) {
@@ -117,7 +141,7 @@ static inline void cam_link_build(cam_link_t *l, uint8_t out[CAM_LINK_FRAME_BYTE
     }
     memset(out, 0, CAM_LINK_FRAME_BYTES);
     out[0] = CAM_LINK_MAGIC;
-    out[1] = l->txSeq ? CAM_LINK_TYPE_STREAM : CAM_LINK_TYPE_IDLE;
+    out[1] = (uint8_t) ((l->txSeq ? CAM_LINK_TYPE_STREAM : CAM_LINK_TYPE_IDLE) | l->txFlags);
     out[2] = l->epoch;
     out[3] = l->peerEpoch;
     out[4] = l->txSeq;
@@ -146,13 +170,14 @@ static inline int cam_link_parse(cam_link_t *l, const uint8_t in[CAM_LINK_FRAME_
         l->framesBad++;
         return -1;
     }
-    uint8_t type = in[1], peerEpoch = in[2], ackEpoch = in[3], seq = in[4], ack = in[5];
+    uint8_t type = in[1] & 0x7F, peerEpoch = in[2], ackEpoch = in[3], seq = in[4], ack = in[5];
     uint16_t len = (uint16_t) (in[6] | (in[7] << 8));
     if (peerEpoch == 0 || len > CAM_LINK_PAYLOAD_MAX) {
         l->framesBad++;
         return -1;
     }
     l->framesGood++;
+    l->peerFlags = in[1] & 0x80;
 
     if (peerEpoch != l->peerEpoch) {
         // The peer is new or restarted: it expects our frames to start again

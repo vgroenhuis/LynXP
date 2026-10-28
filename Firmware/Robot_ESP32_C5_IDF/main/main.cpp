@@ -15,6 +15,7 @@
 #include "web_server.hpp"
 #include "ws_broadcast.hpp"
 #include "cam_link.hpp"
+#include "cam_stream.hpp"
 #include "ping_diag.hpp"
 #include "ota.hpp"
 #include "debug_pan.hpp"
@@ -83,6 +84,7 @@ extern "C" void app_main(void) {
     web_server_init();
     ws_broadcast_start();
     ota_register_routes();
+    cam_stream_start(); // MJPEG of the camera's frames over this board's Wi-Fi, port 81 (cam_stream.hpp)
     debug_pan_register_routes();
     closer_report_start(); // heartbeats to the CloSer lab demos page, once a device key is stored
 
