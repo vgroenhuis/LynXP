@@ -506,6 +506,7 @@ static bool init_camera(void) {
 //
 // Wires, on the XIAO ESP32-S3 Sense header (robot side: board_pins.hpp):
 //   D0  = GPIO1  MISO    D1  = GPIO2  CS     (the two UART wires: same pins, same directions)
+// SPI mode 3 since 1.0.2 (clock idles high): see the robot's board_pins.hpp.
 //   D9  = GPIO8  SCLK    D10 = GPIO9  MOSI   (new wires, next to each other)
 // (D6/D7, GPIO43/44, are still the console.) None of these is used by the
 // camera or is a strapping pin; GPIO8/9 are the expansion board's SD card
@@ -523,6 +524,10 @@ static bool init_camera(void) {
 static cam_link_t s_link;
 static uint8_t s_link_ring[STATUS_LINK_QUEUE_BYTES];
 static SemaphoreHandle_t s_link_mutex;
+// Diagnostics for /diag: transactions the robot clocked, how many were cut
+// short, the length of the last one, and the start of the last frame received.
+static volatile uint32_t s_link_transfers, s_link_short, s_link_last_bits;
+static uint8_t s_link_last_rx[16];
 static uint8_t *s_link_tx; // DMA-capable
 static uint8_t *s_link_rx;
 
@@ -537,9 +542,10 @@ static void status_link_init(void) {
         return;
     }
     // Idle levels while the robot is not driving the wires (resetting): chip
-    // select off (high), clock and data low.
+    // select off (high: it is the robot's GPIO28, a boot strapping pin that
+    // must read high at reset), clock high (mode 3), data low.
     gpio_set_pull_mode(STATUS_SPI_CS_GPIO, GPIO_PULLUP_ONLY);
-    gpio_set_pull_mode(STATUS_SPI_SCLK_GPIO, GPIO_PULLDOWN_ONLY);
+    gpio_set_pull_mode(STATUS_SPI_SCLK_GPIO, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(STATUS_SPI_MOSI_GPIO, GPIO_PULLDOWN_ONLY);
     spi_bus_config_t bus = {
         .mosi_io_num = STATUS_SPI_MOSI_GPIO,
@@ -550,7 +556,7 @@ static void status_link_init(void) {
         .max_transfer_sz = CAM_LINK_FRAME_BYTES,
     };
     spi_slave_interface_config_t slave = {
-        .mode = 0,
+        .mode = 3,
         .spics_io_num = STATUS_SPI_CS_GPIO,
         .queue_size = 1,
         .flags = 0,
@@ -784,6 +790,10 @@ static void status_link_transport_task(void *arg) {
             continue;
         }
         int n = -1;
+        s_link_transfers++;
+        s_link_last_bits = t.trans_len;
+        if (t.trans_len != CAM_LINK_FRAME_BYTES * 8) s_link_short++;
+        memcpy(s_link_last_rx, s_link_rx, sizeof(s_link_last_rx));
         if (t.trans_len == CAM_LINK_FRAME_BYTES * 8) {
             xSemaphoreTake(s_link_mutex, portMAX_DELAY);
             n = cam_link_parse(&s_link, s_link_rx, payload);
@@ -918,14 +928,17 @@ static esp_err_t diag_handler(httpd_req_t *req) {
     wifi_ap_record_t ap_info;
     int rssi = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) ? ap_info.rssi : 0;
 
-    char json[400];
+    char rx_hex[2 * sizeof(s_link_last_rx) + 1];
+    for (size_t i = 0; i < sizeof(s_link_last_rx); i++) sprintf(rx_hex + 2 * i, "%02x", s_link_last_rx[i]);
+    char json[700];
     int len = snprintf(json, sizeof(json),
         "{\"mac\":\"%s\",\"ip\":\"%s\",\"rssiDbm\":%d,\"uptimeS\":%lld,"
         "\"freeHeapBytes\":%u,\"minFreeHeapBytes\":%u,\"camFailCount\":%lu,"
         "\"rebootCount\":%lu,\"clients\":%d,\"resetReason\":\"%s\","
         "\"frameCount\":%lu,\"lastFrameIntervalMs\":%lu,\"maxFrameIntervalMs\":%lu,"
         "\"slowFrameCount\":%lu,"
-        "\"lastSendMs\":%lu,\"maxSendMs\":%lu,\"slowSendCount\":%lu}",
+        "\"lastSendMs\":%lu,\"maxSendMs\":%lu,\"slowSendCount\":%lu,"
+        "\"link\":{\"transfers\":%lu,\"short\":%lu,\"lastBits\":%lu,\"framesGood\":%lu,\"framesBad\":%lu,\"lastRx16\":\"%s\"}}",
         s_mac_str, s_ip_str, rssi, (long long) (esp_timer_get_time() / 1000000),
         (unsigned) esp_get_free_heap_size(), (unsigned) esp_get_minimum_free_heap_size(),
         (unsigned long) s_cam_fail_count, (unsigned long) s_reboot_count,
@@ -933,7 +946,9 @@ static esp_err_t diag_handler(httpd_req_t *req) {
         (unsigned long) s_frame_count, (unsigned long) s_last_frame_interval_ms,
         (unsigned long) s_max_frame_interval_ms, (unsigned long) s_slow_frame_count,
         (unsigned long) s_last_send_ms, (unsigned long) s_max_send_ms,
-        (unsigned long) s_slow_send_count);
+        (unsigned long) s_slow_send_count,
+        (unsigned long) s_link_transfers, (unsigned long) s_link_short, (unsigned long) s_link_last_bits,
+        (unsigned long) s_link.framesGood, (unsigned long) s_link.framesBad, rx_hex);
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_send(req, json, len);
 }

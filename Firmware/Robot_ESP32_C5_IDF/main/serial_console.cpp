@@ -8,6 +8,7 @@
 #include "waypoints.hpp"
 #include "wifi_connect.hpp"
 #include "wifi_networks.hpp"
+#include "cam_link.hpp"
 #include "closer_report.hpp"
 
 #include "freertos/FreeRTOS.h"
@@ -120,6 +121,15 @@ void handle_line(const char *line) {
     // below all go through the real control_modes.cpp state instead.
     if (std::strcmp(line, "wifi") == 0 || std::strncmp(line, "wifi ", 5) == 0) {
         handle_wifi_command(line + 4);
+
+    } else if (std::strncmp(line, "camclock ", 9) == 0) {
+        int hz = std::atoi(line + 9);
+        printf(cam_link_set_clock(hz) ? "camera link clock -> %d Hz\n" : "out of range (100000..40000000): %d\n", hz);
+
+    } else if (std::strcmp(line, "camraw") == 0) {
+        static char json[768];
+        cam_link_raw_json(json, sizeof(json));
+        printf("%s\n", json);
 
     } else if (std::strcmp(line, "closer") == 0) {
         printf("lab demos: %s, last report: %s\n",
@@ -249,7 +259,7 @@ void print_help() {
            "lab2turn left|right | goto <x> <y> | reset_encoders | reset_pose | "
            "logging on|off | pose | mp | stop | servo <us> | enc | ticks | "
            "settings show|save|load|default|set kp <v> | wp save|load | "
-           "wifi list|add <ssid> [pw]|forget <ssid>|connect <ssid> | closer [key <key>]\n");
+           "wifi list|add <ssid> [pw]|forget <ssid>|connect <ssid> | closer [key <key>] | camraw | camclock <Hz>\n");
 }
 
 void console_task(void *arg) {

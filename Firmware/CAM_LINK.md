@@ -10,26 +10,32 @@ sent over it yet.
 
 | Signal | ESP32-C5 (breadboard robot) | XIAO ESP32-S3 Sense |
 |---|---|---|
-| SCLK | GPIO11 | D9 = GPIO8 (new wire) |
-| MOSI | GPIO12 | D10 = GPIO9 (new wire) |
+| SCLK | GPIO14 (USB D+ pin) | D9 = GPIO8 (new wire) |
+| MOSI | GPIO13 (USB D- pin) | D10 = GPIO9 (new wire) |
 | MISO | GPIO4 | D0 = GPIO1 (the old UART wire) |
 | CS | GPIO28 | D1 = GPIO2 (the old UART wire) |
 | 5 V, GND | 5 V, GND | 5V, GND |
 
+SPI mode 3 (clock idles high), CS driven by the robot with 20 us setup time, 10 MHz (measured: no errors at
+10, 16, 26.7 and 40 MHz, every frame bad at 20 MHz; motors off).
+Since 1.0.7 SCLK and MOSI are on the C5's native USB pins: on the dev kit the UART0 pins GPIO11/12 also
+go to the CH343 USB-serial chip, which drives GPIO12 whenever the board has 5 V, so MOSI could not work
+there (1.0.6 test: with MOSI left off, 292 of 293 frames from the camera were valid).
+
 Rewire from the UART setup: the two UART wires stay as they are, with the same direction (S3 D0 to
 C5 GPIO4 was the camera's TX and is now MISO; C5 GPIO28 to S3 D1 was the robot's TX and is now CS);
-only SCLK and MOSI are new wires. Pin constants: `Robot_ESP32_C5_IDF/main/board_pins.hpp`
+only the SCLK (C5 GPIO14 to D9) and MOSI (C5 GPIO13 to D10) wires are new. Pin constants: `Robot_ESP32_C5_IDF/main/board_pins.hpp`
 (`CAM_SPI_*`) and `ESP32_S3_CAM_IDF/main/main.c` (`STATUS_SPI_*`). The planned PCB uses other C5 pins
 (`Schematic/PCB_requirements.md` §4.2 and §10).
 
 Things to know:
-- **Console on the native USB port.** GPIO11/12 were the UART0 console pins. The C5 console (logs and the
-  bench console) now runs over the dev kit's native USB-C port (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG` in
-  `sdkconfig.defaults`). Do not use the kit's UART (CH343) USB port while the camera is wired: its serial
-  chip also drives GPIO12 (MOSI). An existing `sdkconfig` has the old console setting: delete it (or
-  `idf.py fullclean`) so the new default is picked up. Flashing over the native USB port works as before.
+- **Console on the UART port, native USB only for power.** GPIO13/14 (the native USB pins) carry SCLK
+  and MOSI, so the app switches the USB-Serial-JTAG off; logs, the bench console and flashing go through
+  the dev kit's UART (CH343) USB port, as before the SPI link. An existing `sdkconfig` keeps the old
+  console setting: delete it (or `idf.py fullclean`) so the new defaults are picked up.
 - Both boards must be flashed: an old camera or an old robot does not understand the new link.
-- Keep the wires short (the clock is 4 MHz, `LINK_SPI_CLOCK_HZ` in `cam_link.cpp`).
+- Keep the wires short (the clock is 10 MHz, `LINK_SPI_CLOCK_HZ` in `cam_link.cpp`; `camclock <Hz>` on the
+  robot's console or `/camraw?clock=<Hz>` changes it until the next restart, `/camraw` shows the error counts).
 - Without a working link the robot logs every 30 s `no valid frame from the camera ... check the SPI wires`.
 
 ## Protocol

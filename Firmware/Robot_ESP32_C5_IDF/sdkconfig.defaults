@@ -39,6 +39,12 @@ CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# TLS (the CloSer report, closer_report.cpp) allocates its ~32 KB of buffers
+# in PSRAM too: in internal RAM mbedtls_ssl_setup failed with -0x008D (out of
+# memory) once the SPI camera link and the USB console were in. Slower, but it
+# is one HTTPS request a minute. (The PSRAM-and-TLS warning at boot is about
+# flash encryption, which this board doesn't use.)
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 
 # --- FreeRTOS ---
 CONFIG_FREERTOS_HZ=1000
@@ -62,11 +68,14 @@ CONFIG_SPI_FLASH_YIELD_DURING_ERASE=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # --- console ---
-# The native USB port carries the console (logs and the bench console, see
-# serial_console.cpp): GPIO11/12, the UART0 pins, are now SCLK/MOSI of the
-# SPI link to the camera (board_pins.hpp, cam_link.cpp). Delete an existing
-# sdkconfig (or run `idf.py fullclean` and set this) for it to take effect.
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# The console (logs and the bench console, see serial_console.cpp) is on
+# UART0, the dev kit's UART/CH343 USB port. The native USB pins GPIO13/14 are
+# SCLK/MOSI of the SPI link to the camera (board_pins.hpp), so the
+# USB-Serial-JTAG is off in the app (the bootloader still has it). Delete an
+# existing sdkconfig (or run `idf.py fullclean`) for this to take effect.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+# CONFIG_USJ_ENABLE_USB_SERIAL_JTAG is not set
 
 # --- OTA safety ---
 # Without this, a bad-but-valid OTA image bricks the board into a USB

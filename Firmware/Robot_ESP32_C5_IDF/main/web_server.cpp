@@ -671,6 +671,21 @@ esp_err_t handle_params(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// GET /camraw: the SPI link itself (cam_link_raw_json): counters and the
+// last frame received and sent, in hex, to see what is on the wires.
+esp_err_t handle_cam_raw(httpd_req_t *req) {
+    char query[32], value[12];
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+        httpd_query_key_value(query, "clock", value, sizeof(value)) == ESP_OK) {
+        cam_link_set_clock(std::atoi(value)); // (applied before the next frame; the reply may still show the old one)
+    }
+    char json[768];
+    int len = cam_link_raw_json(json, sizeof(json));
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, json, len);
+}
+
 // GET /camdiag: the S3 CAM's self-reported diagnostics (relayed over SPI,
 // see cam_link.cpp) plus this board's own live ICMP-ping stats to it (see
 // ping_diag.cpp). Kept separate from /params (a big, load-once settings
@@ -1072,6 +1087,7 @@ esp_err_t handle_app_data_post(httpd_req_t *req) {
 esp_err_t handle_set_wrapper(httpd_req_t *req) { return handle_set(req); }
 esp_err_t handle_params_wrapper(httpd_req_t *req) { return handle_params(req); }
 esp_err_t handle_cam_diag_wrapper(httpd_req_t *req) { return handle_cam_diag(req); }
+esp_err_t handle_cam_raw_wrapper(httpd_req_t *req) { return handle_cam_raw(req); }
 esp_err_t handle_pose_wrapper(httpd_req_t *req) { return handle_pose(req); }
 esp_err_t handle_wifi_status_wrapper(httpd_req_t *req) { return handle_wifi_status(req); }
 esp_err_t handle_wifi_scan_wrapper(httpd_req_t *req) { return handle_wifi_scan(req); }
@@ -1126,6 +1142,8 @@ void web_server_init() {
                              .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t camDiagUri = {.uri = "/camdiag", .method = HTTP_GET, .handler = handle_cam_diag_wrapper, .user_ctx = nullptr,
                               .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
+    httpd_uri_t camRawUri = {.uri = "/camraw", .method = HTTP_GET, .handler = handle_cam_raw_wrapper, .user_ctx = nullptr,
+                             .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t poseUri = {.uri = "/pose", .method = HTTP_GET, .handler = handle_pose_wrapper, .user_ctx = nullptr,
                            .is_websocket = false, .handle_ws_control_frames = false, .supported_subprotocol = nullptr};
     httpd_uri_t wifiStatusUri = {.uri = "/wifi/status", .method = HTTP_GET, .handler = handle_wifi_status_wrapper, .user_ctx = nullptr,
@@ -1148,6 +1166,7 @@ void web_server_init() {
     httpd_register_uri_handler(g_server, &setUri);
     httpd_register_uri_handler(g_server, &paramsUri);
     httpd_register_uri_handler(g_server, &camDiagUri);
+    httpd_register_uri_handler(g_server, &camRawUri);
     httpd_register_uri_handler(g_server, &poseUri);
     httpd_register_uri_handler(g_server, &wifiStatusUri);
     httpd_register_uri_handler(g_server, &wifiScanUri);

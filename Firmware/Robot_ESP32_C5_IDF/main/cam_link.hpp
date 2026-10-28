@@ -76,3 +76,14 @@ bool cam_link_peer_is_stale();
 // Call after settings.otaUsername/otaPassword change: re-sends them to the
 // camera (which guards its own /update with them) on the next link check.
 void cam_link_credentials_changed();
+
+// Link diagnostics as JSON (GET /camraw, console "camraw"): pins, transfer and
+// frame counters, and the last 128-byte frame received and sent, in hex --
+// all ff or all 00 received means the camera isn't driving MISO at all.
+// Needs about 700 bytes of room.
+int cam_link_raw_json(char *out, size_t len);
+
+// Changes the link's SPI clock until the next restart (100 kHz .. 40 MHz;
+// GET /camraw?clock=<Hz>, console "camclock <Hz>"), to find how fast the
+// wires allow. False if out of range or the link isn't running.
+bool cam_link_set_clock(int hz);

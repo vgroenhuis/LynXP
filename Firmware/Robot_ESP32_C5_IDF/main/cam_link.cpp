@@ -9,7 +9,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "esp_rom_sys.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -26,7 +28,18 @@ const char *TAG = "cam_link";
 // SPI master towards the camera (the S3 is the slave): see cam_link_proto.h
 // for the framing and board_pins.hpp for the wires.
 constexpr spi_host_device_t LINK_SPI_HOST = SPI2_HOST;
-constexpr int LINK_SPI_CLOCK_HZ = 4 * 1000 * 1000; // a 128-byte frame takes ~0.26 ms; jumper wires don't like more
+// CS is driven by hand, with time around the clock burst (the driver's own CS
+// has no setup time in full duplex): a little margin for the slave on jumper
+// wires. Added in 1.0.4 while finding the CH343 conflict on GPIO12 (see
+// board_pins.hpp).
+constexpr int LINK_CS_SETUP_US = 20;
+constexpr int LINK_CS_HOLD_US = 5;
+// 10 MHz: a 128-byte frame takes ~0.1 ms. Measured 2026-10-28 on ~20 cm of
+// jumper wire (motors off), 60 s each: no bad frame at 10, 16, 26.7 and 40 MHz,
+// but at 20 MHz every frame from the camera was bad (the C5 samples MISO right
+// on the camera's bit change there). 10 MHz leaves margin; try others at run
+// time with "camclock <Hz>" or /camraw?clock=<Hz>.
+constexpr int LINK_SPI_CLOCK_HZ = 10 * 1000 * 1000;
 constexpr TickType_t POLL_FAST = pdMS_TO_TICKS(5);   // while either side has something to say
 constexpr TickType_t POLL_IDLE = pdMS_TO_TICKS(25);
 constexpr TickType_t PEER_STALE_TICKS = pdMS_TO_TICKS(6000);
@@ -35,8 +48,16 @@ cam_link_t s_link;
 uint8_t s_ring[1024];
 SemaphoreHandle_t s_linkMutex = nullptr;
 spi_device_handle_t s_dev = nullptr;
+int s_clockHz = LINK_SPI_CLOCK_HZ;  // in use (the driver may round it: see s_actualKHz)
+int s_actualKHz = 0;
+volatile int s_wantClockHz = 0;     // cam_link_set_clock(): applied by the link task between frames
 uint8_t *s_txFrame = nullptr; // DMA-capable
 uint8_t *s_rxFrame = nullptr;
+// Diagnostics (cam_link_raw_json): the last frame exchanged, valid or not, and the transfer count.
+uint8_t s_lastTx[CAM_LINK_FRAME_BYTES];
+uint8_t s_lastRx[CAM_LINK_FRAME_BYTES];
+uint32_t s_transfers = 0;
+uint32_t s_transferErrors = 0;
 
 // Queues text for the camera (non-blocking: a full queue drops the message --
 // every message here is re-sent or re-requested later).
@@ -254,6 +275,28 @@ void feed_bytes(const uint8_t *data, size_t n) {
     }
 }
 
+bool add_device(int hz) {
+    spi_device_interface_config_t dev = {};
+    dev.clock_speed_hz = hz;
+    dev.mode = 3; // clock idles high (also what the USB D+ pull-up does while booting)
+    dev.spics_io_num = -1; // driven by hand in cam_link_task (LINK_CS_SETUP_US)
+    dev.queue_size = 1;
+    if (spi_bus_add_device(LINK_SPI_HOST, &dev, &s_dev) != ESP_OK) return false;
+    s_clockHz = hz;
+    s_actualKHz = spi_device_get_actual_freq(s_dev, &s_actualKHz) == ESP_OK ? s_actualKHz : 0;
+    return true;
+}
+
+// A new link clock (for finding how fast the wires allow): the device is set
+// up again with it; on failure the previous clock stays.
+void apply_clock(int hz) {
+    int old = s_clockHz;
+    s_wantClockHz = 0;
+    spi_bus_remove_device(s_dev);
+    if (!add_device(hz)) add_device(old);
+    ESP_LOGI(TAG, "link clock %d Hz (actual %d kHz)", s_clockHz, s_actualKHz);
+}
+
 // The SPI master: one full-duplex 128-byte frame with the camera every few ms.
 void cam_link_task(void *arg) {
     (void) arg;
@@ -279,10 +322,21 @@ void cam_link_task(void *arg) {
         t.tx_buffer = s_txFrame;
         t.rx_buffer = s_rxFrame;
         int n = -1;
-        if (spi_device_transmit(s_dev, &t) == ESP_OK) {
+        gpio_set_level(CAM_SPI_CS_PIN, 0);
+        esp_rom_delay_us(LINK_CS_SETUP_US);
+        if (s_wantClockHz && s_wantClockHz != s_clockHz) apply_clock(s_wantClockHz);
+        esp_err_t sent = spi_device_transmit(s_dev, &t);
+        esp_rom_delay_us(LINK_CS_HOLD_US);
+        gpio_set_level(CAM_SPI_CS_PIN, 1);
+        if (sent == ESP_OK) {
             xSemaphoreTake(s_linkMutex, portMAX_DELAY);
+            std::memcpy(s_lastTx, s_txFrame, CAM_LINK_FRAME_BYTES);
+            std::memcpy(s_lastRx, s_rxFrame, CAM_LINK_FRAME_BYTES);
+            s_transfers++;
             n = cam_link_parse(&s_link, s_rxFrame, payload);
             xSemaphoreGive(s_linkMutex);
+        } else {
+            s_transferErrors++;
         }
         TickType_t now = xTaskGetTickCount();
         if (n >= 0) {
@@ -330,12 +384,16 @@ void cam_link_start() {
     bus.max_transfer_sz = CAM_LINK_FRAME_BYTES;
     ESP_ERROR_CHECK(spi_bus_initialize(LINK_SPI_HOST, &bus, SPI_DMA_CH_AUTO));
 
-    spi_device_interface_config_t dev = {};
-    dev.clock_speed_hz = LINK_SPI_CLOCK_HZ;
-    dev.mode = 0;
-    dev.spics_io_num = CAM_SPI_CS_PIN;
-    dev.queue_size = 1;
-    ESP_ERROR_CHECK(spi_bus_add_device(LINK_SPI_HOST, &dev, &s_dev));
+    if (!add_device(LINK_SPI_CLOCK_HZ)) {
+        ESP_LOGE(TAG, "SPI device not added, camera link not started");
+        return;
+    }
+    gpio_set_level(CAM_SPI_CS_PIN, 1);
+    gpio_config_t cs = {};
+    cs.pin_bit_mask = 1ULL << CAM_SPI_CS_PIN;
+    cs.mode = GPIO_MODE_OUTPUT;
+    ESP_ERROR_CHECK(gpio_config(&cs));
+    gpio_set_level(CAM_SPI_CS_PIN, 1);
 
     xTaskCreate(cam_link_task, "cam_link", 4096, nullptr, tskIDLE_PRIORITY + 2, nullptr);
 }
@@ -376,3 +434,32 @@ bool cam_link_peer_is_stale() {
 }
 
 void cam_link_credentials_changed() { s_camOtaDirty = true; }
+
+static int hex_bytes(char *out, size_t len, const uint8_t *in, size_t n) {
+    size_t k = 0;
+    for (size_t i = 0; i < n && k + 3 < len; i++) k += std::snprintf(out + k, len - k, "%02x", in[i]);
+    return (int) k;
+}
+
+int cam_link_raw_json(char *out, size_t len) {
+    if (s_linkMutex == nullptr) return std::snprintf(out, len, "{\"started\":false}");
+    char rx[2 * CAM_LINK_FRAME_BYTES + 1], tx[2 * CAM_LINK_FRAME_BYTES + 1];
+    xSemaphoreTake(s_linkMutex, portMAX_DELAY);
+    hex_bytes(rx, sizeof(rx), s_lastRx, CAM_LINK_FRAME_BYTES);
+    hex_bytes(tx, sizeof(tx), s_lastTx, CAM_LINK_FRAME_BYTES);
+    uint32_t good = s_link.framesGood, bad = s_link.framesBad, transfers = s_transfers, errors = s_transferErrors;
+    xSemaphoreGive(s_linkMutex);
+    return std::snprintf(out, len,
+                         "{\"started\":true,\"pins\":{\"sclk\":%d,\"mosi\":%d,\"miso\":%d,\"cs\":%d},\"clockHz\":%d,\"actualKHz\":%d,"
+                         "\"transfers\":%lu,\"transferErrors\":%lu,\"framesGood\":%lu,\"framesBad\":%lu,"
+                         "\"lastRx\":\"%s\",\"lastTx\":\"%s\"}",
+                         (int) CAM_SPI_SCLK_PIN, (int) CAM_SPI_MOSI_PIN, (int) CAM_SPI_MISO_PIN, (int) CAM_SPI_CS_PIN,
+                         s_clockHz, s_actualKHz, (unsigned long) transfers, (unsigned long) errors, (unsigned long) good,
+                         (unsigned long) bad, rx, tx);
+}
+
+bool cam_link_set_clock(int hz) {
+    if (hz < 100 * 1000 || hz > 40 * 1000 * 1000 || s_dev == nullptr) return false;
+    s_wantClockHz = hz;
+    return true;
+}

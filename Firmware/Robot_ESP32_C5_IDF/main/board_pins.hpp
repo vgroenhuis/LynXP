@@ -106,20 +106,26 @@ constexpr gpio_num_t QR_BUTTON_PIN = GPIO_NUM_27;
 // ESP32_S3_CAM_IDF/main/main.c, STATUS_SPI_* pins):
 //
 //   this board              cam (XIAO ESP32-S3 Sense)
-//   GPIO11  SCLK   ------>  D9  = GPIO8   SCLK   (new wire)
-//   GPIO12  MOSI   ------>  D10 = GPIO9   MOSI   (new wire)
+//   GPIO14  SCLK   ------>  D9  = GPIO8   SCLK   (new wire, on the USB D+ pin)
+//   GPIO13  MOSI   ------>  D10 = GPIO9   MOSI   (new wire, on the USB D- pin)
 //   GPIO4   MISO   <------  D0  = GPIO1   MISO   (the old UART wire, same direction)
 //   GPIO28  CS     ------>  D1  = GPIO2   CS     (the old UART wire, same direction)
 //   5 V and GND as before (the cam's 5 V pin)
 //
-// GPIO4 and GPIO28 are the pins the UART used. GPIO11/12 are the UART0
-// console pins: the console now runs over the native USB port (sdkconfig
-// CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG, serial_console.cpp), so do not use the
-// UART/CH343 USB port of the dev kit while the cam is wired -- its serial chip
-// would drive GPIO12 (MOSI) too. GPIO28 is a boot-mode strapping pin: it is
-// only ever an output here, and the cam's pull-up on CS keeps it high.
-constexpr gpio_num_t CAM_SPI_SCLK_PIN = GPIO_NUM_11;
-constexpr gpio_num_t CAM_SPI_MOSI_PIN = GPIO_NUM_12;
+// GPIO4 and GPIO28 are the pins the UART used. GPIO13/14 are the native USB
+// pins: that port now only powers the board; the console (logs, bench
+// console) and flashing go through the dev kit's UART/CH343 port. GPIO28 is a
+// boot-mode strapping pin: it is only ever an output here, and the cam's
+// pull-up on CS keeps it high at reset.
+// 1.0.7: SCLK and MOSI moved from GPIO11/12 (the UART0 pins) to GPIO14/13,
+// the native USB pins (the USB-Serial-JTAG is off, sdkconfig.defaults): the
+// dev kit's CH343 USB-serial chip drives GPIO12 (U0RXD) whenever the board has
+// 5 V, so MOSI there fought it and no frame got through (1.0.6 test: with MOSI
+// left off, 292 of 293 frames from the camera were valid). The console is
+// back on UART0 / the CH343 port. Mode 3 (clock idles high) and CS driven by
+// hand with setup time, see cam_link.cpp.
+constexpr gpio_num_t CAM_SPI_SCLK_PIN = GPIO_NUM_14;
+constexpr gpio_num_t CAM_SPI_MOSI_PIN = GPIO_NUM_13;
 constexpr gpio_num_t CAM_SPI_MISO_PIN = GPIO_NUM_4;
 constexpr gpio_num_t CAM_SPI_CS_PIN = GPIO_NUM_28;
 
