@@ -4,7 +4,7 @@
 #include <cstring>
 
 #include "esp_system.h"
-#include "uart_link.hpp"
+#include "cam_link.hpp"
 #include "watchdog.hpp"
 #include "wifi_connect.hpp"
 #include "ws_broadcast.hpp"
@@ -55,24 +55,24 @@ StatusLedColor status_led_color(uint32_t nowMs) {
     if (nowMs < CRASH_SHOW_MS && crashed_last_time()) {
         return blink(nowMs, 2.0f) ? scaled(LEVEL, 0, 0) : OFF;
     }
-    if (nowMs > CAMERA_GRACE_MS && uart_link_peer_is_stale()) {
+    if (nowMs > CAMERA_GRACE_MS && cam_link_peer_is_stale()) {
         return scaled(LEVEL, 0, 0);
     }
 
     // (the cheap flags -- wifi_get_status() asks the driver, too much ~30x a second)
     const bool connected = wifi_is_connected();
     // The camera has joined once it reports an address (it's told which
-    // network by the robot, uart_link.cpp, so it only follows once the robot's on).
-    const bool cameraOnline = !uart_link_peer_is_stale() && std::strcmp(uart_link_get_peer_ip(), "0.0.0.0") != 0;
+    // network by the robot, cam_link.cpp, so it only follows once the robot's on).
+    const bool cameraOnline = !cam_link_peer_is_stale() && std::strcmp(cam_link_get_peer_ip(), "0.0.0.0") != 0;
     if (!connected && wifi_ap_is_active()) {
         // breathing: no network to join, the setup hotspot's waiting
         float k = 0.15f + 0.85f * (0.5f - 0.5f * std::cos(nowMs * 2.0f * (float) M_PI / 3000.0f));
         k = std::round(k * 10.0f) / 10.0f; // (in steps: the LED is only written when it changes)
         return scaled(LEVEL, 0, LEVEL, k);
     }
-    if (!connected || (!cameraOnline && !uart_link_peer_is_stale())) {
+    if (!connected || (!cameraOnline && !cam_link_peer_is_stale())) {
         return blink(nowMs, 2.0f) ? scaled(LEVEL, LEVEL * 45 / 100, 0) : OFF; // orange
     }
-    const bool inUse = ws_broadcast_client_count() > 0 || (!uart_link_peer_is_stale() && uart_link_get_diagnostics().clients > 0);
+    const bool inUse = ws_broadcast_client_count() > 0 || (!cam_link_peer_is_stale() && cam_link_get_diagnostics().clients > 0);
     return inUse ? scaled(0, LEVEL, 0) : scaled(0, 0, LEVEL);
 }

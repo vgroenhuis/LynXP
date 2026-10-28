@@ -61,6 +61,13 @@ CONFIG_SPI_FLASH_YIELD_DURING_ERASE=y
 # --- logging ---
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
+# --- console ---
+# The native USB port carries the console (logs and the bench console, see
+# serial_console.cpp): GPIO11/12, the UART0 pins, are now SCLK/MOSI of the
+# SPI link to the camera (board_pins.hpp, cam_link.cpp). Delete an existing
+# sdkconfig (or run `idf.py fullclean` and set this) for it to take effect.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
 # --- OTA safety ---
 # Without this, a bad-but-valid OTA image bricks the board into a USB
 # reflash. With it, a freshly-OTA'd image boots PENDING_VERIFY and the

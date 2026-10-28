@@ -1,5 +1,5 @@
 #include "ping_diag.hpp"
-#include "uart_link.hpp"
+#include "cam_link.hpp"
 #include "wifi_connect.hpp"
 
 #include "freertos/FreeRTOS.h"
@@ -21,7 +21,7 @@ char s_pingedIp[16] = "";
 // Written from the internal lwip ping task's callbacks, read from the HTTP
 // handler that serves /params -- plain volatiles rather than a mutex,
 // matching this codebase's existing pattern for small cross-task stats
-// (wifi_connect.cpp's g_connected, uart_link.cpp's s_lastSeenTick).
+// (wifi_connect.cpp's g_connected, cam_link.cpp's s_lastSeenTick).
 volatile bool s_active = false;
 volatile uint32_t s_sent = 0;
 volatile uint32_t s_received = 0;
@@ -95,10 +95,10 @@ void start_session(const char *ip) {
 void ping_diag_task(void *arg) {
     (void) arg;
     while (true) {
-        bool camKnown = !uart_link_peer_is_stale();
-        const char *camIp = uart_link_get_peer_ip();
-        // wifi_is_connected() matters here: uart_link can hear the cam's
-        // STAT line (it arrives independently over UART) before THIS
+        bool camKnown = !cam_link_peer_is_stale();
+        const char *camIp = cam_link_get_peer_ip();
+        // wifi_is_connected() matters here: cam_link can hear the cam's
+        // STAT line (it arrives independently over the SPI link) before THIS
         // board's own WiFi association finishes -- starting a ping session
         // before the local netif has an IP made esp_ping's socket send fail
         // outright, which it counts as ordinary loss. That's a one-time

@@ -18,7 +18,7 @@ idf_component_register(
         "wifi_connect.cpp"
         "wifi_networks.cpp"
         "captive_dns.cpp"
-        "uart_link.cpp"
+        "cam_link.cpp"
         "ping_diag.cpp"
         "oled.cpp"
         "ina260.cpp"
@@ -44,6 +44,8 @@ idf_component_register(
         esp_driver_gptimer
         esp_driver_i2c
         esp_driver_uart
+        esp_driver_spi  # the SPI link to the camera (cam_link.cpp)
+        esp_driver_usb_serial_jtag # the console (serial_console.cpp)
         nvs_flash
         esp_timer
         lwip

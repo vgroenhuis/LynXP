@@ -1,13 +1,18 @@
-#include "uart_link.hpp"
+#include "cam_link.hpp"
 #include "board_pins.hpp"
 #include "wifi_connect.hpp"
 #include "wifi_networks.hpp"
 #include "settings.hpp"
 
+#include "cam_link_proto.h"
+
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "driver/uart.h"
+#include "driver/spi_master.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_random.h"
 
 #include <cctype>
 #include <cstdio>
@@ -16,16 +21,38 @@
 
 namespace {
 
-const char *TAG = "uart_link";
+const char *TAG = "cam_link";
 
-constexpr uart_port_t LINK_UART_PORT = UART_NUM_1;
-constexpr int LINK_UART_BAUD = 115200;
+// SPI master towards the camera (the S3 is the slave): see cam_link_proto.h
+// for the framing and board_pins.hpp for the wires.
+constexpr spi_host_device_t LINK_SPI_HOST = SPI2_HOST;
+constexpr int LINK_SPI_CLOCK_HZ = 4 * 1000 * 1000; // a 128-byte frame takes ~0.26 ms; jumper wires don't like more
+constexpr TickType_t POLL_FAST = pdMS_TO_TICKS(5);   // while either side has something to say
+constexpr TickType_t POLL_IDLE = pdMS_TO_TICKS(25);
 constexpr TickType_t PEER_STALE_TICKS = pdMS_TO_TICKS(6000);
+
+cam_link_t s_link;
+uint8_t s_ring[1024];
+SemaphoreHandle_t s_linkMutex = nullptr;
+spi_device_handle_t s_dev = nullptr;
+uint8_t *s_txFrame = nullptr; // DMA-capable
+uint8_t *s_rxFrame = nullptr;
+
+// Queues text for the camera (non-blocking: a full queue drops the message --
+// every message here is re-sent or re-requested later).
+bool link_write(const char *data, size_t len) {
+    if (s_linkMutex == nullptr) return false;
+    xSemaphoreTake(s_linkMutex, portMAX_DELAY);
+    size_t n = cam_link_enqueue(&s_link, (const uint8_t *) data, len);
+    xSemaphoreGive(s_linkMutex);
+    if (n < len) ESP_LOGW(TAG, "send queue full, dropped %u byte(s)", (unsigned) (len - n));
+    return n == len;
+}
 
 CamDiagnostics s_diag;
 volatile TickType_t s_lastSeenTick = 0;
 
-// Cam WiFi hand-off (see uart_link.hpp). Checked every few seconds; after a
+// Cam WiFi hand-off (see cam_link.hpp). Checked every few seconds; after a
 // push, give the cam time to switch networks before pushing the same one again.
 constexpr TickType_t CAM_WIFI_CHECK_PERIOD = pdMS_TO_TICKS(5000);
 constexpr TickType_t CAM_WIFI_REPUSH_PERIOD = pdMS_TO_TICKS(30000);
@@ -63,7 +90,7 @@ volatile TickType_t s_camScanRequestedAt = 0;
 constexpr TickType_t CAM_SCAN_TIMEOUT = pdMS_TO_TICKS(10000); // a 2.4 GHz scan takes ~2 s; generous margin
 
 void maybe_sync_cam_wifi() {
-    if (uart_link_peer_is_stale() || !wifi_is_connected()) return;
+    if (cam_link_peer_is_stale() || !wifi_is_connected()) return;
     TickType_t now = xTaskGetTickCount();
     WifiStatus st;
     wifi_get_status(&st);
@@ -88,7 +115,7 @@ void maybe_sync_cam_wifi() {
     hex_encode(cred.password, passHex, sizeof(passHex));
     char line[256];
     int len = std::snprintf(line, sizeof(line), "WIFI ssid=%s pass=%s\n", ssidHex, passHex);
-    uart_write_bytes(LINK_UART_PORT, line, len);
+    link_write(line, (size_t) len);
 
     std::memcpy(s_lastPushedSsid, st.ssid, sizeof(s_lastPushedSsid)); // same size, always NUL-terminated
     s_lastCamWifiPush = now;
@@ -104,7 +131,7 @@ TickType_t s_lastCamOtaPush = 0;
 volatile bool s_camOtaDirty = true;
 
 void maybe_sync_cam_ota() {
-    if (uart_link_peer_is_stale()) return;
+    if (cam_link_peer_is_stale()) return;
     TickType_t now = xTaskGetTickCount();
     if (!s_camOtaDirty && now - s_lastCamOtaPush < CAM_OTA_REPUSH_PERIOD) return;
     s_camOtaDirty = false;
@@ -115,7 +142,7 @@ void maybe_sync_cam_ota() {
     hex_encode(settings.otaPassword, passHex, sizeof(passHex));
     char line[200];
     int len = std::snprintf(line, sizeof(line), "OTA user=%s pass=%s\n", userHex, passHex);
-    uart_write_bytes(LINK_UART_PORT, line, len);
+    link_write(line, (size_t) len);
 }
 
 // Parses "STAT key=value key=value ...\n" (line already NUL-terminated, no
@@ -136,7 +163,7 @@ void handle_line(char *line) {
         return;
     }
     // Camera scan results, one "AP ssid=<hex> rssi=<dBm> ch=<n> sec=<0|1>"
-    // per network, then "APEND" (see uart_link_request_cam_scan()).
+    // per network, then "APEND" (see cam_link_request_cam_scan()).
     if (std::strncmp(line, "AP ", 3) == 0) {
         if (s_camScanCount >= sizeof(s_camScan) / sizeof(s_camScan[0])) return;
         WifiScanEntry &e = s_camScan[s_camScanCount];
@@ -206,22 +233,13 @@ void handle_line(char *line) {
     s_lastSeenTick = xTaskGetTickCount();
 }
 
-void uart_link_rx_task(void *arg) {
-    (void) arg;
-    char line[256]; // >= the cam's own status_uart_send() buffer size
-    size_t lineLen = 0;
-    uint8_t byte;
-
-    while (true) {
-        if (xTaskGetTickCount() - s_lastCamWifiCheck >= CAM_WIFI_CHECK_PERIOD) {
-            s_lastCamWifiCheck = xTaskGetTickCount();
-            maybe_sync_cam_wifi();
-            maybe_sync_cam_ota();
-        }
-
-        int n = uart_read_bytes(LINK_UART_PORT, &byte, 1, pdMS_TO_TICKS(100));
-        if (n <= 0) continue;
-
+// Bytes the camera sent, cut into lines at '\n' (the same text lines as before
+// the link was SPI).
+void feed_bytes(const uint8_t *data, size_t n) {
+    static char line[256]; // >= the cam's own status_link_send() buffer size
+    static size_t lineLen = 0;
+    for (size_t i = 0; i < n; i++) {
+        uint8_t byte = data[i];
         if (byte == '\n') {
             line[lineLen] = '\0';
             if (lineLen > 0) handle_line(line);
@@ -236,63 +254,125 @@ void uart_link_rx_task(void *arg) {
     }
 }
 
-} // namespace
+// The SPI master: one full-duplex 128-byte frame with the camera every few ms.
+void cam_link_task(void *arg) {
+    (void) arg;
+    uint8_t payload[CAM_LINK_PAYLOAD_MAX];
+    TickType_t lastGood = 0;
+    TickType_t lastWarn = xTaskGetTickCount();
+    bool up = false;
 
-void uart_link_start() {
-    uart_config_t cfg = {};
-    cfg.baud_rate = LINK_UART_BAUD;
-    cfg.data_bits = UART_DATA_8_BITS;
-    cfg.parity = UART_PARITY_DISABLE;
-    cfg.stop_bits = UART_STOP_BITS_1;
-    cfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
-    // UART_SCLK_XTAL, not UART_SCLK_DEFAULT: this IS the ESP32-C5 receiver
-    // the S3 firmware's own comment on this line warned about -- a known
-    // chip erratum on UART_SCLK_DEFAULT (PLL-derived) is dodged by clocking
-    // off the crystal instead. The S3 CAM's own UART1 (the other end of
-    // this link) stays on UART_SCLK_DEFAULT; the erratum is C5-specific.
-    cfg.source_clk = UART_SCLK_XTAL;
+    while (true) {
+        if (xTaskGetTickCount() - s_lastCamWifiCheck >= CAM_WIFI_CHECK_PERIOD) {
+            s_lastCamWifiCheck = xTaskGetTickCount();
+            maybe_sync_cam_wifi();
+            maybe_sync_cam_ota();
+        }
 
-    ESP_ERROR_CHECK(uart_driver_install(LINK_UART_PORT, 256, 256, 0, nullptr, 0));
-    ESP_ERROR_CHECK(uart_param_config(LINK_UART_PORT, &cfg));
-    ESP_ERROR_CHECK(uart_set_pin(LINK_UART_PORT, CAM_UART_TX_PIN, CAM_UART_RX_PIN,
-                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+        xSemaphoreTake(s_linkMutex, portMAX_DELAY);
+        cam_link_build(&s_link, s_txFrame);
+        bool busy = cam_link_busy(&s_link);
+        xSemaphoreGive(s_linkMutex);
 
-    xTaskCreate(uart_link_rx_task, "uart_link_rx", 4096, nullptr, tskIDLE_PRIORITY + 1, nullptr);
+        spi_transaction_t t = {};
+        t.length = CAM_LINK_FRAME_BYTES * 8;
+        t.tx_buffer = s_txFrame;
+        t.rx_buffer = s_rxFrame;
+        int n = -1;
+        if (spi_device_transmit(s_dev, &t) == ESP_OK) {
+            xSemaphoreTake(s_linkMutex, portMAX_DELAY);
+            n = cam_link_parse(&s_link, s_rxFrame, payload);
+            xSemaphoreGive(s_linkMutex);
+        }
+        TickType_t now = xTaskGetTickCount();
+        if (n >= 0) {
+            lastGood = now;
+            if (!up) {
+                up = true;
+                ESP_LOGI(TAG, "camera link up (SPI)");
+            }
+            if (n > 0) feed_bytes(payload, (size_t) n);
+        } else {
+            if (up && now - lastGood > pdMS_TO_TICKS(2000)) {
+                up = false;
+                ESP_LOGW(TAG, "camera link lost");
+            }
+            // Nothing valid back: no camera yet, or a wiring problem. Say so now and then.
+            if (!up && now - lastWarn > pdMS_TO_TICKS(30000)) {
+                lastWarn = now;
+                ESP_LOGW(TAG, "no valid frame from the camera (%u bad so far): check the SPI wires (SCLK GPIO%d, MOSI GPIO%d, MISO GPIO%d, CS GPIO%d)",
+                         (unsigned) s_link.framesBad, (int) CAM_SPI_SCLK_PIN, (int) CAM_SPI_MOSI_PIN, (int) CAM_SPI_MISO_PIN, (int) CAM_SPI_CS_PIN);
+            }
+        }
+        vTaskDelay(busy || n > 0 ? POLL_FAST : POLL_IDLE);
+    }
 }
 
-const CamDiagnostics &uart_link_get_diagnostics() {
+} // namespace
+
+void cam_link_start() {
+    uint8_t epoch = (uint8_t) (esp_random() & 0xFF);
+    cam_link_init(&s_link, epoch ? epoch : 1, s_ring, sizeof(s_ring));
+    s_linkMutex = xSemaphoreCreateMutex();
+    s_txFrame = (uint8_t *) heap_caps_calloc(1, CAM_LINK_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    s_rxFrame = (uint8_t *) heap_caps_calloc(1, CAM_LINK_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (s_linkMutex == nullptr || s_txFrame == nullptr || s_rxFrame == nullptr) {
+        ESP_LOGE(TAG, "out of memory, camera link not started");
+        return;
+    }
+
+    spi_bus_config_t bus = {};
+    bus.mosi_io_num = CAM_SPI_MOSI_PIN;
+    bus.miso_io_num = CAM_SPI_MISO_PIN;
+    bus.sclk_io_num = CAM_SPI_SCLK_PIN;
+    bus.quadwp_io_num = -1;
+    bus.quadhd_io_num = -1;
+    bus.max_transfer_sz = CAM_LINK_FRAME_BYTES;
+    ESP_ERROR_CHECK(spi_bus_initialize(LINK_SPI_HOST, &bus, SPI_DMA_CH_AUTO));
+
+    spi_device_interface_config_t dev = {};
+    dev.clock_speed_hz = LINK_SPI_CLOCK_HZ;
+    dev.mode = 0;
+    dev.spics_io_num = CAM_SPI_CS_PIN;
+    dev.queue_size = 1;
+    ESP_ERROR_CHECK(spi_bus_add_device(LINK_SPI_HOST, &dev, &s_dev));
+
+    xTaskCreate(cam_link_task, "cam_link", 4096, nullptr, tskIDLE_PRIORITY + 2, nullptr);
+}
+
+const CamDiagnostics &cam_link_get_diagnostics() {
     return s_diag;
 }
 
-const char *uart_link_get_peer_mac() {
+const char *cam_link_get_peer_mac() {
     return s_diag.mac;
 }
 
-const char *uart_link_get_peer_ip() {
+const char *cam_link_get_peer_ip() {
     return s_diag.ip;
 }
 
-const char *uart_link_get_peer_ssid() {
+const char *cam_link_get_peer_ssid() {
     return s_diag.ssid;
 }
 
-bool uart_link_request_cam_scan() {
-    if (uart_link_peer_is_stale()) return false;
+bool cam_link_request_cam_scan() {
+    if (cam_link_peer_is_stale()) return false;
     s_camScanCount = 0; // drop any half-received earlier report
     s_camScanRequestedAt = xTaskGetTickCount();
     s_camScanPending = true;
-    uart_write_bytes(LINK_UART_PORT, "SCAN\n", 5);
+    link_write("SCAN\n", 5);
     return true;
 }
 
-CamScanState uart_link_cam_scan_state() {
+CamScanState cam_link_cam_scan_state() {
     if (!s_camScanPending) return CamScanState::Idle;
     return xTaskGetTickCount() - s_camScanRequestedAt < CAM_SCAN_TIMEOUT ? CamScanState::Scanning : CamScanState::NoAnswer;
 }
 
-bool uart_link_peer_is_stale() {
+bool cam_link_peer_is_stale() {
     if (s_lastSeenTick == 0) return true;
     return (xTaskGetTickCount() - s_lastSeenTick) > PEER_STALE_TICKS;
 }
 
-void uart_link_credentials_changed() { s_camOtaDirty = true; }
+void cam_link_credentials_changed() { s_camOtaDirty = true; }

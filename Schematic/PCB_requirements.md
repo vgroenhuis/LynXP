@@ -152,7 +152,7 @@ re-inserting the cable works; switching the load does not.
 - Reserved pins (from [board_pins.hpp](../Firmware/Robot_ESP32_C5_IDF/main/board_pins.hpp)):
   GPIO13/14 = USB D−/D+, GPIO16–22 = flash/PSRAM, **GPIO15 cannot be used** (PSRAM).
 - Strapping: **GPIO28 must not be externally driven** — only the BOOT button may pull it low. It
-  may only connect to inputs (as the camera UART RX line in the pin map below). The other
+  may only connect to inputs (e.g. the Dynamixel data input, §11.3). The other
   strapping pins need no special care.
 
 ### 4.1 Programming port
@@ -176,15 +176,13 @@ reassign pins; any change must be documented so `board_pins.hpp` can be updated.
 | Encoder left A, B | 26, 25 |
 | Encoder right A, B | 24, 23 |
 | I²C SDA / SCL | 2 / 3 |
-| Camera UART RX / TX | 4 / 28 |
+| Camera SPI link (C5 is master, §10): SCLK / MOSI / MISO / CS | 5 / 6 / 8 / 10 (formerly the I²S pins; GPIO11/12 stay free for the UART0 header) |
 | Screen-select potentiometer (§5.1) | GPIO1 (ADC1_CH0) |
 | UART0 TX / RX | 11 / 12 *(verify)* |
-| I²S BCLK / WS (optional microphone and amplifier, §11.2, very low priority) | 5 / 6 (free for other uses, e.g. §11.3, unless audio is built) |
-| I²S DIN (microphone) / DOUT (amplifier) | 8 / 10 (idem) |
 | Addressable status LED + RGB LED strip header (§11) | 7 |
 
 Any GPIOs left over (e.g. GPIO27, formerly the QR button) go to a 2.54 mm female header.
-The optional Dynamixel port (§11.3) needs a UART with TX, RX and a direction pin (or a single data pin, see there), which does not fit in the one spare GPIO (27) without further choices; the designer proposes the assignment (e.g. GPIO27 plus the I²S pins 5/6/8/10, which are free as long as the microphone and speaker, a very low priority, are not built on this board) and documents it.
+The pins that were the camera UART (GPIO4, GPIO28) and GPIO27 are free now: the optional Dynamixel port (§11.3) can use them (suggestion: RX on GPIO28, which may only be an input, TX on GPIO27, direction on GPIO4). A microphone and speaker (very low priority, §11.2) would sit on the camera's ESP32-S3 instead, so the C5 has no I²S pins reserved. The designer documents the final assignment.
 
 Encoders **must** stay on native GPIOs (PCNT peripheral).
 
@@ -349,20 +347,31 @@ All three options on the board, electrically in parallel (only one used at a tim
 
 ## 10. Camera (XIAO ESP32-S3 Sense)
 
-- The camera sits on the pan-tilt head. A **4-wire flat cable** is soldered to the XIAO and ends in
-  a connector that plugs into the PCB.
-- **Must**: keyed, latching/friction-locked 4-pin connector on the PCB (e.g. JST-PH 2.0 mm or
-  JST-XH 2.5 mm; the designer selects one and specifies the mating cable connector).
-  Pinout:
+- The camera sits on the pan-tilt head. A **6-wire flat cable** is soldered to the XIAO and ends in
+  a connector that plugs into the PCB. The link is **SPI** (the C5 is master, the XIAO's ESP32-S3
+  slave; framing in [cam_link_proto.h](../Firmware/Robot_ESP32_C5_IDF/main/cam_link_proto.h)),
+  replacing the former UART, so camera frames can later be streamed through the C5's own 5 GHz
+  Wi-Fi.
+- **Must**: keyed, latching/friction-locked 6-pin connector on the PCB (e.g. JST-PH 2.0 mm or
+  JST-XH 2.5 mm; the designer selects one and specifies the mating cable connector); **should**: a
+  7th pin reserved for a later "data ready" line from the XIAO. Pinout:
 
 | Pin | Signal | XIAO side | ESP32-C5 side |
 |---|---|---|---|
 | 1 | 5 V | 5V pad | 5 V rail |
 | 2 | GND | GND | GND |
-| 3 | CAM_TX | D0 (GPIO1, TX) | GPIO4 (UART1 RX) |
-| 4 | CAM_RX | D1 (GPIO2, RX) | GPIO28 (UART1 TX) |
+| 3 | CAM_SCLK | D8 (GPIO7) | GPIO5 (SPI clock out) |
+| 4 | CAM_MOSI | D10 (GPIO9) | GPIO6 (SPI data out) |
+| 5 | CAM_MISO | D9 (GPIO8) | GPIO8 (SPI data in) |
+| 6 | CAM_CS | D3 (GPIO4) | GPIO10 (chip select out) |
+| (7) | (CAM_RDY, later) | (a free D pin) | (a free GPIO) |
 
-- 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the UART lines.
+  The breadboard setup uses GPIO11/12/4/28 for the same four signals (board_pins.hpp); on the PCB
+  GPIO11/12 stay free for the UART0 header (§4.1).
+- 3.3 V levels. Small series resistors (e.g. 100–330 Ω) on the four SPI lines, and a pull-up on
+  CAM_CS (the XIAO's input is pulled up inside, but keep one on the board for while the C5
+  resets). The SPI clock is 4 MHz, so keep the cable short and CAM_SCLK away from the antenna
+  cable.
 - Place the connector so the cable has room to follow the pan/tilt motion; provide a strain-relief
   point (hole for a cable tie) next to it.
 - Budget ≥ 500 mA on the 5 V rail for the camera.
@@ -398,14 +407,15 @@ All three options on the board, electrically in parallel (only one used at a tim
   acceptable.
 
 ### 11.2 Microphone and speaker (optional, very low priority)
-Microphone and speaker are **really low priority**: leave them out of the first board revisions and
-use the I²S pins (§4.2) for other functions. **Preferred way if audio is wanted at all**: use the
+Microphone and speaker are **really low priority**: leave them out of the first board revisions (the
+C5 has no pins reserved for them any more, §4.2). **Preferred way if audio is wanted at all**: use the
 GPIOs of the **camera's XIAO ESP32-S3** instead of the main ESP32-C5. That ESP32 already streams the
 video, so it can stream the audio over the same connection, without any audio signals having to
 cross to the main board *(verify which XIAO ESP32-S3 Sense pins are free; the Sense board already
 carries a PDM microphone, which may be enough for the microphone)*. A speaker amplifier would then
 sit at the camera head, powered through the 5 V of the camera cable (§10). Only if audio on the
-main board is really wanted, the following applies:
+main board is really wanted, the following applies (the designer then has to find the I²S pins:
+the four GPIOs reserved for them earlier now carry the camera SPI link, §10):
 - On-board **I²S MEMS microphone** (e.g. ICS-43434 or INMP441-compatible, available at
   JLCPCB/LCSC), top-port so it fits single-sided assembly. Placed at a board edge, away from the
   motor driver, bucks and speaker connector; keep the sound port free (no silkscreen/solder mask
@@ -466,7 +476,8 @@ function to drop; the rest of the design must not depend on it.
   hardware; DIR must therefore be on a native ESP32 GPIO, not on the MCP23017. A weak pull-down
   on DIR keeps the bus released during boot.
 - **Pins**: TX, RX and DIR need three native GPIOs (UART1 or a free UART; UART0 is the console).
-  See §4.2: only GPIO27 is free, so the designer must find the others and document it. An
+  See §4.2: GPIO4, GPIO27 and GPIO28 are free (the former camera UART pins and the spare);
+  GPIO28 may only be an input, so it suits RX. An
   alternative that needs just **one GPIO** is to let the ESP32 do the half duplex itself by
   mapping UART TX and RX to the same pin in open-drain mode, which reduces the converter to the
   level shifter plus pull-up *(verify in the ESP32-C5 reference manual that this works at the

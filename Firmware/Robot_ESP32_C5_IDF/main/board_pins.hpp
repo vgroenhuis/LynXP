@@ -78,9 +78,10 @@ constexpr int ENCODER_COUNTS_PER_REVOLUTION = 48; // on the motor axis, not the 
 // consistent with noise during the ROM/2nd-stage-bootloader's own strap
 // sampling window, which no application-level fix can reach. Moved to
 // GPIO5 -- not a strapping pin, so there's no boot-time sampling window for
-// noise to be misread as a rotation command. CAM_UART_TX_PIN below moved to
-// GPIO28 in exchange, since a UART TX line floating/glitching briefly before
-// boot has no visible or functional consequence (see its own comment).
+// noise to be misread as a rotation command. The camera link's output on
+// GPIO28 (CAM_SPI_CS_PIN below, formerly the UART TX) took its place, since
+// a line floating/glitching briefly before boot has no visible or functional
+// consequence there (see its own comment).
 // Requires physically swapping which header pin the pan servo and the CAM
 // UART TX wire are each connected to, not just this software change.
 constexpr gpio_num_t SERVO_PIN = GPIO_NUM_5;        // pan
@@ -97,22 +98,30 @@ constexpr int SERVO_PWM_FREQ_HZ = 50;
 constexpr gpio_num_t QR_BUTTON_PIN = GPIO_NUM_27;
 
 // ---------------------------------------------------------------------------
-// S3-CAM status UART link
+// S3-CAM link: SPI, this board is the master (cam_link.cpp, cam_link_proto.h)
 // ---------------------------------------------------------------------------
-// UART1 to an ESP32-S3-Sense camera module's D0/D1 header pins. On the cam
-// side (ESP32_S3_CAM_IDF/main/main.c), D0=GPIO1=TX, D1=GPIO2=RX -- confirmed
-// directly from that firmware's STATUS_UART_TX_GPIO/RX_GPIO. This board's
-// wiring: cam D0 (TX) -> here GPIO4 (this board's RX); cam D1 (RX) -> here
-// GPIO28 (this board's TX) -- moved from GPIO5 to trade places with the pan
-// servo (see SERVO_PIN above). GPIO28 is a boot-mode strapping pin, but
-// that's a non-issue here: this pin only ever needs to be an ESP32 OUTPUT
-// (the cam firmware doesn't act on anything received on its own D1/RX per
-// its own source), so even if it floats or glitches before uart_link_start()
-// configures it, at worst a stray byte or two arrives at the camera before
-// real communication begins, with no functional or visible consequence --
-// nothing like a servo physically reacting to the same kind of noise.
-constexpr gpio_num_t CAM_UART_RX_PIN = GPIO_NUM_4;
-constexpr gpio_num_t CAM_UART_TX_PIN = GPIO_NUM_28;
+// Replaces the old UART link (GPIO4 RX / GPIO28 TX), so that camera frames can
+// later be streamed through this board's own (5 GHz capable) Wi-Fi. Four
+// signals plus power, on the XIAO ESP32-S3 Sense's header (cam side:
+// ESP32_S3_CAM_IDF/main/main.c, STATUS_SPI_* pins):
+//
+//   this board              cam (XIAO ESP32-S3 Sense)
+//   GPIO11  SCLK   ------>  D8  = GPIO7   SCLK
+//   GPIO12  MOSI   ------>  D10 = GPIO9   MOSI
+//   GPIO4   MISO   <------  D9  = GPIO8   MISO
+//   GPIO28  CS     ------>  D3  = GPIO4   CS
+//   5 V and GND as before (the cam's 5 V pin)
+//
+// GPIO4 and GPIO28 are the pins the UART used. GPIO11/12 are the UART0
+// console pins: the console now runs over the native USB port (sdkconfig
+// CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG, serial_console.cpp), so do not use the
+// UART/CH343 USB port of the dev kit while the cam is wired -- its serial chip
+// would drive GPIO12 (MOSI) too. GPIO28 is a boot-mode strapping pin: it is
+// only ever an output here, and the cam's pull-up on CS keeps it high.
+constexpr gpio_num_t CAM_SPI_SCLK_PIN = GPIO_NUM_11;
+constexpr gpio_num_t CAM_SPI_MOSI_PIN = GPIO_NUM_12;
+constexpr gpio_num_t CAM_SPI_MISO_PIN = GPIO_NUM_4;
+constexpr gpio_num_t CAM_SPI_CS_PIN = GPIO_NUM_28;
 
 // ---------------------------------------------------------------------------
 // INA260 high-side current/voltage sensor -- attaches as a second device on

@@ -14,8 +14,14 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "sdkconfig.h"
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
+#else
 #include "driver/uart.h"
 #include "driver/uart_vfs.h"
+#endif
 
 #include <cstdio>
 #include <cstring>
@@ -53,8 +59,9 @@ bool next_token(const char **p, char *out, size_t outLen) {
 
 // "wifi ..." -- manage saved networks from the serial console, e.g. to get a
 // robot with no phone handy (or no working OLED for the hotspot password)
-// online. Note the console reads input on the UART0 pins, not the native USB
-// port the logs also appear on.
+// online. The console runs over the native USB port (the UART0 pins are the
+// camera link's SPI wires now); with the console on UART0 instead
+// (CONFIG_ESP_CONSOLE_UART_DEFAULT) input comes from the UART0 pins.
 void handle_wifi_command(const char *args) {
     char verb[12], ssid[34], password[66];
     if (!next_token(&args, verb, sizeof(verb))) verb[0] = '\0';
@@ -271,6 +278,16 @@ void console_task(void *arg) {
 } // namespace
 
 void serial_console_start() {
+#if CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    // Native USB console: switch from the default non-blocking reads to the
+    // interrupt-driven driver, for the same reason as on UART0 below.
+    setvbuf(stdin, nullptr, _IONBF, 0);
+    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_CR);
+    usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_CRLF);
+    usb_serial_jtag_driver_config_t usbConfig = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usbConfig));
+    usb_serial_jtag_vfs_use_driver();
+#else
     // ESP-IDF's UART console defaults to uart_vfs_dev_use_nonblocking():
     // read() returns whatever's in the RX FIFO right now, even zero bytes,
     // rather than blocking for more. A human typing one key at a time hits
@@ -302,6 +319,8 @@ void serial_console_start() {
     ESP_ERROR_CHECK(uart_driver_install(CONSOLE_UART, 256, 0, 0, nullptr, 0));
     ESP_ERROR_CHECK(uart_param_config(CONSOLE_UART, &uartConfig));
     uart_vfs_dev_use_driver(CONSOLE_UART);
+
+#endif
 
     BaseType_t ok = xTaskCreate(console_task, "console", 4096, nullptr, 3, nullptr);
     if (ok != pdPASS) {

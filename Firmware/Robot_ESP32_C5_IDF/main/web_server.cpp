@@ -9,7 +9,7 @@
 #include "wifi_networks.hpp"
 #include "app_data.hpp"
 #include "oled.hpp"
-#include "uart_link.hpp"
+#include "cam_link.hpp"
 #include "ping_diag.hpp"
 #include "motors.hpp"
 #include "watchdog.hpp"
@@ -557,7 +557,7 @@ esp_err_t handle_set(httpd_req_t *req) {
         std::snprintf(settings.otaPassword, sizeof(settings.otaPassword), "%s", newPass);
         dirty = true;
     }
-    if (hasUser || hasPass) uart_link_credentials_changed(); // the camera guards its /update with the same ones
+    if (hasUser || hasPass) cam_link_credentials_changed(); // the camera guards its /update with the same ones
     // The servos' calibration tables ("p0,...,p36" for -90..90 every 5 deg -- or the old 13, every 15 -- or "none"): own NVS key.
     {
         static char tbuf[420]; // (37 pulses)
@@ -671,15 +671,15 @@ esp_err_t handle_params(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// GET /camdiag: the S3 CAM's self-reported diagnostics (relayed over UART,
-// see uart_link.cpp) plus this board's own live ICMP-ping stats to it (see
+// GET /camdiag: the S3 CAM's self-reported diagnostics (relayed over SPI,
+// see cam_link.cpp) plus this board's own live ICMP-ping stats to it (see
 // ping_diag.cpp). Kept separate from /params (a big, load-once settings
 // blob) since app.js polls this one every second or so while the "S3 CAM"
 // panel is open -- rebuilding/parsing all of /params that often would be
 // wasted work for data nobody's reading in that response.
 esp_err_t handle_cam_diag(httpd_req_t *req) {
-    const CamDiagnostics &camDiag = uart_link_get_diagnostics();
-    bool camStale = uart_link_peer_is_stale();
+    const CamDiagnostics &camDiag = cam_link_get_diagnostics();
+    bool camStale = cam_link_peer_is_stale();
     PingStats ping = ping_diag_get_stats();
     char json[400];
     snprintf(json, sizeof(json),
@@ -808,12 +808,12 @@ esp_err_t handle_wifi_status(httpd_req_t *req) {
     cJSON_AddBoolToObject(root, "prefer5g", wifi_get_prefer_5ghz());
     cJSON_AddStringToObject(root, "debug", wifi_debug_info());
 
-    bool camLinked = !uart_link_peer_is_stale();
+    bool camLinked = !cam_link_peer_is_stale();
     cJSON_AddBoolToObject(root, "camLinked", camLinked);
-    cJSON_AddStringToObject(root, "camSsid", camLinked ? uart_link_get_peer_ssid() : "");
-    cJSON_AddStringToObject(root, "camIp", camLinked ? uart_link_get_peer_ip() : "0.0.0.0");
-    cJSON_AddBoolToObject(root, "camSameLan", camLinked && wifi_ip_in_our_subnet(uart_link_get_peer_ip()));
-    CamScanState camScan = uart_link_cam_scan_state();
+    cJSON_AddStringToObject(root, "camSsid", camLinked ? cam_link_get_peer_ssid() : "");
+    cJSON_AddStringToObject(root, "camIp", camLinked ? cam_link_get_peer_ip() : "0.0.0.0");
+    cJSON_AddBoolToObject(root, "camSameLan", camLinked && wifi_ip_in_our_subnet(cam_link_get_peer_ip()));
+    CamScanState camScan = cam_link_cam_scan_state();
     cJSON_AddStringToObject(root, "camScan", camScan == CamScanState::Scanning ? "scanning" : camScan == CamScanState::NoAnswer ? "noanswer" : "idle");
 
     cJSON *saved = cJSON_AddArrayToObject(root, "saved");
@@ -887,7 +887,7 @@ esp_err_t handle_wifi_scan(httpd_req_t *req) {
     // ?source=camera: have the camera scan instead, with its own antenna.
     char source[12] = "";
     if (get_query_str(req, "source", source, sizeof(source)) && std::strcmp(source, "camera") == 0) {
-        bool ok = uart_link_request_cam_scan();
+        bool ok = cam_link_request_cam_scan();
         return send_wifi_result(req, ok, ok ? "Camera scanning..." : "The camera isn't linked to the robot.");
     }
     // ?mode=passive|long: diagnostic scan variants (see wifi_request_debug_scan()).

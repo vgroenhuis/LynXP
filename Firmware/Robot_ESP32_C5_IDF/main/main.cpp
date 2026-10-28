@@ -14,7 +14,7 @@
 #include "wifi_connect.hpp"
 #include "web_server.hpp"
 #include "ws_broadcast.hpp"
-#include "uart_link.hpp"
+#include "cam_link.hpp"
 #include "ping_diag.hpp"
 #include "ota.hpp"
 #include "debug_pan.hpp"
@@ -25,7 +25,7 @@
 #include "nvs_flash.h"
 
 // Full feature parity with Robot_ESP32_S3_IDF: local control, WiFi/web
-// server/WebSocket, the S3-CAM UART link, and now OTA -- the last piece
+// server/WebSocket, the S3-CAM SPI link, and now OTA -- the last piece
 // deferred by the staged port plan at
 // C:\Users\vince\.claude\plans\shiny-squishing-bengio.md.
 
@@ -77,8 +77,8 @@ extern "C" void app_main(void) {
     serial_console_start();
 
     wifi_connect_start();
-    uart_link_start(); // listens for the S3 CAM's periodic status line -- see board_pins.hpp's CAM_UART_* pins
-    ping_diag_start(); // ICMP-pings the cam once uart_link knows its IP, for a live WiFi-quality signal
+    cam_link_start(); // SPI link to the S3 CAM (status lines in, Wi-Fi hand-off out) -- see board_pins.hpp's CAM_SPI_* pins
+    ping_diag_start(); // ICMP-pings the cam once cam_link knows its IP, for a live WiFi-quality signal
     oled_status_start(); // after wifi_connect_start(): the MAC must already be known for the first frame
     web_server_init();
     ws_broadcast_start();
