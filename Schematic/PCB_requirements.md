@@ -362,8 +362,8 @@ All three options on the board, electrically in parallel (only one used at a tim
 | 2 | GND | GND | GND |
 | 3 | CAM_SCLK | D8 (GPIO7) | GPIO5 (SPI clock out) |
 | 4 | CAM_MOSI | D10 (GPIO9) | GPIO6 (SPI data out) |
-| 5 | CAM_MISO | D9 (GPIO8) | GPIO8 (SPI data in) |
-| 6 | CAM_CS | D3 (GPIO4) | GPIO10 (chip select out) |
+| 5 | CAM_MISO | D0 (GPIO1) | GPIO8 (SPI data in) |
+| 6 | CAM_CS | D1 (GPIO2) | GPIO10 (chip select out) |
 | (7) | (CAM_RDY, later) | (a free D pin) | (a free GPIO) |
 
   The breadboard setup uses GPIO11/12/4/28 for the same four signals (board_pins.hpp); on the PCB

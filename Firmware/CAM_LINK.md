@@ -10,14 +10,15 @@ sent over it yet.
 
 | Signal | ESP32-C5 (breadboard robot) | XIAO ESP32-S3 Sense |
 |---|---|---|
-| SCLK | GPIO11 | D8 = GPIO7 |
-| MOSI | GPIO12 | D10 = GPIO9 |
-| MISO | GPIO4 | D9 = GPIO8 |
-| CS | GPIO28 | D3 = GPIO4 |
+| SCLK | GPIO11 | D8 = GPIO7 (new wire) |
+| MOSI | GPIO12 | D10 = GPIO9 (new wire) |
+| MISO | GPIO4 | D0 = GPIO1 (the old UART wire) |
+| CS | GPIO28 | D1 = GPIO2 (the old UART wire) |
 | 5 V, GND | 5 V, GND | 5V, GND |
 
-Rewire from the UART setup: the old wires on C5 GPIO4/GPIO28 and S3 D0/D1 (GPIO1/2) are no
-longer used (GPIO4 and GPIO28 are reused, as MISO and CS). Pin constants: `Robot_ESP32_C5_IDF/main/board_pins.hpp`
+Rewire from the UART setup: the two UART wires stay as they are, with the same direction (S3 D0 to
+C5 GPIO4 was the camera's TX and is now MISO; C5 GPIO28 to S3 D1 was the robot's TX and is now CS);
+only SCLK and MOSI are new wires. Pin constants: `Robot_ESP32_C5_IDF/main/board_pins.hpp`
 (`CAM_SPI_*`) and `ESP32_S3_CAM_IDF/main/main.c` (`STATUS_SPI_*`). The planned PCB uses other C5 pins
 (`Schematic/PCB_requirements.md` §4.2 and §10).
 

@@ -505,17 +505,18 @@ static bool init_camera(void) {
 // VIDEO), to be streamed through the robot's own, 5 GHz capable, Wi-Fi.
 //
 // Wires, on the XIAO ESP32-S3 Sense header (robot side: board_pins.hpp):
-//   D8  = GPIO7  SCLK    D10 = GPIO9  MOSI    D9 = GPIO8  MISO    D3 = GPIO4  CS
-// (D0/D1, GPIO1/2, were the UART; D6/D7, GPIO43/44, are still the console.)
-// None of these is used by the camera or is a strapping pin. They sit on the
-// expansion board's SD card socket pins, which this firmware does not use.
+//   D0  = GPIO1  MISO    D1  = GPIO2  CS     (the two UART wires: same pins, same directions)
+//   D8  = GPIO7  SCLK    D10 = GPIO9  MOSI   (new wires)
+// (D6/D7, GPIO43/44, are still the console.) None of these is used by the
+// camera or is a strapping pin; GPIO7/9 are the expansion board's SD card
+// socket pins, which this firmware does not use.
 // ---------------------------------------------------------------------------
 
 #define STATUS_SPI_HOST      SPI2_HOST
 #define STATUS_SPI_SCLK_GPIO 7
 #define STATUS_SPI_MOSI_GPIO 9
-#define STATUS_SPI_MISO_GPIO 8
-#define STATUS_SPI_CS_GPIO   4
+#define STATUS_SPI_MISO_GPIO 1
+#define STATUS_SPI_CS_GPIO   2
 #define STATUS_LINK_PERIOD_MS 2000
 #define STATUS_LINK_QUEUE_BYTES 4096 // the burst of a camera scan: up to ~30 "AP" lines
 
