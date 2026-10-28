@@ -360,7 +360,7 @@ All three options on the board, electrically in parallel (only one used at a tim
 |---|---|---|---|
 | 1 | 5 V | 5V pad | 5 V rail |
 | 2 | GND | GND | GND |
-| 3 | CAM_SCLK | D8 (GPIO7) | GPIO5 (SPI clock out) |
+| 3 | CAM_SCLK | D9 (GPIO8) | GPIO5 (SPI clock out) |
 | 4 | CAM_MOSI | D10 (GPIO9) | GPIO6 (SPI data out) |
 | 5 | CAM_MISO | D0 (GPIO1) | GPIO8 (SPI data in) |
 | 6 | CAM_CS | D1 (GPIO2) | GPIO10 (chip select out) |

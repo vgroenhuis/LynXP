@@ -506,14 +506,14 @@ static bool init_camera(void) {
 //
 // Wires, on the XIAO ESP32-S3 Sense header (robot side: board_pins.hpp):
 //   D0  = GPIO1  MISO    D1  = GPIO2  CS     (the two UART wires: same pins, same directions)
-//   D8  = GPIO7  SCLK    D10 = GPIO9  MOSI   (new wires)
+//   D9  = GPIO8  SCLK    D10 = GPIO9  MOSI   (new wires, next to each other)
 // (D6/D7, GPIO43/44, are still the console.) None of these is used by the
-// camera or is a strapping pin; GPIO7/9 are the expansion board's SD card
+// camera or is a strapping pin; GPIO8/9 are the expansion board's SD card
 // socket pins, which this firmware does not use.
 // ---------------------------------------------------------------------------
 
 #define STATUS_SPI_HOST      SPI2_HOST
-#define STATUS_SPI_SCLK_GPIO 7
+#define STATUS_SPI_SCLK_GPIO 8
 #define STATUS_SPI_MOSI_GPIO 9
 #define STATUS_SPI_MISO_GPIO 1
 #define STATUS_SPI_CS_GPIO   2

@@ -10,7 +10,7 @@ sent over it yet.
 
 | Signal | ESP32-C5 (breadboard robot) | XIAO ESP32-S3 Sense |
 |---|---|---|
-| SCLK | GPIO11 | D8 = GPIO7 (new wire) |
+| SCLK | GPIO11 | D9 = GPIO8 (new wire) |
 | MOSI | GPIO12 | D10 = GPIO9 (new wire) |
 | MISO | GPIO4 | D0 = GPIO1 (the old UART wire) |
 | CS | GPIO28 | D1 = GPIO2 (the old UART wire) |

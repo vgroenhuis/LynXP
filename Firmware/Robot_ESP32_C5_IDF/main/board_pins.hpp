@@ -106,7 +106,7 @@ constexpr gpio_num_t QR_BUTTON_PIN = GPIO_NUM_27;
 // ESP32_S3_CAM_IDF/main/main.c, STATUS_SPI_* pins):
 //
 //   this board              cam (XIAO ESP32-S3 Sense)
-//   GPIO11  SCLK   ------>  D8  = GPIO7   SCLK   (new wire)
+//   GPIO11  SCLK   ------>  D9  = GPIO8   SCLK   (new wire)
 //   GPIO12  MOSI   ------>  D10 = GPIO9   MOSI   (new wire)
 //   GPIO4   MISO   <------  D0  = GPIO1   MISO   (the old UART wire, same direction)
 //   GPIO28  CS     ------>  D1  = GPIO2   CS     (the old UART wire, same direction)
