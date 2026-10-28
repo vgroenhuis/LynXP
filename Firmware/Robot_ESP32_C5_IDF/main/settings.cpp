@@ -37,8 +37,8 @@ namespace {
 //     (built for a phone running the IP Webcam Android app) was removed;
 //     this robot only ever streams from its own S3 CAM (s3camAddress).
 // 26: dropped s3camAddress -- the S3 CAM's IP never needs to be entered or
-//     persisted at all: the C5 already learns it live over the UART link
-//     (uart_link.cpp) the moment the cam starts sending its status line, so
+//     persisted at all: the C5 already learns it live over the SPI link
+//     (cam_link.cpp) the moment the cam starts sending its status line, so
 //     /camdiag's own reported ip is now the sole source of truth everywhere
 //     (Main page's "Open cam page" link, cam.js's stream/settings link).
 // 27: added fireballSpeedMps, monsterSpeedMps, monsterCount,

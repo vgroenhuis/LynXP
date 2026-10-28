@@ -11,7 +11,7 @@
 // captive-portal page -- see wifi_connect.cpp).
 //
 // Thread-safe: every function takes an internal mutex, since the HTTP
-// handlers, wifi_connect.cpp's manager task and uart_link.cpp's cam-sync
+// handlers, wifi_connect.cpp's manager task and cam_link.cpp's cam-sync
 // all touch the list from different tasks.
 
 struct WifiCredential {

@@ -767,7 +767,7 @@ function updateInaGraphs(msg) {
 // looking at it, for no benefit over just clicking through to the cam's own
 // page (which itself links to its native /stream). This panel is now purely
 // informational -- the cam's IP is never entered or stored anywhere, only
-// relayed live from the cam over UART (see uart_link.cpp) and read back via
+// relayed live from the cam over SPI (see cam_link.cpp) and read back via
 // /camdiag, same source the diagnostics fields below already use.
 
 // A link that does nothing when clicked (still at href="#", nothing known
@@ -785,8 +785,8 @@ function setAdminLink(id, address) {
   }
 }
 
-// --- S3 CAM diagnostics: relayed from the cam over its UART link to this
-// board (uart_link.cpp), plus this board's own live ICMP ping to it
+// --- S3 CAM diagnostics: relayed from the cam over its SPI link to this
+// board (cam_link.cpp), plus this board's own live ICMP ping to it
 // (ping_diag.cpp) -- see handle_cam_diag() in web_server.cpp. Polled only
 // while the S3 CAM panel is open; nobody's looking at it otherwise, so
 // there's no reason to keep hitting the robot every second in the
@@ -2660,7 +2660,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // as text/plain so the cross-origin POST needs no CORS preflight (the
   // camera accepts any Content-Type and answers with Access-Control-Allow-Origin).
   // With a password set, the camera wants the same credentials as the robot
-  // (the robot passes them on over the UART link) -- that header makes the
+  // (the robot passes them on over the SPI link) -- that header makes the
   // browser send a preflight first, which camera firmware from before this
   // change doesn't allow; so a network error then means: retry without it.
   document.getElementById("uploadCamFwBtn").addEventListener("click", () => {

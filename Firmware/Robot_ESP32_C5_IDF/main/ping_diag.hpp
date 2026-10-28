@@ -2,17 +2,17 @@
 
 #include <cstdint>
 
-// ICMP-pings the S3 CAM (once its IP is known via uart_link.cpp), giving a
+// ICMP-pings the S3 CAM (once its IP is known via cam_link.cpp), giving a
 // live, continuously-updated WiFi-link-quality signal that correlates in
-// real time with camera stream stutter. Complements uart_link.cpp's
-// diagnostics: UART keeps working even if the cam-to-router WiFi hop is the
+// real time with camera stream stutter. Complements cam_link.cpp's
+// diagnostics: the SPI link keeps working even if the cam-to-router WiFi hop is the
 // problem, so on its own it can't tell "cam is stalled" apart from "the
 // path between here and the cam is stalled" -- both look identical from the
-// UART side. This does, since it exercises that exact path.
+// SPI side. This does, since it exercises that exact path.
 
 // Starts a background task that (re)targets an ICMP ping session at the
-// cam's IP whenever uart_link reports one. Call once from app_main(), after
-// uart_link_start().
+// cam's IP whenever cam_link reports one. Call once from app_main(), after
+// cam_link_start().
 void ping_diag_start();
 
 struct PingStats {

@@ -3,7 +3,7 @@
 #include "button.hpp"
 #include "qr_display.hpp"
 #include "ina260.hpp"
-#include "uart_link.hpp"
+#include "cam_link.hpp"
 #include "watchdog.hpp"
 
 extern "C" {
@@ -186,13 +186,13 @@ void compose() {
     u8g2_DrawHLine(&s_u8g2, 0, 50, W);
     if (st.apActive && !st.connected) {
         draw_band(s_bottomBand, u8g2_font_helvB10_tr, "then open 192.168.4.1", 63);
-    } else if (uart_link_peer_is_stale()) {
+    } else if (cam_link_peer_is_stale()) {
         draw_band(s_bottomBand, u8g2_font_helvR10_tr, "CAM  no link", 63);
-    } else if (std::strcmp(uart_link_get_peer_ip(), "0.0.0.0") == 0) {
-        std::snprintf(line, sizeof(line), "CAM  no WiFi -- MAC %s", uart_link_get_peer_mac());
+    } else if (std::strcmp(cam_link_get_peer_ip(), "0.0.0.0") == 0) {
+        std::snprintf(line, sizeof(line), "CAM  no WiFi -- MAC %s", cam_link_get_peer_mac());
         draw_band(s_bottomBand, u8g2_font_helvR10_tr, line, 63);
     } else {
-        std::snprintf(line, sizeof(line), "CAM  %s", uart_link_get_peer_ip());
+        std::snprintf(line, sizeof(line), "CAM  %s", cam_link_get_peer_ip());
         draw_band(s_bottomBand, u8g2_font_helvB10_tr, line, 63);
     }
 }

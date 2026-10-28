@@ -7,7 +7,7 @@
 // The cam's current IP is read from THIS robot's own /camdiag (same-origin,
 // no CORS) rather than the "S3 CAM" panel's manually-entered address
 // directly: /camdiag relays the cam's self-reported IP live over the
-// UART link (see uart_link.cpp) and is already the authoritative source the
+// SPI link (see cam_link.cpp) and is already the authoritative source the
 // Main page's diagnostics block polls, so it's correct even if the cam's
 // address changes (DHCP) without anyone updating the Main page field.
 
@@ -122,7 +122,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // going away if the underlying connection gets a clean close, which a
   // hard power-cycle of the cam never sends (same class of problem as the
   // Main page's own stream-reconnect handling elsewhere in this codebase).
-  // /camdiag's "stale" flag, driven by the UART link's own last-seen timer,
+  // /camdiag's "stale" flag, driven by the SPI link's own last-seen timer,
   // is a much more reliable "is the cam actually still there" signal --
   // polling it here catches that case and reconnects the <img> once the cam
   // is heard from again, instead of leaving a permanently frozen last frame

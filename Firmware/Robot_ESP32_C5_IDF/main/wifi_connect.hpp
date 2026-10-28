@@ -12,7 +12,7 @@
 // once the robot is back on a real network and nobody's connected to it.
 //
 // Band note: this C5 does 2.4 + 5 GHz, but the S3 camera is 2.4 GHz only and
-// is told by the robot which network to join (uart_link.cpp) -- so among
+// is told by the robot which network to join (cam_link.cpp) -- so among
 // saved networks in range, ones with a 2.4 GHz access point are preferred,
 // and the UI flags 5 GHz-only networks as unusable for the camera.
 
@@ -103,7 +103,7 @@ void wifi_set_prefer_5ghz(bool prefer);
 // Copies up to max entries, strongest first; returns how many. Includes
 // what the camera heard on its last scan (see wifi_set_camera_scan()).
 size_t wifi_get_scan_results(WifiScanEntry *out, size_t max);
-// Stores the camera's own scan results (relayed over UART on request).
+// Stores the camera's own scan results (relayed over SPI on request).
 void wifi_set_camera_scan(const WifiScanEntry *entries, size_t count);
 // True if the most recent scan saw this SSID only on 5 GHz (so the S3 camera
 // can't join it). False if it has 2.4 GHz or simply wasn't seen.

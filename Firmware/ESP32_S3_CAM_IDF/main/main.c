@@ -22,7 +22,11 @@
 #include "esp_attr.h"
 #include "nvs_flash.h"
 #include "esp_camera.h"
-#include "driver/uart.h"
+#include "driver/spi_slave.h"
+#include "driver/gpio.h"
+#include "esp_heap_caps.h"
+#include "esp_random.h"
+#include "cam_link_proto.h"
 #include "nvs.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
@@ -51,7 +55,7 @@ static const char *TAG = "cam";
 static char s_mac_str[18];
 static char s_ip_str[16] = "0.0.0.0";
 
-// Diagnostics for the STAT UART line below -- see its own comment for what
+// Diagnostics for the STAT line sent to the robot below -- see its own comment for what
 // each one is trying to distinguish (WiFi vs. power/brownout vs. camera-bus
 // noise as the cause of a stuttering/dead stream).
 //
@@ -93,7 +97,7 @@ static volatile uint32_t s_last_send_ms = 0;
 static volatile uint32_t s_max_send_ms = 0;
 static volatile uint32_t s_slow_send_count = 0;
 
-static void status_uart_send(void);
+static void status_link_send(void);
 static int get_active_clients(void);
 static void hex_encode(const char *in, char *out, size_t out_len);
 
@@ -127,8 +131,8 @@ static const char *reset_reason_str(esp_reset_reason_t reason) {
 // ---------------------------------------------------------------------------
 // WiFi. No compiled-in credentials: the robot (ESP32-C5) owns the list of
 // networks and its setup UI, and tells this camera which network to join
-// over the status UART ("WIFI ssid=<hex> pass=<hex>", see
-// status_uart_rx_task()) whenever the camera isn't on the same network as
+// over the robot link ("WIFI ssid=<hex> pass=<hex>", see
+// status_link_handle_line()) whenever the camera isn't on the same network as
 // the robot. The camera remembers every network it's been given (most
 // recent first, in NVS), so after a reboot it rejoins by itself without
 // waiting for the robot -- and still works standalone on USB for testing.
@@ -153,7 +157,7 @@ typedef struct {
 #define SCAN_PASSIVE_MS    150   // listen-only channels need to catch at least one ~102 ms beacon
 #define SCAN_REPORT_MAX    30
 
-static void status_uart_write(const char *line, int len);
+static void status_link_write(const char *line, int len);
 static void ota_mark_valid_once(void);
 
 static EventGroupHandle_t s_wifi_event_group;
@@ -246,7 +250,7 @@ static void nets_load(void) {
     ESP_LOGI(TAG, "%d remembered network(s)", s_net_count);
 }
 
-// Called from the UART RX task when the robot sends a network.
+// Called by the robot link when the robot sends a network.
 static void wifi_handle_push(const char *ssid, const char *pass) {
     if (ssid[0] == '\0') return;
     xSemaphoreTake(s_wifi_lock, portMAX_DELAY);
@@ -274,7 +278,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         copy_str(s_connected_ssid, sizeof(s_connected_ssid), s_attempt_ssid);
         s_wifi_connected = true;
         ESP_LOGI(TAG, "Connected to %s - stream ready at http://%s/ (MJPEG on port 81)", s_connected_ssid, s_ip_str);
-        status_uart_send(); // push the new IP to the C5 immediately instead of waiting for the next heartbeat
+        status_link_send(); // push the new IP to the C5 immediately instead of waiting for the next heartbeat
         ota_mark_valid_once(); // a freshly OTA'd image has now proven itself
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
@@ -341,13 +345,13 @@ static void scan_and_report(void) {
             char line[128];
             int len = snprintf(line, sizeof(line), "AP ssid=%s rssi=%d ch=%d sec=%d\n", hex, records[i].rssi,
                                records[i].primary, records[i].authmode != WIFI_AUTH_OPEN);
-            status_uart_write(line, len);
+            status_link_write(line, len);
             sent++;
         }
     }
     free(records);
     esp_wifi_clear_ap_list();
-    status_uart_write("APEND\n", 6);
+    status_link_write("APEND\n", 6);
     ESP_LOGI(TAG, "Reported %d network(s) to the robot", sent);
 }
 
@@ -491,38 +495,72 @@ static bool init_camera(void) {
 }
 
 // ---------------------------------------------------------------------------
-// Status UART link to the companion ESP32-C5 (drives the shared OLED).
+// Link to the companion ESP32-C5 (the robot): SPI, this camera is the slave.
 //
-// UART1 on GPIO1/GPIO2 (XIAO header pins D0/D1) - not UART0/GPIO43-44
-// (D6/D7), which is the primary console (CONFIG_ESP_CONSOLE_UART_NUM=0) and
-// already carries ESP_LOGI output.
+// The robot polls with a fixed 128-byte full-duplex frame every few ms; each
+// frame carries a chunk of a text byte stream per direction (the lines "STAT",
+// "NET", "AP"... out, "WIFI", "OTA", "SCAN" in), with CRC, acknowledgements
+// and resync after a restart: see cam_link_proto.h, which is the same file as
+// in Robot_ESP32_C5_IDF/main. Room is left in it for camera frames (type
+// VIDEO), to be streamed through the robot's own, 5 GHz capable, Wi-Fi.
+//
+// Wires, on the XIAO ESP32-S3 Sense header (robot side: board_pins.hpp):
+//   D0  = GPIO1  MISO    D1  = GPIO2  CS     (the two UART wires: same pins, same directions)
+//   D9  = GPIO8  SCLK    D10 = GPIO9  MOSI   (new wires, next to each other)
+// (D6/D7, GPIO43/44, are still the console.) None of these is used by the
+// camera or is a strapping pin; GPIO8/9 are the expansion board's SD card
+// socket pins, which this firmware does not use.
 // ---------------------------------------------------------------------------
 
-#define STATUS_UART_PORT     UART_NUM_1
-#define STATUS_UART_TX_GPIO  1
-#define STATUS_UART_RX_GPIO  2
-#define STATUS_UART_BAUD     115200
-#define STATUS_UART_PERIOD_MS 2000
+#define STATUS_SPI_HOST      SPI2_HOST
+#define STATUS_SPI_SCLK_GPIO 8
+#define STATUS_SPI_MOSI_GPIO 9
+#define STATUS_SPI_MISO_GPIO 1
+#define STATUS_SPI_CS_GPIO   2
+#define STATUS_LINK_PERIOD_MS 2000
+#define STATUS_LINK_QUEUE_BYTES 4096 // the burst of a camera scan: up to ~30 "AP" lines
 
-static void status_uart_init(void) {
-    uart_config_t cfg = {
-        .baud_rate = STATUS_UART_BAUD,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
+static cam_link_t s_link;
+static uint8_t s_link_ring[STATUS_LINK_QUEUE_BYTES];
+static SemaphoreHandle_t s_link_mutex;
+static uint8_t *s_link_tx; // DMA-capable
+static uint8_t *s_link_rx;
+
+static void status_link_init(void) {
+    uint8_t epoch = (uint8_t) (esp_random() & 0xFF);
+    cam_link_init(&s_link, epoch ? epoch : 1, s_link_ring, sizeof(s_link_ring));
+    s_link_mutex = xSemaphoreCreateMutex();
+    s_link_tx = heap_caps_calloc(1, CAM_LINK_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    s_link_rx = heap_caps_calloc(1, CAM_LINK_FRAME_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (s_link_mutex == NULL || s_link_tx == NULL || s_link_rx == NULL) {
+        ESP_LOGE(TAG, "out of memory, robot link not started");
+        return;
+    }
+    // Idle levels while the robot is not driving the wires (resetting): chip
+    // select off (high), clock and data low.
+    gpio_set_pull_mode(STATUS_SPI_CS_GPIO, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(STATUS_SPI_SCLK_GPIO, GPIO_PULLDOWN_ONLY);
+    gpio_set_pull_mode(STATUS_SPI_MOSI_GPIO, GPIO_PULLDOWN_ONLY);
+    spi_bus_config_t bus = {
+        .mosi_io_num = STATUS_SPI_MOSI_GPIO,
+        .miso_io_num = STATUS_SPI_MISO_GPIO,
+        .sclk_io_num = STATUS_SPI_SCLK_GPIO,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = CAM_LINK_FRAME_BYTES,
     };
-    ESP_ERROR_CHECK(uart_driver_install(STATUS_UART_PORT, 512, 0, 0, NULL, 0));
-    ESP_ERROR_CHECK(uart_param_config(STATUS_UART_PORT, &cfg));
-    ESP_ERROR_CHECK(uart_set_pin(STATUS_UART_PORT, STATUS_UART_TX_GPIO, STATUS_UART_RX_GPIO,
-                                  UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    spi_slave_interface_config_t slave = {
+        .mode = 0,
+        .spics_io_num = STATUS_SPI_CS_GPIO,
+        .queue_size = 1,
+        .flags = 0,
+    };
+    ESP_ERROR_CHECK(spi_slave_initialize(STATUS_SPI_HOST, &bus, &slave, SPI_DMA_CH_AUTO));
 }
 
 // Sends "STAT mac=<mac> ip=<ip> rssi=<dBm> uptime=<s> heap=<bytes>
 // minheap=<bytes> camfail=<n> reboots=<n> clients=<n> reset=<reason>\n".
-// Key=value line format so the receiving end (currently Robot_ESP32_S3_IDF's
-// uart_link.cpp) can pick up additional fields later, or this firmware can
+// Key=value line format so the receiving end (Robot_ESP32_C5_IDF's cam_link.cpp) can pick up additional fields later, or this firmware can
 // add more, without either side needing to change in lockstep -- unknown
 // keys are just ignored, and a key missing from an older sender is left at
 // its previous/default value on the receiver.
@@ -532,7 +570,7 @@ static void status_uart_init(void) {
 // "BROWNOUT") means it actually rebooted, which a bare stutter wouldn't;
 // camfail climbing with rssi/reset both clean points at the camera's own
 // DVP bus glitching (e.g. from motor EMI) independent of the network.
-static void status_uart_send(void) {
+static void status_link_send(void) {
     wifi_ap_record_t ap_info;
     int rssi = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) ? ap_info.rssi : 0;
 
@@ -544,7 +582,7 @@ static void status_uart_send(void) {
         (unsigned) esp_get_free_heap_size(), (unsigned) esp_get_minimum_free_heap_size(),
         (unsigned long) s_cam_fail_count, (unsigned long) s_reboot_count,
         get_active_clients(), reset_reason_str(esp_reset_reason()));
-    uart_write_bytes(STATUS_UART_PORT, line, len);
+    status_link_write(line, len);
 
     // Which network this camera is on, so the robot can tell whether it
     // needs to hand over its own. A separate line rather than a STAT field:
@@ -553,17 +591,31 @@ static void status_uart_send(void) {
     char ssid_hex[sizeof(s_connected_ssid) * 2];
     hex_encode(s_wifi_connected ? s_connected_ssid : "", ssid_hex, sizeof(ssid_hex));
     len = snprintf(line, sizeof(line), "NET ssid=%s\n", ssid_hex);
-    uart_write_bytes(STATUS_UART_PORT, line, len);
+    status_link_write(line, len);
 }
 
-static void status_uart_write(const char *line, int len) {
-    uart_write_bytes(STATUS_UART_PORT, line, len);
+// Queues text for the robot. Blocks for a moment if the queue is full (a long
+// burst, e.g. the camera scan), so callers are other tasks than the link task.
+static void status_link_write(const char *line, int len) {
+    if (s_link_mutex == NULL) return;
+    int64_t deadline = esp_timer_get_time() + 3000000;
+    while (len > 0) {
+        xSemaphoreTake(s_link_mutex, portMAX_DELAY);
+        size_t n = cam_link_enqueue(&s_link, (const uint8_t *) line, (size_t) len);
+        xSemaphoreGive(s_link_mutex);
+        line += n;
+        len -= (int) n;
+        if (len > 0) {
+            if (esp_timer_get_time() > deadline) return; // the robot isn't listening: drop the rest
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
 }
 
-static void status_uart_task(void *arg) {
+static void status_link_task(void *arg) {
     while (true) {
-        status_uart_send();
-        vTaskDelay(pdMS_TO_TICKS(STATUS_UART_PERIOD_MS));
+        status_link_send();
+        vTaskDelay(pdMS_TO_TICKS(STATUS_LINK_PERIOD_MS));
     }
 }
 
@@ -589,7 +641,7 @@ static void hex_decode(const char *in, char *out, size_t out_len) {
 
 // ---------------------------------------------------------------------------
 // Update credentials: /update is guarded by the robot's OTA username and
-// password, which the robot sends over the UART link ("OTA user=<hex>
+// password, which the robot sends over the SPI link ("OTA user=<hex>
 // pass=<hex>") and this camera keeps in NVS. An empty password means no
 // check, as on the robot. Without it any web page open in a browser on the
 // same network could flash this camera (/update answers every origin).
@@ -669,12 +721,36 @@ static bool ota_authorized(httpd_req_t *req) {
 //   WIFI ssid=<hex> pass=<hex>   join this network
 //   OTA user=<hex> pass=<hex>    credentials for /update
 //   SCAN                         report what this camera hears
-static void status_uart_rx_task(void *arg) {
-    char line[320];
-    size_t len = 0;
-    uint8_t byte;
-    while (true) {
-        if (uart_read_bytes(STATUS_UART_PORT, &byte, 1, portMAX_DELAY) <= 0) continue;
+static void status_link_handle_line(char *line) {
+    if (strcmp(line, "SCAN") == 0) {
+        xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_BIT);
+        return;
+    }
+    if (strncmp(line, "OTA ", 4) == 0) {
+        const char *u = strstr(line, "user=");
+        const char *p = strstr(line, "pass=");
+        char user[32], pass[32];
+        hex_decode(u ? u + 5 : "", user, sizeof(user));
+        hex_decode(p ? p + 5 : "", pass, sizeof(pass));
+        if (user[0] != '\0') ota_creds_set(user, pass);
+        return;
+    }
+    if (strncmp(line, "WIFI ", 5) != 0) return;
+    const char *s = strstr(line, "ssid=");
+    const char *p = strstr(line, "pass=");
+    if (s == NULL) return;
+    char ssid[33], pass[65];
+    hex_decode(s + 5, ssid, sizeof(ssid));
+    hex_decode(p ? p + 5 : "", pass, sizeof(pass));
+    wifi_handle_push(ssid, pass);
+}
+
+// The robot's bytes, cut into lines at '\n'.
+static void status_link_feed(const uint8_t *data, size_t n) {
+    static char line[320];
+    static size_t len = 0;
+    for (size_t i = 0; i < n; i++) {
+        uint8_t byte = data[i];
         if (byte == '\r') continue;
         if (byte != '\n') {
             if (len < sizeof(line) - 1) line[len++] = (char) byte;
@@ -683,27 +759,48 @@ static void status_uart_rx_task(void *arg) {
         }
         line[len] = '\0';
         len = 0;
-        if (strcmp(line, "SCAN") == 0) {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_BIT);
+        status_link_handle_line(line);
+    }
+}
+
+// The SPI slave: arms one 128-byte transaction, waits for the robot to clock
+// it, handles what came in, and arms the next one with the frame (data, ack)
+// built from the new state.
+static void status_link_transport_task(void *arg) {
+    uint8_t payload[CAM_LINK_PAYLOAD_MAX];
+    bool up = false;
+    int64_t lastGoodUs = 0;
+    while (true) {
+        xSemaphoreTake(s_link_mutex, portMAX_DELAY);
+        cam_link_build(&s_link, s_link_tx);
+        xSemaphoreGive(s_link_mutex);
+
+        spi_slave_transaction_t t = {0};
+        t.length = CAM_LINK_FRAME_BYTES * 8;
+        t.tx_buffer = s_link_tx;
+        t.rx_buffer = s_link_rx;
+        if (spi_slave_transmit(STATUS_SPI_HOST, &t, portMAX_DELAY) != ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        if (strncmp(line, "OTA ", 4) == 0) {
-            const char *u = strstr(line, "user=");
-            const char *p = strstr(line, "pass=");
-            char user[32], pass[32];
-            hex_decode(u ? u + 5 : "", user, sizeof(user));
-            hex_decode(p ? p + 5 : "", pass, sizeof(pass));
-            if (user[0] != '\0') ota_creds_set(user, pass);
-            continue;
+        int n = -1;
+        if (t.trans_len == CAM_LINK_FRAME_BYTES * 8) {
+            xSemaphoreTake(s_link_mutex, portMAX_DELAY);
+            n = cam_link_parse(&s_link, s_link_rx, payload);
+            xSemaphoreGive(s_link_mutex);
         }
-        if (strncmp(line, "WIFI ", 5) != 0) continue;
-        const char *s = strstr(line, "ssid=");
-        const char *p = strstr(line, "pass=");
-        if (s == NULL) continue;
-        char ssid[33], pass[65];
-        hex_decode(s + 5, ssid, sizeof(ssid));
-        hex_decode(p ? p + 5 : "", pass, sizeof(pass));
-        wifi_handle_push(ssid, pass);
+        int64_t now = esp_timer_get_time();
+        if (n >= 0) {
+            lastGoodUs = now;
+            if (!up) {
+                up = true;
+                ESP_LOGI(TAG, "robot link up (SPI)");
+            }
+            if (n > 0) status_link_feed(payload, (size_t) n);
+        } else if (up && now - lastGoodUs > 2000000) {
+            up = false;
+            ESP_LOGW(TAG, "robot link lost");
+        }
     }
 }
 
@@ -813,9 +910,9 @@ static esp_err_t control_handler(httpd_req_t *req) {
     return httpd_resp_send(req, "OK", 2);
 }
 
-// GET /diag: the same fields sent over the STAT UART line (see
-// status_uart_send()'s comment), exposed over HTTP too -- useful standalone
-// (e.g. off the rover, direct to a phone hotspot) where the UART link has
+// GET /diag: the same fields sent over the STAT line (see
+// status_link_send()'s comment), exposed over HTTP too -- useful standalone
+// (e.g. off the rover, direct to a phone hotspot) where the robot link has
 // nothing on the other end to read it.
 static esp_err_t diag_handler(httpd_req_t *req) {
     wifi_ap_record_t ap_info;
@@ -958,8 +1055,8 @@ static int64_t s_frame_ts_us = 0; // capture time of s_frame_buf
 
 static SemaphoreHandle_t s_stream_slots; // counting semaphore, one per free viewer slot
 
-// Forward-declared near the top alongside status_uart_send(), for the same
-// reason: status_uart_send() calls this, but MAX_STREAM_CLIENTS/
+// Forward-declared near the top alongside status_link_send(), for the same
+// reason: status_link_send() calls this, but MAX_STREAM_CLIENTS/
 // s_stream_slots don't exist yet at that point in the file.
 static int get_active_clients(void) {
     if (s_stream_slots == NULL) return 0; // not created yet (before start_camera_server())
@@ -1244,8 +1341,8 @@ void app_main(void) {
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     ESP_LOGI(TAG, "MAC address: %s", s_mac_str);
 
-    status_uart_init();
-    xTaskCreate(status_uart_task, "status_uart", 3072, NULL, tskIDLE_PRIORITY + 1, NULL);
+    status_link_init();
+    xTaskCreate(status_link_task, "status_link", 3072, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     if (!init_camera()) {
         ESP_LOGE(TAG, "Halting: camera init failed");
@@ -1256,7 +1353,7 @@ void app_main(void) {
     // servers don't need an IP to start -- they just become reachable once
     // one arrives.
     wifi_start();
-    xTaskCreate(status_uart_rx_task, "status_uart_rx", 3072, NULL, tskIDLE_PRIORITY + 1, NULL);
+    if (s_link_mutex != NULL) xTaskCreate(status_link_transport_task, "status_link_spi", 4096, NULL, tskIDLE_PRIORITY + 3, NULL);
 
     start_camera_server();
 }
