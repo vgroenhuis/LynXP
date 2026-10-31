@@ -168,6 +168,23 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "lightwall", title: "Lightwall", better: "higher", format: "points" }],
     },
     {
+      id: "inkblot",
+      kind: "game",
+      name: "Inkblot",
+      icon: "\u{1F58B}\u{FE0F}",
+      blurb:
+        "A clean-up game. Ink seeps up through the floor from leaky wells and creeps from tile to tile. " +
+        "Drive over ink to scrub it away, and sit on a pink well for a moment to cap it for good. " +
+        "If the ink swamps nearly half the arena it's over. FIRE throws a soap bubble that wipes a wide patch (slow to recharge). " +
+        "Each level has more wells and faster ink.",
+      settings: [
+        { key: "areaRadiusM", label: "Arena radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
+        { key: "cellM", label: "Tile size", type: "number", unit: "m", def: 0.2, min: 0.1, max: 0.5, step: 0.05 },
+        { key: "radar", label: "Radar", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "inkblot", title: "Inkblot", better: "higher", format: "points" }],
+    },
+    {
       id: "shepherd",
       kind: "game",
       name: "Shepherd",
