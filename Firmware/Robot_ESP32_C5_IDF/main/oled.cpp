@@ -18,6 +18,7 @@ extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -29,8 +30,8 @@ extern "C" {
 //   LynXP                            9.01 V     <- header: name / firmware version and
 //                                                  supply V / mA / W, each taking turns
 //   ------------------------------------------
-//   Mojca_Vincent_Reel...       ch40 -67dBm     <- network (scrolls if too long),
-//                                                  channel + signal of the AP joined
+//   Mojca_Vincent_Reel...           -67dBm     <- network (scrolls if too long),
+//                                                  channel / signal of the AP joined, in turn
 //   192.168.0.17                                <- robot IP, largest font that fits
 //   ------------------------------------------
 //   CAM 192.168.0.99                            <- camera (scrolls if too long)
@@ -125,7 +126,7 @@ Marquee s_networkBand;
 Marquee s_bottomBand;
 char s_powerText[3][16] = {}; // V, mA, W: shown in turn
 int64_t s_lastInaUs = 0;
-char s_linkText[24] = "";
+char s_linkText[2][12] = {}; // channel, signal: shown in turn
 int64_t s_lastLinkMs = 0;
 
 // Channel + signal strength of the access point joined -- with many access
@@ -133,9 +134,10 @@ int64_t s_lastLinkMs = 0;
 // well it hears it. Refreshed once a second so the number stays readable.
 void update_link_text(const WifiStatus &st) {
     int64_t now = now_ms();
-    if (s_linkText[0] && now - s_lastLinkMs < 1000) return;
+    if (s_linkText[0][0] && now - s_lastLinkMs < 1000) return;
     s_lastLinkMs = now;
-    std::snprintf(s_linkText, sizeof(s_linkText), "ch%d %ddBm", st.channel, st.rssi);
+    std::snprintf(s_linkText[0], sizeof(s_linkText[0]), "ch%d", st.channel);
+    std::snprintf(s_linkText[1], sizeof(s_linkText[1]), "%ddBm", st.rssi);
 }
 
 void update_power_text() {
@@ -196,8 +198,10 @@ void compose() {
     if (st.connected) {
         update_link_text(st);
         u8g2_SetFont(&s_u8g2, u8g2_font_helvR08_tr);
-        int linkW = u8g2_GetStrWidth(&s_u8g2, s_linkText);
-        u8g2_DrawStr(&s_u8g2, W - linkW, 20, s_linkText);
+        // (the network name keeps the room of the wider one: it doesn't jump)
+        const char *link = s_linkText[turn % 2];
+        int linkW = std::max(u8g2_GetStrWidth(&s_u8g2, s_linkText[0]), u8g2_GetStrWidth(&s_u8g2, s_linkText[1]));
+        u8g2_DrawStr(&s_u8g2, W - u8g2_GetStrWidth(&s_u8g2, link), 20, link);
         draw_band(s_networkBand, u8g2_font_helvR08_tr, st.ssid, 20, false, W - linkW - 4);
         draw_big(DIGIT_FONTS, sizeof(DIGIT_FONTS) / sizeof(DIGIT_FONTS[0]), st.ip, 46);
     } else if (st.apActive) {
