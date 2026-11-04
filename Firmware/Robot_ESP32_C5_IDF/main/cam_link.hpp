@@ -109,3 +109,8 @@ void cam_link_set_video_gap(int ms);
 // Copies the latest complete JPEG into out (up to cap bytes); returns its
 // length (0: none yet, or it doesn't fit), *seq counts frames.
 size_t cam_link_copy_frame(uint8_t *out, size_t cap, uint32_t *seq);
+
+// Asks the camera to record which task runs when, for ms milliseconds
+// (cpu_trace.h, its "TRACE ms=<n>" line); the camera then serves the result
+// at GET /cputrace. False if the camera isn't there.
+bool cam_link_request_cam_trace(int ms);

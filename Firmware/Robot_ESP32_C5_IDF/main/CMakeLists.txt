@@ -37,6 +37,7 @@ idf_component_register(
         "debug_pan.cpp"
         "closer_report.cpp"
         "closer_update.cpp"
+        "cpu_trace.c"
     INCLUDE_DIRS "."
     REQUIRES
         driver          # gpio, ledc, pulse_cnt, gptimer
@@ -66,6 +67,11 @@ idf_component_register(
         qrcode          # espressif/qrcode managed component
         joltwallet__littlefs   # joltwallet/littlefs's actual registered component name
 )
+
+# cpu_trace.c logs every context switch: the scheduler (tasks.c) must see
+# its traceTASK_SWITCHED_IN.
+idf_component_get_property(freertos_lib freertos COMPONENT_LIB)
+target_compile_options(${freertos_lib} PRIVATE "SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/cpu_trace_hook.h")
 
 # The image is made from a copy of littlefs_image/ with gzipped copies of the
 # web files and their ETags added (tools/prepare_web.py, see web_server.cpp).

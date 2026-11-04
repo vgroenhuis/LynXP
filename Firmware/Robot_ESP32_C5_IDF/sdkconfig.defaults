@@ -121,3 +121,6 @@ CONFIG_OFFSETX=0
 # (supply dips from the servos, 2026-10-03) it can still print what failed
 # instead of locking up fetching its own code from flash.
 CONFIG_ESP_PANIC_HANDLER_IRAM=y
+
+# cpu_trace.c names the tasks it saw with uxTaskGetSystemState().
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y

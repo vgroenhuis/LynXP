@@ -31,6 +31,7 @@
 #include "nvs.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
+#include "cpu_trace.h"
 
 static const char *TAG = "cam";
 
@@ -813,6 +814,11 @@ static void status_link_handle_line(char *line) {
         s_video_fps = fps < 0 ? 0 : fps > 30 ? 30 : fps;
         return;
     }
+    if (strncmp(line, "TRACE ", 6) == 0) { // the robot records too; it fetches ours from GET /cputrace
+        const char *m = strstr(line, "ms=");
+        cpu_trace_start(m ? (uint32_t) atoi(m + 3) : 1000, "ESP32-S3");
+        return;
+    }
     if (strcmp(line, "SCAN") == 0) {
         xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_BIT);
         return;
@@ -1338,6 +1344,22 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// GET /cputrace: the last recording of which task ran when (cpu_trace.h),
+// started by the robot's "TRACE" line; 503 while recording or before one.
+static esp_err_t cputrace_handler(httpd_req_t *req) {
+    uint8_t *blob = NULL;
+    size_t len = cpu_trace_blob(&blob);
+    if (len == 0) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        return httpd_resp_sendstr(req, cpu_trace_running() ? "recording" : "no recording");
+    }
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    esp_err_t err = httpd_resp_send(req, (const char *) blob, len);
+    free(blob);
+    return err;
+}
+
 // GET /capture: one JPEG -- the next frame the camera takes after the
 // request (not one from before it: a still taken just after the camera
 // turned shows where it points now). For measuring from single pictures
@@ -1401,6 +1423,7 @@ static void start_camera_server(void) {
     httpd_uri_t diag_uri = {"/diag", HTTP_GET, diag_handler, NULL};
     httpd_uri_t diag_page_uri = {"/diag.html", HTTP_GET, diag_page_handler, NULL};
     httpd_uri_t capture_uri = {"/capture", HTTP_GET, capture_handler, NULL};
+    httpd_uri_t cputrace_uri = {"/cputrace", HTTP_GET, cputrace_handler, NULL};
     httpd_uri_t update_uri = {"/update", HTTP_POST, update_handler, NULL};
     httpd_uri_t update_options_uri = {"/update", HTTP_OPTIONS, update_options_handler, NULL};
     main_config.recv_wait_timeout = 10; // an upload pauses briefly while flash sectors erase
@@ -1415,6 +1438,7 @@ static void start_camera_server(void) {
         httpd_register_uri_handler(s_main_httpd, &diag_uri);
         httpd_register_uri_handler(s_main_httpd, &diag_page_uri);
         httpd_register_uri_handler(s_main_httpd, &capture_uri);
+        httpd_register_uri_handler(s_main_httpd, &cputrace_uri);
     }
 
     httpd_config_t stream_config = HTTPD_DEFAULT_CONFIG();

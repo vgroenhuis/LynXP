@@ -24,3 +24,6 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # server's own default ~7 - raise the ceiling so both servers' sockets can't
 # collectively exceed it under load.
 CONFIG_LWIP_MAX_SOCKETS=16
+
+# cpu_trace.c names the tasks it saw with uxTaskGetSystemState().
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y

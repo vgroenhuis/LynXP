@@ -33,3 +33,13 @@ const char *closer_report_last_result();
 void closer_report_now();
 // The stored key, for closer_update.cpp's downloads.
 const char *closer_report_device_key();
+
+// Records for one second which task runs when, on this board and on the
+// camera (cpu_trace.h), and then sends both to the lab demos page, which
+// draws them. Asked for by the page (GET /cputrace?start=1 on this board, or
+// "trace": true in a heartbeat reply). False if there is no key, one is
+// already under way, or the last one was less than 10 s ago.
+bool closer_report_request_trace();
+
+// "idle", "asked", "recording", "uploading", "sent", "failed: ...".
+const char *closer_report_trace_state();

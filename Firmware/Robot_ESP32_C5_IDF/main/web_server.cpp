@@ -16,6 +16,7 @@
 #include "watchdog.hpp"
 #include "breadcrumb.hpp"
 #include "ota.hpp"
+#include "closer_report.hpp"
 
 #include "cJSON.h"
 #include "esp_log.h"
@@ -781,6 +782,25 @@ esp_err_t handle_cam_video(httpd_req_t *req) {
     return httpd_resp_send(req, json, len);
 }
 
+// GET /cputrace?start=1: records which task runs when on both chips for a
+// second and sends it to the CloSer lab demos page (closer_report.hpp); the
+// page's "Record one second" button asks for it through here. Without start:
+// only the state.
+esp_err_t handle_cpu_trace(httpd_req_t *req) {
+    char query[32], value[4];
+    bool started = false;
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+        httpd_query_key_value(query, "start", value, sizeof(value)) == ESP_OK && value[0] == '1') {
+        started = closer_report_request_trace();
+    }
+    char json[96];
+    int len = std::snprintf(json, sizeof(json), "{\"started\":%s,\"state\":\"%s\"}", started ? "true" : "false",
+                            closer_report_trace_state());
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, json, len);
+}
+
 // GET /camframe.jpg: the latest JPEG that came over the SPI link.
 esp_err_t handle_cam_frame(httpd_req_t *req) {
     constexpr size_t cap = 160 * 1024;
@@ -1203,6 +1223,7 @@ esp_err_t handle_cam_diag_wrapper(httpd_req_t *req) { return handle_cam_diag(req
 esp_err_t handle_cam_raw_wrapper(httpd_req_t *req) { return handle_cam_raw(req); }
 esp_err_t handle_cam_video_wrapper(httpd_req_t *req) { return handle_cam_video(req); }
 esp_err_t handle_cam_frame_wrapper(httpd_req_t *req) { return handle_cam_frame(req); }
+esp_err_t handle_cpu_trace_wrapper(httpd_req_t *req) { return handle_cpu_trace(req); }
 esp_err_t handle_pose_wrapper(httpd_req_t *req) { return handle_pose(req); }
 esp_err_t handle_wifi_status_wrapper(httpd_req_t *req) { return handle_wifi_status(req); }
 esp_err_t handle_wifi_scan_wrapper(httpd_req_t *req) { return handle_wifi_scan(req); }
@@ -1288,6 +1309,10 @@ void web_server_init() {
     httpd_register_uri_handler(g_server, &camRawUri);
     httpd_register_uri_handler(g_server, &camVideoUri);
     httpd_register_uri_handler(g_server, &camFrameUri);
+    httpd_uri_t cpuTraceUri = camFrameUri;
+    cpuTraceUri.uri = "/cputrace";
+    cpuTraceUri.handler = handle_cpu_trace_wrapper;
+    httpd_register_uri_handler(g_server, &cpuTraceUri);
     httpd_register_uri_handler(g_server, &poseUri);
     httpd_register_uri_handler(g_server, &wifiStatusUri);
     httpd_register_uri_handler(g_server, &wifiScanUri);

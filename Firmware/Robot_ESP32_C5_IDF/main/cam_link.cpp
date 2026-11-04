@@ -619,6 +619,13 @@ void cam_link_set_video_gap(int ms) {
 
 bool cam_link_video_running() { return s_videoFps > 0; }
 
+bool cam_link_request_cam_trace(int ms) {
+    if (cam_link_peer_is_stale()) return false;
+    char line[24];
+    int len = std::snprintf(line, sizeof(line), "TRACE ms=%d\n", ms);
+    return link_write(line, (size_t) len);
+}
+
 bool cam_link_set_video(int fps) {
     if (fps < 0 || fps > 30 || s_linkMutex == nullptr) return false;
     if (fps > 0 && !video_alloc()) return false;

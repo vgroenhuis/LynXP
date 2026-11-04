@@ -6,6 +6,9 @@
 #include "cam_link.hpp"
 #include "ping_diag.hpp"
 #include "closer_update.hpp"
+#include "cam_stream.hpp"
+#include "diagnostics.hpp"
+#include "cpu_trace.h"
 
 #include <cstdio>
 #include <cstring>
@@ -27,6 +30,10 @@ static const char *TAG = "closer";
 namespace {
 
 constexpr const char *REPORT_URL = "https://closer.ram.eemcs.utwente.nl/labdemos/api/heartbeat";
+constexpr const char *TRACE_URL = "https://closer.ram.eemcs.utwente.nl/labdemos/api/trace";
+constexpr uint32_t TRACE_MS = 1000;
+constexpr int64_t TRACE_MIN_GAP_US = 10 * 1000000; // between two recordings, whoever asks
+constexpr size_t CAM_BLOB_MAX = 1024 * 1024;
 constexpr int INTERVAL_S = 60;
 // After a failed report (no network route yet, server restarting): try again
 // sooner than a full interval, so the page notices a fresh boot quickly.
@@ -38,6 +45,10 @@ char deviceKey[96];     // "<demo id>.<secret>"
 char demoId[48];
 char lastResult[64];
 TaskHandle_t reportTask = nullptr;
+volatile bool reportNow = false; // closer_report_now()
+volatile bool traceWanted = false;
+const char *volatile traceState = "idle"; // "recording", "uploading", then how the last one went
+int64_t lastTraceUs = -TRACE_MIN_GAP_US;
 bool bootSent = false;  // "boot" (with the reset reason) goes once per power-up, then "beat"
 
 // Why the chip last started -- same names as the other lab demos report, so
@@ -144,7 +155,8 @@ char *build_report(const char *event) {
 }
 
 // The server's reply to a heartbeat (small JSON): "update" offers a release
-// (closer_update.hpp).
+// (closer_update.hpp); "trace": true asks for a recording (the page's button,
+// when the server can't reach this robot).
 struct Reply {
     char text[1024];
     int len;
@@ -192,6 +204,7 @@ bool send_report() {
         } else {
             snprintf(lastResult, sizeof(lastResult), "%s: HTTP %d", event, status);
             ok = (status == 200);
+            if (ok && std::strstr(reply.text, "\"trace\":true")) closer_report_request_trace();
         }
         if (status == 401) ESP_LOGW(TAG, "the server doesn't know this device key (closer key <key>)");
         esp_http_client_cleanup(c);
@@ -203,16 +216,164 @@ bool send_report() {
     return ok;
 }
 
-void report_task(void *) {
-    for (;;) {
-        int waitS = INTERVAL_S;
-        if (deviceKey[0] && wifi_is_connected()) {
-            if (!send_report()) waitS = RETRY_S;
-            closer_update_run_pending(); // (an update the reply offered: the next report waits for it)
-        } else if (deviceKey[0]) {
-            waitS = 5; // waiting for Wi-Fi: report as soon as it's up
+// The camera's recording (GET /cputrace on its own web server, over Wi-Fi):
+// length, and the blob in PSRAM in *out (free() it); 0 if none.
+size_t fetch_cam_blob(uint8_t **out) {
+    *out = nullptr;
+    const char *ip = cam_link_get_peer_ip();
+    if (ip[0] == '\0' || std::strcmp(ip, "0.0.0.0") == 0) return 0;
+    char url[48];
+    snprintf(url, sizeof(url), "http://%s/cputrace", ip);
+    esp_http_client_config_t cfg = {};
+    cfg.url = url;
+    cfg.timeout_ms = 5000;
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    if (c == nullptr) return 0;
+    size_t got = 0;
+    if (esp_http_client_open(c, 0) == ESP_OK) {
+        int64_t len = esp_http_client_fetch_headers(c);
+        if (esp_http_client_get_status_code(c) == 200 && len > 0 && len <= (int64_t) CAM_BLOB_MAX) {
+            uint8_t *buf = (uint8_t *) heap_caps_malloc((size_t) len, MALLOC_CAP_SPIRAM);
+            while (buf != nullptr && got < (size_t) len) {
+                int n = esp_http_client_read(c, (char *) buf + got, (int) ((size_t) len - got));
+                if (n <= 0) break;
+                got += (size_t) n;
+            }
+            if (buf != nullptr && got == (size_t) len) {
+                *out = buf;
+            } else {
+                free(buf);
+                got = 0;
+            }
         }
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(waitS * 1000)); // (or closer_report_now())
+    }
+    esp_http_client_cleanup(c);
+    return got;
+}
+
+// What was going on during the recording, for the page: Wi-Fi, the camera
+// link, video, the control loop.
+char *build_trace_meta(bool camAsked) {
+    cJSON *j = cJSON_CreateObject();
+    cJSON_AddStringToObject(j, "fw", esp_app_get_description()->version);
+    cJSON_AddNumberToObject(j, "uptime_s", (double) (esp_timer_get_time() / 1000000));
+    cJSON_AddBoolToObject(j, "cam_asked", camAsked);
+    WifiStatus ws;
+    wifi_get_status(&ws);
+    cJSON *wifi = cJSON_AddObjectToObject(j, "wifi");
+    cJSON_AddNumberToObject(wifi, "rssi", ws.rssi);
+    cJSON_AddNumberToObject(wifi, "channel", ws.channel);
+    cJSON_AddBoolToObject(wifi, "band5", ws.connectedOn5Ghz);
+    cJSON_AddNumberToObject(j, "ws_clients", ws_broadcast_client_count());
+    char buf[800];
+    if (cam_link_raw_json(buf, sizeof(buf)) > 0) cJSON_AddItemToObject(j, "link", cJSON_Parse(buf));
+    if (cam_link_video_json(buf, sizeof(buf)) > 0) cJSON_AddItemToObject(j, "video", cJSON_Parse(buf));
+    if (cam_stream_json(buf, sizeof(buf)) > 0) cJSON_AddItemToObject(j, "stream", cJSON_Parse(buf));
+    const CamDiagnostics &cd = cam_link_get_diagnostics();
+    cJSON *cam = cJSON_AddObjectToObject(j, "camera");
+    cJSON_AddStringToObject(cam, "ip", cd.ip);
+    cJSON_AddNumberToObject(cam, "rssi", cd.rssiDbm);
+    cJSON_AddNumberToObject(cam, "viewers", cd.clients);
+    cJSON_AddBoolToObject(cam, "stale", cam_link_peer_is_stale());
+    DiagnosticsSnapshot d;
+    diagnostics_get_snapshot(&d);
+    cJSON *ctl = cJSON_AddObjectToObject(j, "control");
+    cJSON_AddNumberToObject(ctl, "hz", d.core1HzMeasured);
+    cJSON_AddNumberToObject(ctl, "avg_us", d.core1TickAvgUs);
+    cJSON_AddNumberToObject(ctl, "max_us", d.core1TickMaxUs);
+    cJSON_AddNumberToObject(j, "heap_free", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(j, "psram_free", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    char *out = cJSON_PrintUnformatted(j);
+    cJSON_Delete(j);
+    return out;
+}
+
+void put32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t) v;
+    p[1] = (uint8_t) (v >> 8);
+    p[2] = (uint8_t) (v >> 16);
+    p[3] = (uint8_t) (v >> 24);
+}
+
+// One second on both chips (cpu_trace.h), then one upload: "LXTR", u32
+// length of the JSON that follows (build_trace_meta), the JSON, the robot's
+// blob, the camera's blob (if it sent one). Nothing goes out while recording.
+void run_trace() {
+    lastTraceUs = esp_timer_get_time();
+    traceState = "recording";
+    bool camAsked = cam_link_request_cam_trace((int) TRACE_MS);
+    if (!cpu_trace_start(TRACE_MS, "ESP32-C5")) {
+        traceState = "failed: no memory";
+        return;
+    }
+    vTaskDelay(pdMS_TO_TICKS(TRACE_MS + 100));
+    char *meta = build_trace_meta(camAsked); // (right after: what was going on)
+    uint8_t *mine = nullptr, *cam = nullptr;
+    size_t mineLen = cpu_trace_blob(&mine), camLen = 0;
+    traceState = "uploading";
+    for (int i = 0; camAsked && camLen == 0 && i < 4; i++) { // (the camera started a little later)
+        vTaskDelay(pdMS_TO_TICKS(300));
+        camLen = fetch_cam_blob(&cam);
+    }
+    size_t metaLen = meta ? std::strlen(meta) : 0;
+    size_t len = 8 + metaLen + mineLen + camLen;
+    uint8_t *body = (uint8_t *) heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
+    if (body != nullptr && mineLen > 0) {
+        std::memcpy(body, "LXTR", 4);
+        put32(body + 4, (uint32_t) metaLen);
+        std::memcpy(body + 8, meta, metaLen);
+        std::memcpy(body + 8 + metaLen, mine, mineLen);
+        if (camLen) std::memcpy(body + 8 + metaLen + mineLen, cam, camLen);
+        char url[128];
+        snprintf(url, sizeof(url), "%s/%s", TRACE_URL, demoId);
+        esp_http_client_config_t cfg = {};
+        cfg.url = url;
+        cfg.method = HTTP_METHOD_POST;
+        cfg.crt_bundle_attach = esp_crt_bundle_attach;
+        cfg.timeout_ms = 20000;
+        esp_http_client_handle_t c = esp_http_client_init(&cfg);
+        if (c) {
+            char auth[sizeof(deviceKey) + 8];
+            snprintf(auth, sizeof(auth), "Bearer %s", deviceKey);
+            esp_http_client_set_header(c, "Authorization", auth);
+            esp_http_client_set_header(c, "Content-Type", "application/octet-stream");
+            esp_http_client_set_post_field(c, (const char *) body, (int) len);
+            esp_err_t err = esp_http_client_perform(c);
+            int status = esp_http_client_get_status_code(c);
+            traceState = err != ESP_OK ? "failed: no connection" : status == 200 ? (camLen ? "sent" : "sent (robot only)") : "failed: refused";
+            ESP_LOGI(TAG, "trace: %u + %u bytes, %s (HTTP %d)", (unsigned) mineLen, (unsigned) camLen, esp_err_to_name(err), status);
+            esp_http_client_cleanup(c);
+        }
+    } else {
+        traceState = "failed: no memory";
+    }
+    free(body);
+    free(mine);
+    free(cam);
+    cJSON_free(meta);
+}
+
+void report_task(void *) {
+    int64_t nextReport = 0;
+    for (;;) {
+        if (traceWanted && deviceKey[0] && wifi_is_connected()) {
+            traceWanted = false;
+            run_trace();
+        }
+        if (reportNow || esp_timer_get_time() >= nextReport) {
+            reportNow = false;
+            int waitS = INTERVAL_S;
+            if (deviceKey[0] && wifi_is_connected()) {
+                if (!send_report()) waitS = RETRY_S;
+                closer_update_run_pending(); // (an update the reply offered: the next report waits for it)
+            } else if (deviceKey[0]) {
+                waitS = 5; // waiting for Wi-Fi: report as soon as it's up
+            }
+            nextReport = esp_timer_get_time() + (int64_t) waitS * 1000000;
+        }
+        // Until the next report, closer_report_now() or a recording is asked for.
+        int64_t waitMs = (nextReport - esp_timer_get_time()) / 1000;
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(waitMs > 0 ? waitMs : 1));
     }
 }
 
@@ -245,6 +406,18 @@ const char *closer_report_demo_id() { return demoId; }
 const char *closer_report_device_key() { return deviceKey; }
 
 void closer_report_now() {
+    reportNow = true;
     if (reportTask != nullptr) xTaskNotifyGive(reportTask);
 }
+
+bool closer_report_request_trace() {
+    if (!deviceKey[0] || reportTask == nullptr || traceWanted || cpu_trace_running()) return false;
+    if (esp_timer_get_time() - lastTraceUs < TRACE_MIN_GAP_US) return false;
+    traceWanted = true;
+    traceState = "asked";
+    xTaskNotifyGive(reportTask);
+    return true;
+}
+
+const char *closer_report_trace_state() { return traceState; }
 const char *closer_report_last_result() { return lastResult; }
