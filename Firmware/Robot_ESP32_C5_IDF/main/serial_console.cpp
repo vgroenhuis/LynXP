@@ -10,6 +10,7 @@
 #include "wifi_networks.hpp"
 #include "cam_link.hpp"
 #include "closer_report.hpp"
+#include "closer_update.hpp"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -135,6 +136,11 @@ void handle_line(const char *line) {
         printf("lab demos: %s, last report: %s\n",
                closer_report_demo_id()[0] ? closer_report_demo_id() : "no key",
                closer_report_last_result()[0] ? closer_report_last_result() : "none yet");
+        if (closer_update_state()[0]) printf("update: %s\n", closer_update_state());
+
+    } else if (std::strcmp(line, "closer update") == 0) {
+        closer_update_retry_now();
+        printf("update: an offered release may start at the next report (within a minute)\n");
 
     } else if (std::strncmp(line, "closer key", 10) == 0) {
         const char *key = line + 10;
@@ -259,7 +265,7 @@ void print_help() {
            "lab2turn left|right | goto <x> <y> | reset_encoders | reset_pose | "
            "logging on|off | pose | mp | stop | servo <us> | enc | ticks | "
            "settings show|save|load|default|set kp <v> | wp save|load | "
-           "wifi list|add <ssid> [pw]|forget <ssid>|connect <ssid> | closer [key <key>] | camraw | camclock <Hz>\n");
+           "wifi list|add <ssid> [pw]|forget <ssid>|connect <ssid> | closer [key <key>|update] | camraw | camclock <Hz>\n");
 }
 
 void console_task(void *arg) {

@@ -7,8 +7,8 @@
 // address, firmware, Wi-Fi signal, memory, WebSocket clients and the
 // INA260's supply readings -- so the page can show whether the robot is on
 // and where to reach it. The same heartbeat API the other lab demos use (see
-// the lab demos README); only the reporting part, not their Wi-Fi manager
-// or server-pushed updates (this firmware has its own of both).
+// the lab demos README), and their updates from the server
+// (closer_update.hpp); not their Wi-Fi manager (this firmware has its own).
 //
 // Each robot has its own device key, "<demo id>.<secret>" (e.g.
 // "lynxp-one.xxxx"), made on the server with `python -m labdemos.cli add
@@ -28,3 +28,5 @@ bool closer_report_set_key(const char *key);
 // got back ("" before the first one) -- for the serial console.
 const char *closer_report_demo_id();
 const char *closer_report_last_result();
+// The stored key, for closer_update.cpp's downloads.
+const char *closer_report_device_key();

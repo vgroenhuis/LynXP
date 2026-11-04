@@ -36,6 +36,7 @@ idf_component_register(
         "app_data.cpp"
         "debug_pan.cpp"
         "closer_report.cpp"
+        "closer_update.cpp"
     INCLUDE_DIRS "."
     REQUIRES
         driver          # gpio, ledc, pulse_cnt, gptimer

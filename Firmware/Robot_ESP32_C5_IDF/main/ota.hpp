@@ -2,6 +2,9 @@
 
 #include "esp_http_server.h"
 
+#include <cstddef>
+#include <cstdint>
+
 // App firmware + filesystem OTA, lifted from the proven-on-hardware
 // Test_ESP32_S3_Feather_ESP_IDF spike's update_post_handler/
 // update_fs_post_handler, with three hardening changes on top:
@@ -44,3 +47,11 @@ bool ota_request_authorized(httpd_req_t *req);
 // handle_update_fs_post()'s comment for why. ota_resume_robot() undoes it.
 void ota_pause_robot();
 void ota_resume_robot();
+
+// Writes a zlib-compressed LittleFS image (what POST /update-fs?format=zlib
+// takes) to the storage partition: checked whole first, then only the 4 KB
+// sectors that differ are rewritten. The filesystem stays unmounted after
+// success -- restart next. ESP_ERR_INVALID_ARG / ESP_ERR_INVALID_SIZE: not a
+// valid image / too big, nothing changed. Call between ota_pause_robot() and
+// a restart (or ota_resume_robot() on failure). For closer_update.cpp.
+esp_err_t ota_write_fs_image_zlib(const uint8_t *in, size_t len, size_t *changed);

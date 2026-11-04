@@ -6,6 +6,7 @@
 #include "motors.hpp"
 #include "littlefs_init.hpp"
 #include "settings.hpp"
+#include "closer_update.hpp"
 
 #include "esp_http_server.h"
 #include "esp_ota_ops.h"
@@ -388,6 +389,65 @@ bool inflate_image(const uint8_t *in, size_t inLen, tinfl_decompressor *d, uint8
     return sink.err == ESP_OK;
 }
 
+// Checks (pass 1, nothing touched) and then writes (pass 2) a zlib-compressed
+// LittleFS image to the storage partition: ESP_ERR_INVALID_SIZE if it's
+// bigger than the partition, ESP_ERR_INVALID_ARG if it isn't a valid one
+// (both: nothing changed), ESP_ERR_NO_MEM, or a flash error during pass 2
+// (filesystem remounted with whatever is there). The caller pauses the robot
+// first (ota_pause_robot).
+esp_err_t write_fs_zlib(const uint8_t *in, size_t inLen, const esp_partition_t *fsPartition, size_t *changed) {
+    auto *d = (tinfl_decompressor *) heap_caps_malloc(sizeof(tinfl_decompressor), MALLOC_CAP_8BIT);
+    auto *dict = (uint8_t *) heap_caps_malloc(TINFL_LZ_DICT_SIZE, MALLOC_CAP_8BIT);
+    // The two buffers flash reads/writes go through: internal RAM. Flash
+    // operations disable the cache -- and PSRAM with it -- so a PSRAM buffer
+    // would have to go through a small bounce buffer, piece by piece.
+    auto *sector = (uint8_t *) heap_caps_malloc(FS_SECTOR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    auto *onFlash = (uint8_t *) heap_caps_malloc(FS_SECTOR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    auto freeAll = [&]() {
+        heap_caps_free(d);
+        heap_caps_free(dict);
+        heap_caps_free(sector);
+        heap_caps_free(onFlash);
+    };
+    if (!d || !dict || !sector || !onFlash) {
+        freeAll();
+        return ESP_ERR_NO_MEM;
+    }
+
+    IdleWatchdogPause idlePause; // until this returns (or the robot reboots)
+
+    // Pass 1: check it, change nothing.
+    ImageSink check;
+    check.part = fsPartition;
+    check.sector = sector;
+    bool checked = inflate_image(in, inLen, d, dict, check);
+    ESP_LOGI(TAG, "zlib: %u compressed bytes -> %u, %s", (unsigned) inLen, (unsigned) check.total, checked && check.magic ? "valid" : "INVALID");
+    if (!checked || !check.magic) {
+        freeAll();
+        return check.err == ESP_ERR_INVALID_SIZE ? ESP_ERR_INVALID_SIZE : ESP_ERR_INVALID_ARG;
+    }
+
+    // Pass 2: write.
+    esp_vfs_littlefs_unregister("storage");
+    int64_t t0 = esp_timer_get_time();
+    ImageSink sink;
+    sink.part = fsPartition;
+    sink.write = true;
+    sink.sector = sector;
+    sink.onFlash = onFlash;
+    bool ok = inflate_image(in, inLen, d, dict, sink);
+    freeAll();
+    if (!ok) {
+        ESP_LOGE(TAG, "compressed filesystem OTA failed: %s", esp_err_to_name(sink.err));
+        littlefs_init();
+        return sink.err != ESP_OK ? sink.err : ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "%u of %u sectors rewritten in %lld ms", (unsigned) sink.changed,
+             (unsigned) (fsPartition->size / FS_SECTOR), (long long) ((esp_timer_get_time() - t0) / 1000));
+    if (changed) *changed = sink.changed;
+    return ESP_OK;
+}
+
 esp_err_t handle_update_fs_zlib(httpd_req_t *req, const esp_partition_t *fsPartition) {
     auto reject = [&](const char *status, const char *msg) {
         httpd_resp_set_status(req, status);
@@ -399,80 +459,41 @@ esp_err_t handle_update_fs_zlib(httpd_req_t *req, const esp_partition_t *fsParti
     }
     size_t inLen = (size_t) req->content_len;
     auto *in = (uint8_t *) heap_caps_malloc(inLen, MALLOC_CAP_8BIT);
-    auto *d = (tinfl_decompressor *) heap_caps_malloc(sizeof(tinfl_decompressor), MALLOC_CAP_8BIT);
-    auto *dict = (uint8_t *) heap_caps_malloc(TINFL_LZ_DICT_SIZE, MALLOC_CAP_8BIT);
-    // The two buffers flash reads/writes go through: internal RAM. Flash
-    // operations disable the cache -- and PSRAM with it -- so a PSRAM buffer
-    // would have to go through a small bounce buffer, piece by piece.
-    auto *sector = (uint8_t *) heap_caps_malloc(FS_SECTOR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    auto *onFlash = (uint8_t *) heap_caps_malloc(FS_SECTOR, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    auto freeAll = [&]() {
-        heap_caps_free(in);
-        heap_caps_free(d);
-        heap_caps_free(dict);
-        heap_caps_free(sector);
-        heap_caps_free(onFlash);
-    };
-    if (!in || !d || !dict || !sector || !onFlash) {
-        freeAll();
+    if (!in) {
         return reject("500 Internal Server Error", "Not enough memory for a compressed image -- send it uncompressed");
     }
     for (size_t got = 0; got < inLen;) {
         int n = web_server_recv(req, (char *) in + got, inLen - got);
         if (n <= 0) {
-            freeAll();
+            heap_caps_free(in);
             return reject("400 Bad Request", "Upload cut short -- nothing was changed");
         }
         got += (size_t) n;
     }
 
-    IdleWatchdogPause idlePause; // until this handler returns (or the robot reboots)
-
-    // Pass 1: check it, change nothing.
-    ImageSink check;
-    check.part = fsPartition;
-    check.sector = sector;
-    bool checked = inflate_image(in, inLen, d, dict, check);
-    ESP_LOGI(TAG, "zlib: %u compressed bytes -> %u, %s", (unsigned) inLen, (unsigned) check.total, checked && check.magic ? "valid" : "INVALID");
-    if (!checked || !check.magic) {
-        freeAll();
-        bool tooBig = check.err == ESP_ERR_INVALID_SIZE;
-        ESP_LOGW(TAG, "/update-fs (zlib) rejected: %s", tooBig ? "too big" : "not a valid compressed LittleFS image");
-        return reject("400 Bad Request", tooBig ? "Image bigger than the storage partition -- nothing was changed"
+    // Same pausing as the uncompressed path below (see its comment on the
+    // control task and the watchdog).
+    ota_pause_robot();
+    int64_t t0 = esp_timer_get_time();
+    size_t changed = 0;
+    esp_err_t err = write_fs_zlib(in, inLen, fsPartition, &changed);
+    heap_caps_free(in);
+    if (err == ESP_ERR_INVALID_SIZE || err == ESP_ERR_INVALID_ARG || err == ESP_ERR_NO_MEM) {
+        ota_resume_robot();
+        ESP_LOGW(TAG, "/update-fs (zlib) rejected: %s", esp_err_to_name(err));
+        return reject(err == ESP_ERR_NO_MEM ? "500 Internal Server Error" : "400 Bad Request",
+                      err == ESP_ERR_INVALID_SIZE ? "Image bigger than the storage partition -- nothing was changed"
+                      : err == ESP_ERR_NO_MEM   ? "Not enough memory for a compressed image -- send it uncompressed"
                                                 : "Not a valid zlib-compressed LittleFS image -- nothing was changed");
     }
-
-    // Pass 2: write. Same pausing as the uncompressed path below (see its
-    // comment on the control task and the watchdog).
-    stopAllMotion();
-    motors_coast_all();
-    disable_servos();
-    TaskHandle_t ctrlTask = control_task_get_handle();
-    esp_task_wdt_delete(ctrlTask);
-    vTaskSuspend(ctrlTask);
-    esp_vfs_littlefs_unregister("storage");
-
-    int64_t t0 = esp_timer_get_time();
-    ImageSink sink;
-    sink.part = fsPartition;
-    sink.write = true;
-    sink.sector = sector;
-    sink.onFlash = onFlash;
-    bool ok = inflate_image(in, inLen, d, dict, sink);
-    freeAll();
-    if (!ok) {
-        ESP_LOGE(TAG, "compressed filesystem OTA failed: %s", esp_err_to_name(sink.err));
-        vTaskResume(ctrlTask);
-        esp_task_wdt_add(ctrlTask);
-        restore_servos();
+    if (err != ESP_OK) {
+        ota_resume_robot();
         httpd_resp_send_500(req);
-        littlefs_init();
         return ESP_OK;
     }
     char msg[120];
     std::snprintf(msg, sizeof(msg), "OK, %u of %u sectors rewritten in %lld ms -- rebooting to remount filesystem...",
-                  (unsigned) sink.changed, (unsigned) (fsPartition->size / FS_SECTOR), (long long) ((esp_timer_get_time() - t0) / 1000));
-    ESP_LOGI(TAG, "%s", msg);
+                  (unsigned) changed, (unsigned) (fsPartition->size / FS_SECTOR), (long long) ((esp_timer_get_time() - t0) / 1000));
     httpd_resp_sendstr(req, msg);
     vTaskDelay(pdMS_TO_TICKS(500));
     esp_restart();
@@ -656,7 +677,11 @@ void ota_validate_task(void *arg) {
     (void) arg;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(500));
-        if (wifi_is_connected() && web_server_get_handle() != nullptr && g_controlTickCount >= 1000) {
+        // After an update from the lab demos server, also its first report
+        // (closer_update.hpp): firmware that can't reach the server any more
+        // couldn't be fixed from there either.
+        if (wifi_is_connected() && web_server_get_handle() != nullptr && g_controlTickCount >= 1000 &&
+            closer_update_may_validate()) {
             esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
             if (err == ESP_OK) {
                 ESP_LOGI(TAG, "app marked valid, rollback cancelled");
@@ -715,4 +740,11 @@ void ota_resume_robot() {
     vTaskResume(ctrlTask);
     esp_task_wdt_add(ctrlTask); // after resuming -- see handle_update_fs_post()'s failure path
     restore_servos();
+}
+
+esp_err_t ota_write_fs_image_zlib(const uint8_t *in, size_t len, size_t *changed) {
+    const esp_partition_t *fsPartition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "storage");
+    if (fsPartition == nullptr) return ESP_ERR_NOT_FOUND;
+    return write_fs_zlib(in, len, fsPartition, changed);
 }

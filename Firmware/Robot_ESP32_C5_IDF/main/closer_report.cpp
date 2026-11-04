@@ -5,6 +5,7 @@
 #include "ina260.hpp"
 #include "cam_link.hpp"
 #include "ping_diag.hpp"
+#include "closer_update.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -130,11 +131,34 @@ char *build_report(const char *event) {
         char msg[96];
         snprintf(msg, sizeof(msg), "Camera link down: no status from the ESP32-S3 for %lu s", (unsigned long) camAgeS);
         cJSON_AddStringToObject(j, "message", msg);
+    } else if (closer_update_state()[0]) {
+        cJSON_AddStringToObject(j, "message", closer_update_state());
     }
 
     char *out = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     return out;
+}
+
+// The server's reply to a heartbeat (small JSON): "update" offers a release
+// (closer_update.hpp).
+struct Reply {
+    char text[1024];
+    int len;
+};
+
+esp_err_t on_http_event(esp_http_client_event_t *e) {
+    Reply *r = (Reply *) e->user_data;
+    if (e->event_id == HTTP_EVENT_ON_DATA && r != nullptr) {
+        int n = e->data_len;
+        if (n > (int) sizeof(r->text) - 1 - r->len) n = (int) sizeof(r->text) - 1 - r->len;
+        if (n > 0) {
+            std::memcpy(r->text + r->len, e->data, (size_t) n);
+            r->len += n;
+            r->text[r->len] = '\0';
+        }
+    }
+    return ESP_OK;
 }
 
 // True if the server took the report.
@@ -147,6 +171,9 @@ bool send_report() {
     cfg.method = HTTP_METHOD_POST;
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 10000;
+    Reply reply = {};
+    cfg.event_handler = on_http_event;
+    cfg.user_data = &reply;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     bool ok = false;
     if (c) {
@@ -169,6 +196,7 @@ bool send_report() {
     cJSON_free(body);
     ESP_LOGI(TAG, "report %s", lastResult);
     if (ok) bootSent = true;
+    if (ok) closer_update_on_reply(reply.text); // (after the connection is closed: an update opens its own)
     return ok;
 }
 
@@ -188,6 +216,7 @@ void report_task(void *) {
 
 void closer_report_start() {
     load_key();
+    closer_update_init();
     if (!demoId[0]) ESP_LOGI(TAG, "no lab demos key stored -- not reporting (closer key <key>)");
     // 8 KB: the TLS handshake (mbedTLS + certificate bundle) is stack-hungry.
     // Priority 1, below everything that matters.
@@ -209,4 +238,5 @@ bool closer_report_set_key(const char *key) {
 }
 
 const char *closer_report_demo_id() { return demoId; }
+const char *closer_report_device_key() { return deviceKey; }
 const char *closer_report_last_result() { return lastResult; }
