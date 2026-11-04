@@ -34,6 +34,11 @@ void closer_update_init();
 // tells this module the server answered (for the rollback check above).
 void closer_update_on_reply(const char *replyJson);
 
+// Runs the update closer_update_on_reply() found, if any (minutes; the robot
+// restarts at the end if it installed its own app). Called by the report
+// task after each report, outside the report's own HTTP request.
+void closer_update_run_pending();
+
 // For ota.cpp's validation: false only after an update from the server,
 // until the new app's first report got through.
 bool closer_update_may_validate();

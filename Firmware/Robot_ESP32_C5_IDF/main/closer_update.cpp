@@ -43,6 +43,8 @@ constexpr int CONFIRM_S = 300;
 constexpr size_t CHUNK = 4096;
 
 volatile bool busy = false;
+struct Offer;
+Offer *pending = nullptr;  // an update to run, from the report task (closer_update_run_pending)
 bool fromServer = false;   // this boot: an unconfirmed app from the server
 bool reported = false;     // the server answered a report since this boot
 int tries = 0;
@@ -305,9 +307,14 @@ const char *update_camera(const Offer *o, char *buf, bool *permanent) {
 //
 // The camera first, if it needs another version: a new robot app may count
 // on it. The robot keeps running meanwhile (nothing on its own flash).
-void update_task(void *arg) {
-    Offer *o = (Offer *) arg;
+//
+// Runs in the report task (no task of its own: an 8 KB stack didn't always
+// fit in the internal RAM that's left, and then nothing happened at all).
+void run_update(Offer *o) {
+    // (Internal RAM if there is, else PSRAM: esp_flash_write copies a PSRAM
+    // buffer through its own internal one.)
     char *buf = (char *) heap_caps_malloc(CHUNK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (buf == nullptr) buf = (char *) heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM);
     const char *why = "no memory";
     char whyBuf[64];
     const char *what = o->cam && !o->app ? o->camVersion : o->version; // (for the messages)
@@ -332,7 +339,7 @@ void update_task(void *arg) {
         tries = 0;
         delete o;
         busy = false;
-        vTaskDelete(nullptr);
+        return;
     }
     if (ok) set_state(o->fs ? "downloading %s (web files)" : "downloading %s", o->version);
     uint8_t *fs = ok && o->fs ? (uint8_t *) heap_caps_malloc((size_t) o->fsSize, MALLOC_CAP_SPIRAM) : nullptr;
@@ -422,7 +429,6 @@ void update_task(void *arg) {
     ESP_LOGE(TAG, "%s", state);
     delete o;
     busy = false;
-    vTaskDelete(nullptr);
 }
 
 bool copy_str(cJSON *obj, const char *key, char *out, size_t len) {
@@ -530,10 +536,13 @@ void closer_update_on_reply(const char *replyJson) {
         return;
     }
     busy = true;
-    if (xTaskCreate(update_task, "closer_update", 8192, o, 2, nullptr) != pdPASS) {
-        delete o;
-        busy = false;
-    }
+    pending = o;
+}
+
+void closer_update_run_pending() {
+    Offer *o = pending;
+    pending = nullptr;
+    if (o != nullptr) run_update(o);
 }
 
 bool closer_update_may_validate() { return !fromServer || reported; }

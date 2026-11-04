@@ -208,6 +208,7 @@ void report_task(void *) {
         int waitS = INTERVAL_S;
         if (deviceKey[0] && wifi_is_connected()) {
             if (!send_report()) waitS = RETRY_S;
+            closer_update_run_pending(); // (an update the reply offered: the next report waits for it)
         } else if (deviceKey[0]) {
             waitS = 5; // waiting for Wi-Fi: report as soon as it's up
         }
