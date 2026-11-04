@@ -9,8 +9,8 @@
 // both SHA-256s, writes the web files (only the sectors that differ) and the
 // app, and restarts into the new app.
 //
-// Only while nobody has the robot's page open (no WebSocket clients): the
-// robot stops for the update. A download that breaks off resumes where it
+// The robot stops while the update is written (cyan LED, OLED says so),
+// also with its page open. A download that breaks off resumes where it
 // was; a failed one is tried again after 5, 10, 20, 40, then every 60 min.
 //
 // Rollback: the new app must reach the server (one report) within 5 minutes,
@@ -36,3 +36,10 @@ const char *closer_update_state();
 // Console `closer update`: forget the wait after a failed download (the next
 // report may start it again at once).
 void closer_update_retry_now();
+
+// True while an update is being downloaded or written (the OLED says so).
+bool closer_update_busy();
+
+// GET /api/update (status) and POST /api/update/check (the page's "Check for
+// updates": a report right away). Call once after web_server_init().
+void closer_update_register_routes();

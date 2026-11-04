@@ -37,6 +37,7 @@ constexpr const char *NVS_KEY = "key";
 char deviceKey[96];     // "<demo id>.<secret>"
 char demoId[48];
 char lastResult[64];
+TaskHandle_t reportTask = nullptr;
 bool bootSent = false;  // "boot" (with the reset reason) goes once per power-up, then "beat"
 
 // Why the chip last started -- same names as the other lab demos report, so
@@ -132,7 +133,9 @@ char *build_report(const char *event) {
         snprintf(msg, sizeof(msg), "Camera link down: no status from the ESP32-S3 for %lu s", (unsigned long) camAgeS);
         cJSON_AddStringToObject(j, "message", msg);
     } else if (closer_update_state()[0]) {
-        cJSON_AddStringToObject(j, "message", closer_update_state());
+        char msg[120]; // (the server takes messages up to 120 characters)
+        snprintf(msg, sizeof(msg), "%s", closer_update_state());
+        cJSON_AddStringToObject(j, "message", msg);
     }
 
     char *out = cJSON_PrintUnformatted(j);
@@ -208,7 +211,7 @@ void report_task(void *) {
         } else if (deviceKey[0]) {
             waitS = 5; // waiting for Wi-Fi: report as soon as it's up
         }
-        vTaskDelay(pdMS_TO_TICKS(waitS * 1000));
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(waitS * 1000)); // (or closer_report_now())
     }
 }
 
@@ -220,7 +223,7 @@ void closer_report_start() {
     if (!demoId[0]) ESP_LOGI(TAG, "no lab demos key stored -- not reporting (closer key <key>)");
     // 8 KB: the TLS handshake (mbedTLS + certificate bundle) is stack-hungry.
     // Priority 1, below everything that matters.
-    xTaskCreate(report_task, "closer_report", 8192, nullptr, 1, nullptr);
+    xTaskCreate(report_task, "closer_report", 8192, nullptr, 1, &reportTask);
 }
 
 bool closer_report_set_key(const char *key) {
@@ -239,4 +242,8 @@ bool closer_report_set_key(const char *key) {
 
 const char *closer_report_demo_id() { return demoId; }
 const char *closer_report_device_key() { return deviceKey; }
+
+void closer_report_now() {
+    if (reportTask != nullptr) xTaskNotifyGive(reportTask);
+}
 const char *closer_report_last_result() { return lastResult; }

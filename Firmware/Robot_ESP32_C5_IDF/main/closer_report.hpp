@@ -28,5 +28,8 @@ bool closer_report_set_key(const char *key);
 // got back ("" before the first one) -- for the serial console.
 const char *closer_report_demo_id();
 const char *closer_report_last_result();
+// Sends the next report now instead of at the end of the interval (the
+// page's "Check for updates").
+void closer_report_now();
 // The stored key, for closer_update.cpp's downloads.
 const char *closer_report_device_key();

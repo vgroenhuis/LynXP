@@ -2638,6 +2638,44 @@ window.addEventListener("DOMContentLoaded", () => {
     const pass = document.getElementById("otaPassword").value;
     return { Authorization: "Basic " + btoa(`${user}:${pass}`) };
   }
+  // Updates from the CloSer lab demos server (closer_update.cpp): the robot
+  // installs whatever release the server offers by itself; the button asks
+  // right away instead of at the next report (within a minute). While
+  // installing, the robot stops and restarts at the end.
+  const serverUpdateStatus = document.getElementById("serverUpdateStatus");
+  let serverUpdatePoll = null;
+  function showServerUpdate(u) {
+    let text = `Running ${u.version}. `;
+    if (u.busy) text += u.state + " -- the robot restarts when it's done.";
+    else if (u.offered) text += `The server offers ${u.offered}: installing it now.`;
+    else if (u.checked_s >= 0) text += `Up to date (server asked ${u.checked_s} s ago).`;
+    else text += "The server hasn't answered yet (no Wi-Fi to the internet, or no lab demos key: 'closer key' on the console).";
+    if (!u.busy && u.state && u.state.includes("failed")) text += " Last try: " + u.state;
+    serverUpdateStatus.textContent = text;
+  }
+  function pollServerUpdate(times) {
+    clearTimeout(serverUpdatePoll);
+    fetch("/api/update")
+      .then((r) => r.json())
+      .then((u) => {
+        showServerUpdate(u);
+        if (times > 1 || u.busy) serverUpdatePoll = setTimeout(() => pollServerUpdate(times - 1), 2000);
+      })
+      .catch(() => {
+        serverUpdateStatus.textContent = "No answer from the robot (restarting into the new firmware?)";
+        if (times > 1) serverUpdatePoll = setTimeout(() => pollServerUpdate(times - 1), 3000);
+      });
+  }
+  document.getElementById("checkUpdateBtn").addEventListener("click", () => {
+    serverUpdateStatus.textContent = "Asking the lab demos server...";
+    fetch("/api/update/check", { method: "POST" })
+      .then(() => pollServerUpdate(8)) // (the report and its answer take a few seconds)
+      .catch(() => { serverUpdateStatus.textContent = "No answer from the robot."; });
+  });
+  document.getElementById("panel-ota").addEventListener("toggle", (e) => {
+    if (e.target.open) pollServerUpdate(1);
+  });
+
   document.getElementById("uploadFwBtn").addEventListener("click", () => {
     const file = document.getElementById("fwFile").files[0];
     const status = document.getElementById("otaStatus");

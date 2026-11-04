@@ -5,6 +5,7 @@
 #include "ina260.hpp"
 #include "cam_link.hpp"
 #include "watchdog.hpp"
+#include "closer_update.hpp"
 
 extern "C" {
 #include "ssd1306.h"
@@ -25,7 +26,8 @@ extern "C" {
 // it will fit, with the supporting details (network name, battery, camera)
 // in smaller proportional fonts around it:
 //
-//   LynXP 1.4.1              9.01 V  450 mA     <- header: name, firmware version, power
+//   LynXP                            9.01 V     <- header: name / firmware version and
+//                                                  supply V / mA / W, each taking turns
 //   ------------------------------------------
 //   Mojca_Vincent_Reel...       ch40 -67dBm     <- network (scrolls if too long),
 //                                                  channel + signal of the AP joined
@@ -121,7 +123,7 @@ void draw_big(const uint8_t *const *fonts, size_t n, const char *text, int basel
 
 Marquee s_networkBand;
 Marquee s_bottomBand;
-char s_powerText[24] = "";
+char s_powerText[3][16] = {}; // V, mA, W: shown in turn
 int64_t s_lastInaUs = 0;
 char s_linkText[24] = "";
 int64_t s_lastLinkMs = 0;
@@ -138,18 +140,21 @@ void update_link_text(const WifiStatus &st) {
 
 void update_power_text() {
     int64_t now = esp_timer_get_time();
-    if (s_powerText[0] && now - s_lastInaUs < INA_PERIOD_US) return;
+    if (s_powerText[0][0] && now - s_lastInaUs < INA_PERIOD_US) return;
     s_lastInaUs = now;
     float v, ma, mw;
-    if (!s_ina260Ok) {
-        std::snprintf(s_powerText, sizeof(s_powerText), "no INA260");
-    } else if (ina260_read(&v, &ma, &mw)) {
-        if (ma >= 1000) std::snprintf(s_powerText, sizeof(s_powerText), "%.2f V  %.2f A", v, ma / 1000);
-        else std::snprintf(s_powerText, sizeof(s_powerText), "%.2f V  %.0f mA", v, ma);
-    } else {
-        std::snprintf(s_powerText, sizeof(s_powerText), "INA260 err");
+    if (!s_ina260Ok || !ina260_read(&v, &ma, &mw)) {
+        for (auto &t : s_powerText) std::snprintf(t, sizeof(t), "%s", s_ina260Ok ? "INA260 err" : "no INA260");
+        return;
     }
+    std::snprintf(s_powerText[0], sizeof(s_powerText[0]), "%.2f V", v);
+    if (ma >= 1000) std::snprintf(s_powerText[1], sizeof(s_powerText[1]), "%.2f A", ma / 1000);
+    else std::snprintf(s_powerText[1], sizeof(s_powerText[1]), "%.0f mA", ma);
+    std::snprintf(s_powerText[2], sizeof(s_powerText[2]), "%.2f W", mw / 1000);
 }
+
+// The header's alternating items: each shown this long.
+constexpr int64_t HEADER_TURN_MS = 3000;
 
 // After an abnormal restart (crash, hang, brownout -- see
 // watchdog_abnormal_boot_short()) the bottom line says so: steadily for the
@@ -168,16 +173,20 @@ bool show_abnormal_boot() {
 void compose() {
     u8g2_ClearBuffer(&s_u8g2);
 
-    // Header: name and firmware version left, power right. (The version only
-    // if it fits: a long dev version string would run into the power.)
-    u8g2_SetFont(&s_u8g2, u8g2_font_helvB08_tr);
-    int nameW = u8g2_DrawStr(&s_u8g2, 0, 8, "LynXP");
+    // Header: name and firmware version in turn on the left; supply voltage,
+    // current and power in turn on the right.
+    int64_t turn = now_ms() / HEADER_TURN_MS;
+    if (turn % 2 == 0) {
+        u8g2_SetFont(&s_u8g2, u8g2_font_helvB08_tr);
+        u8g2_DrawStr(&s_u8g2, 0, 8, "LynXP");
+    } else {
+        u8g2_SetFont(&s_u8g2, u8g2_font_helvR08_tr);
+        u8g2_DrawStr(&s_u8g2, 0, 8, esp_app_get_description()->version);
+    }
     update_power_text();
     u8g2_SetFont(&s_u8g2, u8g2_font_helvR08_tr);
-    int powerW = u8g2_GetStrWidth(&s_u8g2, s_powerText);
-    u8g2_DrawStr(&s_u8g2, W - powerW, 8, s_powerText);
-    const char *version = esp_app_get_description()->version;
-    if (nameW + 4 + u8g2_GetStrWidth(&s_u8g2, version) + 6 <= W - powerW) u8g2_DrawStr(&s_u8g2, nameW + 4, 8, version);
+    const char *power = s_powerText[turn % 3];
+    u8g2_DrawStr(&s_u8g2, W - u8g2_GetStrWidth(&s_u8g2, power), 8, power);
     u8g2_DrawHLine(&s_u8g2, 0, 10, W);
 
     WifiStatus st;
@@ -203,7 +212,10 @@ void compose() {
     }
 
     u8g2_DrawHLine(&s_u8g2, 0, 50, W);
-    if (show_abnormal_boot()) {
+    if (closer_update_busy()) {
+        // "downloading 1.4.2 (web files)", ...: the robot is stopped meanwhile
+        draw_band(s_bottomBand, u8g2_font_helvB08_tr, closer_update_state(), 62);
+    } else if (show_abnormal_boot()) {
         // white bar, black text: stands out from the status lines
         u8g2_DrawBox(&s_u8g2, 0, 52, W, 12);
         u8g2_SetDrawColor(&s_u8g2, 0);

@@ -21,6 +21,7 @@
 #include "debug_pan.hpp"
 #include "pose_persist.hpp"
 #include "closer_report.hpp"
+#include "closer_update.hpp"
 #include "app_data.hpp"
 
 #include "esp_log.h"
@@ -86,6 +87,7 @@ extern "C" void app_main(void) {
     web_server_init();
     ws_broadcast_start();
     ota_register_routes();
+    closer_update_register_routes(); // GET /api/update, POST /api/update/check
     cam_stream_start(); // MJPEG of the camera's frames over this board's Wi-Fi, port 81 (cam_stream.hpp)
     debug_pan_register_routes();
     closer_report_start(); // heartbeats to the CloSer lab demos page, once a device key is stored
