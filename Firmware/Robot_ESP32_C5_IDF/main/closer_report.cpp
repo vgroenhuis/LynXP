@@ -9,6 +9,8 @@
 #include "cam_stream.hpp"
 #include "diagnostics.hpp"
 #include "cpu_trace.h"
+#include "watchdog.hpp"
+#include "breadcrumb.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -146,6 +148,19 @@ char *build_report(const char *event) {
     } else if (closer_update_state()[0]) {
         char msg[120]; // (the server takes messages up to 120 characters)
         snprintf(msg, sizeof(msg), "%s", closer_update_state());
+        cJSON_AddStringToObject(j, "message", msg);
+    }
+
+    // After a hang restart, the boot report says where the two tracked tasks
+    // were (breadcrumb.hpp) -- the lab demos server keeps it in its log, so a
+    // hang far from any serial console still leaves a trace.
+    if (std::strcmp(event, "boot") == 0 && watchdog_last_reboot_was_hang()) {
+        const BreadcrumbSnapshot &bc = breadcrumb_get_boot_snapshot();
+        char msg[120]; // (the server takes messages up to 120 characters)
+        snprintf(msg, sizeof(msg), "hang: control at %s (tick %lu), ws at %s, last WS '%s'",
+                 breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), (unsigned long) bc.core1TickCountAtLastMark,
+                 breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), bc.lastWsMessageType);
+        cJSON_DeleteItemFromObject(j, "message");
         cJSON_AddStringToObject(j, "message", msg);
     }
 

@@ -19,6 +19,7 @@
 #include "closer_report.hpp"
 
 #include "cJSON.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "lwip/sockets.h"
 
@@ -252,12 +253,19 @@ esp_err_t serve_static_file(httpd_req_t *req, const StaticFile &f) {
     }
     if (gzip) httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
 
-    // static: 4 KB is too much for the httpd task's stack, and that one
-    // task is the only caller
-    static char buf[4096];
+    // Allocated once, in PSRAM: 4 KB is too much for the httpd task's stack
+    // (the only caller), and as a static array it took 4 KB of the scarce
+    // internal RAM for good. (esp_flash_read reads into a PSRAM buffer
+    // through its own internal one.)
+    static char *buf = (char *) heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
+    if (buf == nullptr) {
+        fclose(file);
+        httpd_resp_send_500(req);
+        return ESP_OK;
+    }
     size_t readBytes;
     esp_err_t err = ESP_OK;
-    while ((readBytes = fread(buf, 1, sizeof(buf), file)) > 0) {
+    while ((readBytes = fread(buf, 1, 4096, file)) > 0) {
         if (httpd_resp_send_chunk(req, buf, (ssize_t) readBytes) != ESP_OK) {
             err = ESP_FAIL;
             break;
