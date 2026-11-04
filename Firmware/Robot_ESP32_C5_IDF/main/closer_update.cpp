@@ -253,7 +253,10 @@ const char *update_camera(const Offer *o, char *buf, bool *permanent) {
     esp_http_client_config_t cfg = {};
     cfg.url = url;
     cfg.method = HTTP_METHOD_POST;
-    cfg.timeout_ms = 20000;
+    // The camera erases its whole 3 MB app slot before it reads the upload
+    // (esp_ota_begin with OTA_SIZE_UNKNOWN): many seconds without reading.
+    // With 20 s the robot gave up during that ("upload broke off").
+    cfg.timeout_ms = 90000;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     int status = -1;
     if (c != nullptr) {
@@ -329,7 +332,10 @@ void run_update(Offer *o) {
         if (w == nullptr) {
             set_state("camera updated to %s", o->camVersion);
         } else {
-            ok = false;
+            // A camera that fails doesn't hold up the robot's own update (it
+            // is tried again later, unless it came back with its old version).
+            ok = o->app;
+            if (o->app) o->cam = false;
             snprintf(whyBuf, sizeof(whyBuf), "%s", w);
             why = whyBuf;
             if (permanent) {
