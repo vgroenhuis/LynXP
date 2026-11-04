@@ -51,6 +51,10 @@ const char *closer_update_state();
 // report may start it again at once).
 void closer_update_retry_now();
 
+// The camera's firmware version, as it said at the last report ("" = not
+// known: no link, not on Wi-Fi).
+const char *closer_update_cam_version();
+
 // True while an update is being downloaded or written (the OLED says so).
 bool closer_update_busy();
 

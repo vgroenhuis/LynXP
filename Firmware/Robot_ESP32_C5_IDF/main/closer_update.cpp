@@ -502,6 +502,9 @@ void closer_update_on_reply(const char *replyJson) {
     }
     reported = true;
     answeredUs = esp_timer_get_time();
+    // Which version the camera runs: for an offered camera update, the update
+    // panel and the OLED. (A quick local request, nothing if there's no link.)
+    if (!read_cam_version(camVersion, sizeof(camVersion))) camVersion[0] = '\0';
     esp_ota_img_states_t st;
     if (busy || (esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY)) {
         return; // (not before ota.cpp has confirmed the running app)
@@ -536,7 +539,6 @@ void closer_update_on_reply(const char *replyJson) {
     // The camera: only if it can be asked which version it runs (on the link
     // and on Wi-Fi), and that's another one.
     if (o->cam) {
-        if (!read_cam_version(camVersion, sizeof(camVersion))) camVersion[0] = '\0';
         o->cam = camVersion[0] && std::strcmp(camVersion, o->camVersion) != 0 && std::strcmp(o->camVersion, camFailed) != 0 &&
                  o->camSize > 0 && (size_t) o->camSize <= CAM_MAX;
     }
@@ -565,6 +567,8 @@ const char *closer_update_state() { return state; }
 void closer_update_retry_now() { retryAtUs = 0; }
 
 bool closer_update_busy() { return busy; }
+
+const char *closer_update_cam_version() { return camVersion; }
 
 namespace {
 

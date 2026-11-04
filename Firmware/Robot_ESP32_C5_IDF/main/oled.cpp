@@ -34,7 +34,7 @@ extern "C" {
 //                                                  channel / signal of the AP joined, in turn
 //   192.168.0.17                                <- robot IP, largest font that fits
 //   ------------------------------------------
-//   CAM 192.168.0.99                            <- camera (scrolls if too long)
+//   CAM 192.168.0.99                            <- camera ("CAM" / its firmware version in turn)
 //
 // Offline it shows the MAC instead of the IP (handy for MAC allow-lists);
 // with the setup hotspot up, the hotspot's name and the setup address.
@@ -235,7 +235,8 @@ void compose() {
         std::snprintf(line, sizeof(line), "CAM  no WiFi -- MAC %s", cam_link_get_peer_mac());
         draw_band(s_bottomBand, u8g2_font_helvR10_tr, line, 63);
     } else {
-        std::snprintf(line, sizeof(line), "CAM  %s", cam_link_get_peer_ip());
+        const char *camVersion = closer_update_cam_version();
+        std::snprintf(line, sizeof(line), "%s  %s", turn % 2 && camVersion[0] ? camVersion : "CAM", cam_link_get_peer_ip());
         draw_band(s_bottomBand, u8g2_font_helvB10_tr, line, 63);
     }
 }
