@@ -12,6 +12,7 @@ extern "C" {
 }
 
 #include "driver/i2c_master.h"
+#include "esp_app_desc.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -24,7 +25,7 @@ extern "C" {
 // it will fit, with the supporting details (network name, battery, camera)
 // in smaller proportional fonts around it:
 //
-//   LynXP                    9.01 V  450 mA     <- header
+//   LynXP 1.4.1              9.01 V  450 mA     <- header: name, firmware version, power
 //   ------------------------------------------
 //   Mojca_Vincent_Reel...       ch40 -67dBm     <- network (scrolls if too long),
 //                                                  channel + signal of the AP joined
@@ -167,12 +168,16 @@ bool show_abnormal_boot() {
 void compose() {
     u8g2_ClearBuffer(&s_u8g2);
 
-    // Header: name left, power right.
+    // Header: name and firmware version left, power right. (The version only
+    // if it fits: a long dev version string would run into the power.)
     u8g2_SetFont(&s_u8g2, u8g2_font_helvB08_tr);
-    u8g2_DrawStr(&s_u8g2, 0, 8, "LynXP");
+    int nameW = u8g2_DrawStr(&s_u8g2, 0, 8, "LynXP");
     update_power_text();
     u8g2_SetFont(&s_u8g2, u8g2_font_helvR08_tr);
-    u8g2_DrawStr(&s_u8g2, W - u8g2_GetStrWidth(&s_u8g2, s_powerText), 8, s_powerText);
+    int powerW = u8g2_GetStrWidth(&s_u8g2, s_powerText);
+    u8g2_DrawStr(&s_u8g2, W - powerW, 8, s_powerText);
+    const char *version = esp_app_get_description()->version;
+    if (nameW + 4 + u8g2_GetStrWidth(&s_u8g2, version) + 6 <= W - powerW) u8g2_DrawStr(&s_u8g2, nameW + 4, 8, version);
     u8g2_DrawHLine(&s_u8g2, 0, 10, W);
 
     WifiStatus st;
