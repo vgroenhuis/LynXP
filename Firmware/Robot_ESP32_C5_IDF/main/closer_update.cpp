@@ -122,14 +122,18 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
         if (esp_http_client_open(c, 0) == ESP_OK) {
             int64_t len = esp_http_client_fetch_headers(c);
             int status = esp_http_client_get_status_code(c);
-            if (got == 0 ? (status != 200 || len != size) : (status != 206 || len != size - got)) {
+            // No answer (connection dropped before the headers): just another
+            // try. Only an answer that doesn't fit ends it.
+            if (len < 0 || status <= 0) {
+                ESP_LOGW(TAG, "%s: no answer (have %d of %d bytes)", path, got, size);
+            } else if (got == 0 ? (status != 200 || len != size) : (status != 206 || len != size - got)) {
                 ESP_LOGE(TAG, "%s: refused (HTTP %d, length %lld, have %d of %d)", path, status, (long long) len, got, size);
                 snprintf(detail, sizeof(detail), "HTTP %d, length %lld", status, (long long) len);
                 *why = detail;
                 broken = true;
             }
             int n;
-            while (!broken && (n = esp_http_client_read(c, buf, CHUNK)) > 0) {
+            while (!broken && len >= 0 && status > 0 && (n = esp_http_client_read(c, buf, CHUNK)) > 0) {
                 if (got + n > size || psa_hash_update(&sha, (uint8_t *) buf, n) != PSA_SUCCESS || !sink(buf, n)) {
                     *why = "write error";
                     broken = true;
@@ -369,7 +373,10 @@ void run_update(Offer *o) {
         ota_pause_robot();
         status_led_set_updating(true);
         paused = true;
-        esp_err_t err = esp_ota_begin(slot, (size_t) o->size, &ota);
+        // Sequential: each sector is erased just before it's written. With the
+        // size given, esp_ota_begin erased all ~1.5 MB at once, and that stall
+        // tripped the task watchdog (1.4.0 -> 1.4.4: "hang", restart).
+        esp_err_t err = esp_ota_begin(slot, OTA_WITH_SEQUENTIAL_WRITES, &ota);
         ok = err == ESP_OK;
         otaBegun = ok;
         snprintf(whyBuf, sizeof(whyBuf), "esp_ota_begin: %s", esp_err_to_name(err));
