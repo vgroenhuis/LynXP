@@ -73,6 +73,9 @@ CamScanState cam_link_cam_scan_state();
 // instead of stale data.
 bool cam_link_peer_is_stale();
 
+// Seconds since the last STAT line; UINT32_MAX if none has ever arrived.
+uint32_t cam_link_peer_age_s();
+
 // Call after settings.otaUsername/otaPassword change: re-sends them to the
 // camera (which guards its own /update with them) on the next link check.
 void cam_link_credentials_changed();

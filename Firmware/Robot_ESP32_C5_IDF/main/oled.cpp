@@ -150,6 +150,20 @@ void update_power_text() {
     }
 }
 
+// After an abnormal restart (crash, hang, brownout -- see
+// watchdog_abnormal_boot_short()) the bottom line says so: steadily for the
+// first minute, then taking turns with the camera line (4 s each) until 10
+// minutes after boot -- long enough for someone who wasn't watching.
+constexpr int64_t ABNORMAL_STEADY_MS = 60 * 1000;
+constexpr int64_t ABNORMAL_SHOW_MS = 10 * 60 * 1000;
+
+bool show_abnormal_boot() {
+    if (watchdog_abnormal_boot_short() == nullptr) return false;
+    int64_t t = now_ms(); // (esp_timer counts from boot)
+    if (t < ABNORMAL_STEADY_MS) return true;
+    return t < ABNORMAL_SHOW_MS && (t / 4000) % 2 == 0;
+}
+
 void compose() {
     u8g2_ClearBuffer(&s_u8g2);
 
@@ -184,7 +198,15 @@ void compose() {
     }
 
     u8g2_DrawHLine(&s_u8g2, 0, 50, W);
-    if (st.apActive && !st.connected) {
+    if (show_abnormal_boot()) {
+        // white bar, black text: stands out from the status lines
+        u8g2_DrawBox(&s_u8g2, 0, 52, W, 12);
+        u8g2_SetDrawColor(&s_u8g2, 0);
+        u8g2_SetFontMode(&s_u8g2, 1);
+        draw_band(s_bottomBand, u8g2_font_helvB08_tr, watchdog_abnormal_boot_short(), 62);
+        u8g2_SetFontMode(&s_u8g2, 0);
+        u8g2_SetDrawColor(&s_u8g2, 1);
+    } else if (st.apActive && !st.connected) {
         draw_band(s_bottomBand, u8g2_font_helvB10_tr, "then open 192.168.4.1", 63);
     } else if (cam_link_peer_is_stale()) {
         draw_band(s_bottomBand, u8g2_font_helvR10_tr, "CAM  no link", 63);

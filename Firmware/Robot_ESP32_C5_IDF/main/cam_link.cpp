@@ -577,6 +577,11 @@ bool cam_link_peer_is_stale() {
     return (xTaskGetTickCount() - s_lastSeenTick) > PEER_STALE_TICKS;
 }
 
+uint32_t cam_link_peer_age_s() {
+    if (s_lastSeenTick == 0) return UINT32_MAX;
+    return pdTICKS_TO_MS(xTaskGetTickCount() - s_lastSeenTick) / 1000;
+}
+
 void cam_link_credentials_changed() { s_camOtaDirty = true; }
 
 static int hex_bytes(char *out, size_t len, const uint8_t *in, size_t n) {

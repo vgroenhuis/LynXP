@@ -22,3 +22,8 @@ void app_data_load(const char *name, char *buf, size_t bufSize);
 
 // Persists the document. False if too long or the write failed.
 bool app_data_save(const char *name, const char *json, size_t len);
+
+// At boot: the active game/app back to Free drive ("none"), so the robot
+// always starts there -- picking a game is for one session. (Only writes
+// when something else was active.)
+void app_data_reset_active_game();

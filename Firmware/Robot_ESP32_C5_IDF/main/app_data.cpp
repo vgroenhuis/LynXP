@@ -1,9 +1,11 @@
 #include "app_data.hpp"
 
+#include "cJSON.h"
 #include "nvs.h"
 #include "esp_log.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -51,4 +53,23 @@ bool app_data_save(const char *name, const char *json, size_t len) {
         return false;
     }
     return true;
+}
+
+void app_data_reset_active_game() {
+    char *buf = (char *) std::malloc(APP_DATA_JSON_MAX_LEN);
+    if (buf == nullptr) return;
+    app_data_load("settings", buf, APP_DATA_JSON_MAX_LEN);
+    cJSON *doc = cJSON_Parse(buf);
+    std::free(buf);
+    if (doc == nullptr) return;
+    cJSON *active = cJSON_GetObjectItemCaseSensitive(doc, "active");
+    if (cJSON_IsString(active) && std::strcmp(active->valuestring, "none") != 0) {
+        ESP_LOGI(TAG, "starting in Free drive (was %s)", active->valuestring);
+        cJSON_ReplaceItemInObjectCaseSensitive(doc, "active", cJSON_CreateString("none"));
+        if (char *out = cJSON_PrintUnformatted(doc)) {
+            app_data_save("settings", out, std::strlen(out));
+            cJSON_free(out);
+        }
+    }
+    cJSON_Delete(doc);
 }

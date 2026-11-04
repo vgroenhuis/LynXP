@@ -29,6 +29,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <string>
+#include <utility>
+#include <vector>
 
 // ESP-IDF replacement for Robot_Pico2W_SDK/src/web_server.cpp's HTTP half
 // (everything except /ws and the poll-loop telemetry broadcast, which live
@@ -51,28 +54,25 @@ struct StaticFile {
     const char *uri;
     const char *littlefsPath;
     const char *contentType;
-    // Browser cache lifetime in seconds, or 0 for "always refetch". Applied
-    // to app.js/style.css/cam.js (which only ever change on a filesystem
-    // OTA) but NOT the HTML entry points -- see Robot_Pico2W_SDK's own
-    // comment on this table: every Camera<->Main navigation opens a burst
-    // of ~6 connections, and this collapses repeat navigations within a
-    // session down to just the HTML request. Kept short (60s, not the 1hr
-    // originally ported from the Pico build) so a filesystem OTA's new
-    // app.js/style.css/cam.js is picked up well within the same sitting --
-    // an hour-long stale cache after an update was confusing enough in
-    // practice (edited settings silently not persisting because the loaded
-    // JS predated them) to outweigh the extra refetch it saves.
+    // Browser cache lifetime in seconds, or 0 for "ask every time"
+    // (Cache-Control: no-cache). The pages and scripts ask every time: each
+    // has an ETag (its content hash, see etag_for()), so an unchanged file
+    // costs a tiny "304 Not Modified" -- and a filesystem OTA's new files are
+    // picked up on the very next load. (A max-age used to save those
+    // requests, but left stale JS running for its whole lifetime after an
+    // update: edited settings silently not persisting because the loaded JS
+    // predated them.) Images and sounds, which hardly change, keep an hour.
     unsigned cacheMaxAgeSec;
 };
 
 constexpr StaticFile STATIC_FILES[] = {
     {"/", "/littlefs/index.html", "text/html", 0},
     {"/index.html", "/littlefs/index.html", "text/html", 0},
-    {"/app.js", "/littlefs/app.js", "application/javascript", 60},
-    {"/style.css", "/littlefs/style.css", "text/css", 60},
+    {"/app.js", "/littlefs/app.js", "application/javascript", 0},
+    {"/style.css", "/littlefs/style.css", "text/css", 0},
     {"/cam", "/littlefs/cam.html", "text/html", 0},
     {"/cam.html", "/littlefs/cam.html", "text/html", 0},
-    {"/cam.js", "/littlefs/cam.js", "application/javascript", 60},
+    {"/cam.js", "/littlefs/cam.js", "application/javascript", 0},
     {"/wifi", "/littlefs/wifi.html", "text/html", 0},
     {"/games", "/littlefs/games.html", "text/html", 0},
     {"/tags", "/littlefs/taglist.html", "text/html", 0}, // (/tags.html is the printable tags)
@@ -80,8 +80,8 @@ constexpr StaticFile STATIC_FILES[] = {
 
 // Any other file in littlefs_image/ is served by its own name with a type
 // from its extension -- so adding a page/script (games, apps) doesn't also
-// need an entry above. HTML always revalidates; everything else gets the
-// same short cache as app.js (see StaticFile::cacheMaxAgeSec).
+// need an entry above. Pages, scripts and data revalidate every time;
+// images and sounds are cached (see StaticFile::cacheMaxAgeSec).
 struct ExtensionType {
     const char *ext;
     const char *contentType;
@@ -89,9 +89,9 @@ struct ExtensionType {
 };
 constexpr ExtensionType EXTENSION_TYPES[] = {
     {".html", "text/html", 0},
-    {".js", "application/javascript", 60},
-    {".css", "text/css", 60},
-    {".json", "application/json", 60},
+    {".js", "application/javascript", 0},
+    {".css", "text/css", 0},
+    {".json", "application/json", 0},
     {".png", "image/png", 3600},
     {".svg", "image/svg+xml", 3600},
     {".wav", "audio/wav", 3600},
@@ -157,14 +157,65 @@ esp_err_t send_captive_redirect(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// Streams the file in 1 KB chunks rather than the Pico version's
+// -- ETags: web_etags.txt (made at build time by tools/prepare_web.py) has
+// each file's content hash, one "/path hash" per line. Read on the first
+// request; it can't go stale, as a filesystem OTA reboots. (Only the httpd
+// task serves files, so no lock.)
+std::vector<std::pair<std::string, std::string>> g_etags;
+bool g_etagsLoaded = false;
+
+const char *etag_for(const char *littlefsPath) {
+    if (!g_etagsLoaded) {
+        g_etagsLoaded = true;
+        if (FILE *f = fopen("/littlefs/web_etags.txt", "r")) {
+            char line[160];
+            while (fgets(line, sizeof(line), f)) {
+                char *sp = std::strchr(line, ' ');
+                if (sp == nullptr) continue;
+                *sp = '\0';
+                char *hash = sp + 1;
+                hash[std::strcspn(hash, "\r\n")] = '\0';
+                g_etags.emplace_back(line, hash);
+            }
+            fclose(f);
+        }
+    }
+    const char *rel = littlefsPath + std::strlen("/littlefs");
+    for (const auto &e : g_etags) {
+        if (e.first == rel) return e.second.c_str();
+    }
+    return nullptr;
+}
+
+// A request header's whole value, or "" if there's none.
+std::string request_header(httpd_req_t *req, const char *name) {
+    size_t len = httpd_req_get_hdr_value_len(req, name);
+    if (len == 0) return {};
+    std::string v(len + 1, '\0');
+    if (httpd_req_get_hdr_value_str(req, name, v.data(), len + 1) != ESP_OK) return {};
+    v.resize(len);
+    return v;
+}
+
+// Streams the file in chunks rather than the Pico version's
 // malloc(whole file)+single send -- app.js alone is over 100 KB, which was
 // a real heap spike on every fetch there. No mg_http_reply()-bypass
 // bookkeeping needed here either (the Pico version had to manually clear
 // c->is_resp after a raw send, or pipelined keep-alive requests would
 // hang) -- esp_http_server has no equivalent footgun.
+//
+// Sends the gzipped copy (NAME.gz, made at build time) when there is one
+// and the browser takes gzip; answers "304 Not Modified" when the browser
+// already has this version (If-None-Match).
 esp_err_t serve_static_file(httpd_req_t *req, const StaticFile &f) {
-    FILE *file = fopen(f.littlefsPath, "r");
+    char gzPath[96];
+    std::snprintf(gzPath, sizeof(gzPath), "%s.gz", f.littlefsPath);
+    bool gzip = request_header(req, "Accept-Encoding").find("gzip") != std::string::npos;
+    FILE *file = gzip ? fopen(gzPath, "r") : nullptr;
+    if (file == nullptr) {
+        gzip = false;
+        file = fopen(f.littlefsPath, "r");
+    }
     if (file == nullptr) {
         ESP_LOGW(TAG, "static file missing: %s", f.littlefsPath);
         httpd_resp_send_404(req);
@@ -172,7 +223,7 @@ esp_err_t serve_static_file(httpd_req_t *req, const StaticFile &f) {
     }
 
     httpd_resp_set_type(req, f.contentType);
-    // Declared at function scope, not inside the if-block below: httpd_resp_set_hdr()
+    // Declared at function scope, not inside if-blocks: httpd_resp_set_hdr()
     // only stores the POINTER, and requires it stay valid until the response is
     // actually sent (the first httpd_resp_send_chunk() call, further down this
     // function) -- not until this statement finishes. A block-scoped buffer here
@@ -181,10 +232,28 @@ esp_err_t serve_static_file(httpd_req_t *req, const StaticFile &f) {
     char cacheHdr[48];
     if (f.cacheMaxAgeSec > 0) {
         snprintf(cacheHdr, sizeof(cacheHdr), "public, max-age=%u", f.cacheMaxAgeSec);
-        httpd_resp_set_hdr(req, "Cache-Control", cacheHdr);
+    } else {
+        snprintf(cacheHdr, sizeof(cacheHdr), "no-cache");
     }
+    httpd_resp_set_hdr(req, "Cache-Control", cacheHdr);
+    httpd_resp_set_hdr(req, "Vary", "Accept-Encoding");
+    // (the gzipped copy is another representation: its own ETag)
+    char etag[40] = "";
+    if (const char *hash = etag_for(f.littlefsPath)) {
+        snprintf(etag, sizeof(etag), "\"%s%s\"", hash, gzip ? "-gz" : "");
+        httpd_resp_set_hdr(req, "ETag", etag);
+        if (request_header(req, "If-None-Match").find(etag) != std::string::npos) {
+            fclose(file);
+            httpd_resp_set_status(req, "304 Not Modified");
+            httpd_resp_send(req, nullptr, 0);
+            return ESP_OK;
+        }
+    }
+    if (gzip) httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
 
-    char buf[1024];
+    // static: 4 KB is too much for the httpd task's stack, and that one
+    // task is the only caller
+    static char buf[4096];
     size_t readBytes;
     esp_err_t err = ESP_OK;
     while ((readBytes = fread(buf, 1, sizeof(buf), file)) > 0) {

@@ -66,4 +66,13 @@ idf_component_register(
         joltwallet__littlefs   # joltwallet/littlefs's actual registered component name
 )
 
-littlefs_create_partition_image(storage littlefs_image FLASH_IN_PROJECT)
+# The image is made from a copy of littlefs_image/ with gzipped copies of the
+# web files and their ETags added (tools/prepare_web.py, see web_server.cpp).
+# Always runs, like the image step itself: it only rewrites what changed.
+set(web_out_dir "${CMAKE_BINARY_DIR}/littlefs_web")
+add_custom_target(web_prepare ALL
+    COMMAND ${PYTHON} "${CMAKE_CURRENT_SOURCE_DIR}/../tools/prepare_web.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/littlefs_image" "${web_out_dir}"
+    COMMENT "Preparing web files (gzip, ETags)"
+    VERBATIM)
+littlefs_create_partition_image(storage ${web_out_dir} FLASH_IN_PROJECT DEPENDS web_prepare)

@@ -131,3 +131,18 @@ const char *watchdog_last_reboot_reason_string() {
         default: return "unknown";
     }
 }
+
+const char *watchdog_abnormal_boot_short() {
+    if (g_bootHealthReason == HEALTH_LOW_MEMORY) return "RESTART: out of RAM";
+    if (g_bootHealthReason == HEALTH_STARVED) return "RESTART: tasks starved";
+    switch (esp_reset_reason()) {
+        case ESP_RST_PANIC: return "RESTART: crash";
+        case ESP_RST_INT_WDT:
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_WDT: return "RESTART: hang (watchdog)";
+        case ESP_RST_CPU_LOCKUP: return "RESTART: CPU lockup";
+        case ESP_RST_BROWNOUT: return "RESTART: brownout";
+        case ESP_RST_PWR_GLITCH: return "RESTART: power glitch";
+        default: return nullptr;
+    }
+}

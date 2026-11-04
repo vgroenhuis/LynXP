@@ -440,6 +440,58 @@ window.addEventListener("DOMContentLoaded", () => {
 
   let currentAr = null; // the running game_*.js game's AR engine, for teardown
 
+  // Each game's / app's own scripts, fetched the first time it starts rather
+  // than all with the page (Free drive needs none of them). Listed in load
+  // order: later files use earlier ones. The shared layers (ar, world3d,
+  // tags, cubes) are in cam.html.
+  const WEAPONS = ["weapons_kit.js"];
+  const KNIGHT = ["game_knight.js"];
+  const KNIGHT_BLOCKS = [...KNIGHT, "game_knightblocks.js"];
+  const SOLVERS = ["camcal_solver.js", "camext_solver.js"];
+  const GAME_SCRIPTS = {
+    demons: [...WEAPONS, "game_demons.js"],
+    david: [...WEAPONS, "game_david.js"],
+    poop: [...WEAPONS, "game_poop.js"],
+    coins: ["game_coins.js"],
+    sonar: ["game_sonar.js"],
+    echo: ["game_echo.js"],
+    shepherd: ["game_shepherd.js"],
+    lightwall: ["game_lightwall.js"],
+    inkblot: ["game_inkblot.js"],
+    prisma: ["prisma_core.js", "prisma_levels.js", "game_prisma.js"],
+    temple: ["game_temple.js", "game_temple_sanctum.js", "game_temple_labyrinth.js", "game_temple_kit.js",
+      "game_temple_sky.js", "game_temple_cistern.js", "game_temple_mirrors.js", "game_temple_vault.js"],
+    knight: KNIGHT,
+    knightblocks: KNIGHT_BLOCKS,
+    blockquest: [...KNIGHT_BLOCKS, "blockquest_fx.js", "blockquest_gl.js", "blockquest_figures.js",
+      "blockquest_actors.js", "game_blockquest.js", "blockquest_levels.js"],
+    race: ["game_race.js"],
+    detect: ["detect.js"],
+    scavenger: ["detect.js"],
+    focus: ["app_focus.js"],
+    // (camcal runs the servo and board check steps too)
+    camcal: [...SOLVERS, "camservo.js", "app_camservo.js", "app_boardcheck.js", "app_camcal.js"],
+  };
+  const scriptLoads = {}; // src -> its load's promise (each file loads once)
+  function loadScript(src) {
+    if (!scriptLoads[src]) {
+      scriptLoads[src] = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = false; // (fetched side by side, but run in the order added)
+        s.onload = resolve;
+        s.onerror = () => {
+          delete scriptLoads[src]; // (try again next time)
+          reject(new Error(`couldn't load ${src}`));
+        };
+        document.head.appendChild(s);
+      });
+    }
+    return scriptLoads[src];
+  }
+  const loadGameScripts = (id) => Promise.all((GAME_SCRIPTS[id] || []).map(loadScript));
+  let startSeq = 0; // a game picked while another one's scripts load wins
+
   function stopActive() {
     Lynx.clearActions();
     Lynx.input.fireHeld = false;
@@ -460,6 +512,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // without another tap.
   function startActive(calib, app) {
     stopActive();
+    const seq = ++startSeq;
     // the robot drive mode and the cube detection are Free-drive things (games drive and aim themselves)
     Lynx.control.setRobotModeAllowed(app.active === "none");
     Lynx.freeDriveTags.setActive(app.active === "none");
@@ -485,16 +538,31 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const startGame = Lynx.games[app.active];
-    if (!startGame) return;
-    gameMode = app.active;
-    currentAr = Lynx.createAr(calib);
-    const game = startGame(currentAr, app[app.active], app) || {};
-    Lynx.activeGame = game; // e.g. Lynx.activeGame.snapshot() from the console
-    if (game.actionLabel) {
-      actionBtn.textContent = game.actionLabel;
-      actionBtn.style.display = "block";
-    }
+    const id = app.active;
+    const entry = Lynx.findEntry(id);
+    const slow = setTimeout(() => showToast(`${entry ? entry.icon + " " + entry.name : id}: loading…`), 300);
+    loadGameScripts(id).then(
+      () => {
+        clearTimeout(slow);
+        if (seq !== startSeq) return; // (another game was picked meanwhile)
+        const startGame = Lynx.games && Lynx.games[id];
+        if (!startGame) return;
+        gameMode = id;
+        currentAr = Lynx.createAr(calib);
+        const game = startGame(currentAr, app[id], app) || {};
+        Lynx.activeGame = game; // e.g. Lynx.activeGame.snapshot() from the console
+        if (game.actionLabel) {
+          actionBtn.textContent = game.actionLabel;
+          actionBtn.style.display = "block";
+        }
+      },
+      (e) => {
+        clearTimeout(slow);
+        if (seq !== startSeq) return;
+        console.warn(e);
+        showToast(`Couldn't load ${entry ? entry.name : id} -- is the robot reachable? (Reload to try again)`);
+      },
+    );
   }
 
   Promise.all([calibPromise, Lynx.loadAppSettings()]).then(([calib, app]) => {

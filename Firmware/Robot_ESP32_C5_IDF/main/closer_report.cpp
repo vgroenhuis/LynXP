@@ -3,6 +3,8 @@
 #include "wifi_connect.hpp"
 #include "ws_broadcast.hpp"
 #include "ina260.hpp"
+#include "cam_link.hpp"
+#include "ping_diag.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -100,16 +102,35 @@ char *build_report(const char *event) {
     cJSON_AddNumberToObject(j, "interval", INTERVAL_S);
     cJSON_AddNumberToObject(j, "clients", ws_broadcast_client_count());
 
-    // Not "battery_v": that is a Li-ion cell voltage on the page (charge
-    // estimate); this is the USB-PD bus behind the powerbank.
+    // The page labels a stat with its key ('_' -> ' '), so the keys carry
+    // their units. Not "battery_v": that is a Li-ion cell voltage on the page
+    // (charge estimate); this is the USB-PD bus behind the powerbank.
     cJSON *stats = cJSON_AddObjectToObject(j, "stats");
     float v, ma, mw;
     if (ina260_is_available() && ina260_read(&v, &ma, &mw)) {
-        cJSON_AddNumberToObject(stats, "supply_v", v);
-        cJSON_AddNumberToObject(stats, "current_ma", ma);
-        cJSON_AddNumberToObject(stats, "power_w", mw / 1000.0f);
+        cJSON_AddNumberToObject(stats, "supply [V]", v);
+        cJSON_AddNumberToObject(stats, "current [mA]", ma);
+        cJSON_AddNumberToObject(stats, "power [W]", mw / 1000.0f);
     }
-    if (ws.apActive) cJSON_AddNumberToObject(stats, "hotspot_clients", ws.apClients);
+    if (ws.apActive) cJSON_AddNumberToObject(stats, "hotspot clients", ws.apClients);
+
+    // The link to the camera board (ESP32-S3): its status line over SPI
+    // every second or so (cam_link.cpp), and pings to it over Wi-Fi.
+    // "cam_rssi" (the camera's Wi-Fi signal) is the key the page's diagram
+    // shows the camera as active by -- so only while the link is up.
+    const CamDiagnostics &cam = cam_link_get_diagnostics();
+    uint32_t camAgeS = cam_link_peer_age_s();
+    if (camAgeS != UINT32_MAX) cJSON_AddNumberToObject(stats, "cam link age [s]", camAgeS);
+    if (!cam_link_peer_is_stale() && cam.rssiDbm != 0) cJSON_AddNumberToObject(stats, "cam_rssi", cam.rssiDbm);
+    PingStats ping = ping_diag_get_stats();
+    if (ping.active && ping.received > 0) cJSON_AddNumberToObject(stats, "cam ping [ms]", ping.avgRttMs);
+    if (camAgeS == UINT32_MAX) {
+        cJSON_AddStringToObject(j, "message", "Camera link: no status from the ESP32-S3 since the robot started");
+    } else if (cam_link_peer_is_stale()) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "Camera link down: no status from the ESP32-S3 for %lu s", (unsigned long) camAgeS);
+        cJSON_AddStringToObject(j, "message", msg);
+    }
 
     char *out = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);

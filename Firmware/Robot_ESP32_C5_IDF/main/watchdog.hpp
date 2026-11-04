@@ -39,6 +39,11 @@ bool watchdog_last_reboot_was_hang();
 // always see why the robot last restarted.
 const char *watchdog_last_reboot_reason_string();
 
+// The same, short enough for the OLED -- but only when this boot followed
+// something going wrong (a crash, a hang, a brownout or power glitch, the
+// health watchdog); nullptr after a normal power-on, reset or update.
+const char *watchdog_abnormal_boot_short();
+
 // Health watchdog, for hangs the task watchdog can't see: the control and
 // poll tasks keep running, but internal RAM has run out (the web server
 // crawls, the QR code can't be built) or everything below them is starved.

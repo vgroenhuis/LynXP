@@ -21,6 +21,7 @@
 #include "debug_pan.hpp"
 #include "pose_persist.hpp"
 #include "closer_report.hpp"
+#include "app_data.hpp"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -66,6 +67,7 @@ extern "C" void app_main(void) {
         applyDefaultSettings();
         saveSettings();
     }
+    app_data_reset_active_game(); // the robot always starts in Free drive
 
     littlefs_init();
     motors_init();
