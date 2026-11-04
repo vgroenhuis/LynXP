@@ -4,7 +4,10 @@
 #include "ota.hpp"
 #include "web_server.hpp"
 #include "status_led.hpp"
+#include "cam_link.hpp"
+#include "settings.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <strings.h>
@@ -32,6 +35,9 @@ constexpr const char *NVS_NAMESPACE = "closer";      // shared with closer_repor
 constexpr const char *NVS_FROM_SERVER = "upd_srv";   // 1: the running app came from the server, not yet confirmed
 constexpr const char *NVS_FAILED = "upd_failed";     // a version that was installed and rolled back
 constexpr const char *NVS_FS_SHA = "upd_fs_sha";     // the web files last written from the server
+constexpr const char *NVS_CAM_FAILED = "upd_cam_bad"; // a camera version it didn't come back with
+constexpr size_t CAM_MAX = 3 * 1024 * 1024;          // the camera's app slots
+constexpr int CAM_BACK_S = 120;                      // for the camera to restart into its new app
 constexpr size_t FS_MAX = 4 * 1024 * 1024;           // (a compressed web image is ~0.3 MB)
 constexpr int CONFIRM_S = 300;
 constexpr size_t CHUNK = 4096;
@@ -43,6 +49,9 @@ int tries = 0;
 int64_t retryAtUs = 0;
 char failedVersion[32];
 char offered[32];          // what the server offers ("" = nothing new)
+char camVersion[32];       // what the camera runs ("" = not known: no link, not on Wi-Fi)
+char camOffered[32];       // the camera version the server offers
+char camFailed[32];
 int64_t answeredUs = 0;    // when the server last answered a report
 char state[160];          // (the heartbeat sends at most 119 characters of it: the server's limit)
 
@@ -160,22 +169,180 @@ struct Offer {
     char fsPath[96];
     char fsSha[65];
     int fsSize;
+    bool app;           // the robot's own app (+ web files) to install
+    bool cam;           // the camera's app to pass on
+    char camVersion[32];
+    char camPath[96];
+    char camSha[65];
+    int camSize;
 };
+
+bool copy_str(cJSON *obj, const char *key, char *out, size_t len);
+
+// The camera's firmware version, from its own web server (GET /status,
+// "fwVersion") over Wi-Fi; false if it can't be reached.
+bool read_cam_version(char *out, size_t len) {
+    const char *ip = cam_link_get_peer_ip();
+    if (ip[0] == '\0' || std::strcmp(ip, "0.0.0.0") == 0 || cam_link_peer_is_stale()) return false;
+    char url[48];
+    snprintf(url, sizeof(url), "http://%s/status", ip);
+    esp_http_client_config_t cfg = {};
+    cfg.url = url;
+    cfg.timeout_ms = 3000;
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    if (c == nullptr) return false;
+    char body[512];
+    int n = 0;
+    if (esp_http_client_open(c, 0) == ESP_OK && esp_http_client_fetch_headers(c) >= 0 && esp_http_client_get_status_code(c) == 200) {
+        for (int r; n < (int) sizeof(body) - 1 && (r = esp_http_client_read(c, body + n, sizeof(body) - 1 - n)) > 0;) n += r;
+    }
+    esp_http_client_cleanup(c);
+    body[n] = '\0';
+    cJSON *j = n > 0 ? cJSON_Parse(body) : nullptr;
+    bool ok = j != nullptr && copy_str(j, "fwVersion", out, len);
+    cJSON_Delete(j);
+    return ok;
+}
+
+void base64(const char *in, char *out, size_t outLen) {
+    static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t n = std::strlen(in), o = 0;
+    for (size_t i = 0; i < n && o + 4 < outLen; i += 3) {
+        uint32_t v = (uint8_t) in[i] << 16 | (i + 1 < n ? (uint8_t) in[i + 1] << 8 : 0) | (i + 2 < n ? (uint8_t) in[i + 2] : 0);
+        out[o++] = T[v >> 18 & 63];
+        out[o++] = T[v >> 12 & 63];
+        out[o++] = i + 1 < n ? T[v >> 6 & 63] : '=';
+        out[o++] = i + 2 < n ? T[v & 63] : '=';
+    }
+    out[o] = '\0';
+}
+
+// Downloads the camera's app, checks it, and uploads it to the camera's own
+// POST /update -- with the robot's OTA user and password, which the robot
+// hands the camera over the SPI link. Then waits until the camera is back
+// with the new version. NULL if it is, else why not; *permanent: the camera
+// came back with its old version (rejected or rolled back: don't try again).
+const char *update_camera(const Offer *o, char *buf, bool *permanent) {
+    static char why[64];
+    *permanent = false;
+    uint8_t *img = (uint8_t *) heap_caps_malloc((size_t) o->camSize, MALLOC_CAP_SPIRAM);
+    if (img == nullptr) return "camera: no memory";
+    set_state("downloading camera %s", o->camVersion);
+    size_t at = 0;
+    const char *w = "";
+    bool ok = download(o->camPath, o->camSize, o->camSha, buf, [&](const char *d, int n) {
+        std::memcpy(img + at, d, (size_t) n);
+        at += (size_t) n;
+        return true;
+    }, &w);
+    if (!ok) {
+        heap_caps_free(img);
+        snprintf(why, sizeof(why), "camera: %s", w);
+        return why;
+    }
+
+    set_state("installing camera %s", o->camVersion);
+    char url[48];
+    snprintf(url, sizeof(url), "http://%s/update", cam_link_get_peer_ip());
+    esp_http_client_config_t cfg = {};
+    cfg.url = url;
+    cfg.method = HTTP_METHOD_POST;
+    cfg.timeout_ms = 20000;
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    int status = -1;
+    if (c != nullptr) {
+        if (settings.otaPassword[0]) {
+            char creds[sizeof(settings.otaUsername) + sizeof(settings.otaPassword) + 2];
+            snprintf(creds, sizeof(creds), "%s:%s", settings.otaUsername, settings.otaPassword);
+            char auth[112] = "Basic ";
+            base64(creds, auth + 6, sizeof(auth) - 6);
+            esp_http_client_set_header(c, "Authorization", auth);
+        }
+        esp_http_client_set_header(c, "Content-Type", "application/octet-stream");
+        if (esp_http_client_open(c, o->camSize) == ESP_OK) {
+            int sent = 0;
+            while (sent < o->camSize) {
+                int n = esp_http_client_write(c, (const char *) img + sent, std::min(o->camSize - sent, 4096));
+                if (n <= 0) break;
+                sent += n;
+            }
+            if (sent == o->camSize && esp_http_client_fetch_headers(c) >= 0) status = esp_http_client_get_status_code(c);
+        }
+        esp_http_client_cleanup(c);
+    }
+    heap_caps_free(img);
+    if (status != 200) {
+        snprintf(why, sizeof(why), status < 0 ? "camera: upload broke off" : "camera: upload refused (HTTP %d)", status);
+        return why;
+    }
+
+    // It restarts into the new app; the old one answers until it does.
+    set_state("camera %s installed, waiting for it to restart", o->camVersion);
+    vTaskDelay(pdMS_TO_TICKS(8000));
+    char now[32] = "";
+    for (int s = 8; s < CAM_BACK_S; s += 3) {
+        if (read_cam_version(now, sizeof(now))) {
+            if (std::strcmp(now, o->camVersion) == 0) {
+                snprintf(camVersion, sizeof(camVersion), "%s", now);
+                return nullptr;
+            }
+            if (s >= 30) break; // (back, but with the old version)
+        }
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+    if (now[0]) {
+        *permanent = true;
+        snprintf(why, sizeof(why), "camera came back with %s", now);
+    } else {
+        snprintf(why, sizeof(why), "camera not back after %d s", CAM_BACK_S);
+    }
+    return why;
+}
 
 // Web files (if offered and not already written), then the app: both are
 // downloaded and checked before the robot stops; then the web files are
 // written, the app is made the boot app, and the robot restarts.
+//
+// The camera first, if it needs another version: a new robot app may count
+// on it. The robot keeps running meanwhile (nothing on its own flash).
 void update_task(void *arg) {
     Offer *o = (Offer *) arg;
-    set_state(o->fs ? "downloading %s (web files)" : "downloading %s", o->version);
     char *buf = (char *) heap_caps_malloc(CHUNK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    uint8_t *fs = o->fs ? (uint8_t *) heap_caps_malloc((size_t) o->fsSize, MALLOC_CAP_SPIRAM) : nullptr;
+    const char *why = "no memory";
+    char whyBuf[64];
+    const char *what = o->cam && !o->app ? o->camVersion : o->version; // (for the messages)
+    bool ok = buf != nullptr;
+    if (ok && o->cam) {
+        bool permanent = false;
+        const char *w = update_camera(o, buf, &permanent);
+        if (w == nullptr) {
+            set_state("camera updated to %s", o->camVersion);
+        } else {
+            ok = false;
+            snprintf(whyBuf, sizeof(whyBuf), "%s", w);
+            why = whyBuf;
+            if (permanent) {
+                snprintf(camFailed, sizeof(camFailed), "%s", o->camVersion);
+                nvs_put_str(NVS_CAM_FAILED, camFailed);
+            }
+        }
+    }
+    if (ok && !o->app) {
+        heap_caps_free(buf);
+        tries = 0;
+        delete o;
+        busy = false;
+        vTaskDelete(nullptr);
+    }
+    if (ok) set_state(o->fs ? "downloading %s (web files)" : "downloading %s", o->version);
+    uint8_t *fs = ok && o->fs ? (uint8_t *) heap_caps_malloc((size_t) o->fsSize, MALLOC_CAP_SPIRAM) : nullptr;
     const esp_partition_t *slot = esp_ota_get_next_update_partition(nullptr);
     esp_ota_handle_t ota = 0;
-    bool ok = buf != nullptr && slot != nullptr && (!o->fs || fs != nullptr);
+    if (ok && (slot == nullptr || (o->fs && fs == nullptr))) {
+        ok = false;
+        why = slot == nullptr ? "no OTA slot" : "no memory";
+    }
     bool otaBegun = false, paused = false;
-    const char *why = slot == nullptr ? "no OTA slot" : "no memory";
-    char whyBuf[64];
 
     if (ok && o->fs) {
         size_t at = 0;
@@ -251,7 +418,7 @@ void update_task(void *arg) {
     tries++;
     int waitMin = tries >= 5 ? 60 : 5 << (tries - 1);
     retryAtUs = esp_timer_get_time() + (int64_t) waitMin * 60 * 1000000;
-    snprintf(state, sizeof(state), "update to %s failed (%s), again in %d min", o->version, why, waitMin);
+    snprintf(state, sizeof(state), "update to %s%s failed (%s), again in %d min", o->cam && !o->app ? "camera " : "", what, why, waitMin);
     ESP_LOGE(TAG, "%s", state);
     delete o;
     busy = false;
@@ -280,6 +447,7 @@ void rollback_task(void *) {
 
 void closer_update_init() {
     nvs_get_string(NVS_FAILED, failedVersion, sizeof(failedVersion));
+    nvs_get_string(NVS_CAM_FAILED, camFailed, sizeof(camFailed));
     uint8_t flag = 0;
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
@@ -336,10 +504,24 @@ void closer_update_on_reply(const char *replyJson) {
         o->fs = usable && strcasecmp(written, o->fsSha) != 0;
         if (o->fs && (o->fsSize <= 0 || (size_t) o->fsSize > FS_MAX)) usable = false;
     }
+    cJSON *cam = usable ? cJSON_GetObjectItem(u, "cam") : nullptr;
+    o->cam = cJSON_IsObject(cam) && copy_str(cam, "version", o->camVersion, sizeof(o->camVersion)) &&
+             copy_str(cam, "path", o->camPath, sizeof(o->camPath)) && copy_str(cam, "sha256", o->camSha, sizeof(o->camSha)) &&
+             cJSON_IsNumber(cJSON_GetObjectItem(cam, "size"));
+    if (o->cam) o->camSize = cJSON_GetObjectItem(cam, "size")->valueint;
     cJSON_Delete(reply);
     snprintf(offered, sizeof(offered), "%s", usable ? o->version : "");
-    if (!usable || o->size <= 0 || std::strcmp(o->version, esp_app_get_description()->version) == 0 ||
-        std::strcmp(o->version, failedVersion) == 0) {
+    snprintf(camOffered, sizeof(camOffered), "%s", o->cam ? o->camVersion : "");
+    o->app = usable && o->size > 0 && std::strcmp(o->version, esp_app_get_description()->version) != 0 &&
+             std::strcmp(o->version, failedVersion) != 0;
+    // The camera: only if it can be asked which version it runs (on the link
+    // and on Wi-Fi), and that's another one.
+    if (o->cam) {
+        if (!read_cam_version(camVersion, sizeof(camVersion))) camVersion[0] = '\0';
+        o->cam = camVersion[0] && std::strcmp(camVersion, o->camVersion) != 0 && std::strcmp(o->camVersion, camFailed) != 0 &&
+                 o->camSize > 0 && (size_t) o->camSize <= CAM_MAX;
+    }
+    if (!usable || (!o->app && !o->cam)) {
         delete o;
         return;
     }
@@ -364,13 +546,17 @@ bool closer_update_busy() { return busy; }
 
 namespace {
 
-// {"version", "offered" ("" = nothing new), "busy", "checked_s" (seconds
+// {"version", "offered" ("" = nothing new), "cam_version" ("" = not known),
+// "cam_offered", "busy", "checked_s" (seconds
 // since the server last answered, -1 = not yet), "state"}
 esp_err_t send_status(httpd_req_t *req) {
     cJSON *j = cJSON_CreateObject();
     cJSON_AddStringToObject(j, "version", esp_app_get_description()->version);
     bool news = offered[0] && std::strcmp(offered, esp_app_get_description()->version) != 0;
     cJSON_AddStringToObject(j, "offered", news ? offered : "");
+    cJSON_AddStringToObject(j, "cam_version", camVersion);
+    bool camNews = camOffered[0] && std::strcmp(camOffered, camVersion) != 0 && std::strcmp(camOffered, camFailed) != 0;
+    cJSON_AddStringToObject(j, "cam_offered", camNews ? camOffered : "");
     cJSON_AddBoolToObject(j, "busy", busy);
     cJSON_AddNumberToObject(j, "checked_s", answeredUs ? (double) ((esp_timer_get_time() - answeredUs) / 1000000) : -1);
     cJSON_AddStringToObject(j, "state", state);

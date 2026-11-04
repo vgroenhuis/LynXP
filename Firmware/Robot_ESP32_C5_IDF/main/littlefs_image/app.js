@@ -2650,6 +2650,7 @@ window.addEventListener("DOMContentLoaded", () => {
     else if (u.offered) text += `The server offers ${u.offered}: installing it now.`;
     else if (u.checked_s >= 0) text += `Up to date (server asked ${u.checked_s} s ago).`;
     else text += "The server hasn't answered yet (no Wi-Fi to the internet, or no lab demos key: 'closer key' on the console).";
+    if (u.cam_version) text += ` Camera: ${u.cam_version}` + (u.cam_offered ? ` (the server offers ${u.cam_offered}).` : ".");
     if (!u.busy && u.state && u.state.includes("failed")) text += " Last try: " + u.state;
     serverUpdateStatus.textContent = text;
   }

@@ -9,6 +9,15 @@
 // both SHA-256s, writes the web files (only the sectors that differ) and the
 // app, and restarts into the new app.
 //
+// The camera (ESP32-S3) too, if the release has its app ("cam", published
+// with --cam): the robot asks the camera which version it runs (GET /status
+// on the camera), and if that's another one it downloads the camera's app,
+// checks it and uploads it to the camera's POST /update (with the OTA
+// password the robot gives the camera over the SPI link) -- before its own
+// app, since a new robot app may count on the new camera. A camera that
+// comes back with its old version (rejected, or rolled back) isn't sent that
+// version again. A camera without Wi-Fi isn't updated.
+//
 // The robot stops while the update is written (cyan LED, OLED says so),
 // also with its page open. A download that breaks off resumes where it
 // was; a failed one is tried again after 5, 10, 20, 40, then every 60 min.
