@@ -6,6 +6,7 @@
 #include "motors.hpp"
 #include "littlefs_init.hpp"
 #include "settings.hpp"
+#include "ws_broadcast.hpp"
 #include "closer_update.hpp"
 
 #include "esp_http_server.h"
@@ -733,13 +734,36 @@ void ota_pause_robot() {
     TaskHandle_t ctrlTask = control_task_get_handle();
     esp_task_wdt_delete(ctrlTask);
     vTaskSuspend(ctrlTask);
+    // The WebSocket poll task is on the task watchdog too (3 s), and the
+    // flash writes stall everything that runs from flash, it included.
+    TaskHandle_t pollTask = ws_broadcast_get_poll_task_handle();
+    if (pollTask != nullptr) esp_task_wdt_delete(pollTask);
 }
 
 void ota_resume_robot() {
     TaskHandle_t ctrlTask = control_task_get_handle();
     vTaskResume(ctrlTask);
     esp_task_wdt_add(ctrlTask); // after resuming -- see handle_update_fs_post()'s failure path
+    TaskHandle_t pollTask = ws_broadcast_get_poll_task_handle();
+    if (pollTask != nullptr) esp_task_wdt_add(pollTask);
     restore_servos();
+}
+
+esp_err_t ota_write_app_image(const uint8_t *img, size_t len, const esp_partition_t **slot) {
+    *slot = esp_ota_get_next_update_partition(nullptr);
+    if (*slot == nullptr) return ESP_ERR_NOT_FOUND;
+    IdleWatchdogPause idlePause;
+    esp_ota_handle_t h = 0;
+    // Sequential: each sector erased just before it's written (with the size
+    // given, esp_ota_begin erases all ~1.5 MB at once: one long stall).
+    esp_err_t err = esp_ota_begin(*slot, OTA_WITH_SEQUENTIAL_WRITES, &h);
+    for (size_t at = 0; err == ESP_OK && at < len; at += FS_SECTOR) {
+        err = esp_ota_write(h, img + at, std::min(FS_SECTOR, len - at)); // (a PSRAM source: esp_flash bounces it)
+        vTaskDelay(1);                                                    // (the other tasks get a turn)
+    }
+    if (err == ESP_OK) return esp_ota_end(h); // (checks the image)
+    if (h) esp_ota_abort(h);
+    return err;
 }
 
 esp_err_t ota_write_fs_image_zlib(const uint8_t *in, size_t len, size_t *changed) {

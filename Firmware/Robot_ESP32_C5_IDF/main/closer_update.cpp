@@ -36,6 +36,9 @@ constexpr const char *NVS_FROM_SERVER = "upd_srv";   // 1: the running app came 
 constexpr const char *NVS_FAILED = "upd_failed";     // a version that was installed and rolled back
 constexpr const char *NVS_FS_SHA = "upd_fs_sha";     // the web files last written from the server
 constexpr const char *NVS_CAM_FAILED = "upd_cam_bad"; // a camera version it didn't come back with
+constexpr const char *NVS_TRY = "upd_try";           // an update under way: what ("1.5.2" or "cam-1.4.0")
+constexpr const char *NVS_TRY_N = "upd_try_n";       //   and how many times in a row one ended in a restart
+constexpr int CRASHES_MAX = 3;
 constexpr size_t CAM_MAX = 3 * 1024 * 1024;          // the camera's app slots
 constexpr int CAM_BACK_S = 120;                      // for the camera to restart into its new app
 constexpr size_t FS_MAX = 4 * 1024 * 1024;           // (a compressed web image is ~0.3 MB)
@@ -76,6 +79,29 @@ void nvs_get_string(const char *key, char *out, size_t len) {
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return;
     if (nvs_get_str(h, key, out, &len) != ESP_OK) out[0] = '\0';
+    nvs_close(h);
+}
+
+// Before an update starts: what, and the count of tries that never got to
+// their end (a crash or watchdog restart halfway). "" when one ends without
+// a crash, or the new app is confirmed. Read back by closer_update_init():
+// without this, a robot that crashed during an update tried again right
+// after the restart -- 1.5.1 -> 1.5.2 restarted every 21 s.
+void note_attempt(const char *what) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+    if (what[0]) {
+        char was[40] = "";
+        size_t len = sizeof(was);
+        uint8_t n = 0;
+        if (nvs_get_str(h, NVS_TRY, was, &len) == ESP_OK && std::strcmp(was, what) == 0) nvs_get_u8(h, NVS_TRY_N, &n);
+        nvs_set_str(h, NVS_TRY, what);
+        nvs_set_u8(h, NVS_TRY_N, (uint8_t) (n + 1));
+    } else {
+        nvs_erase_key(h, NVS_TRY);
+        nvs_erase_key(h, NVS_TRY_N);
+    }
+    nvs_commit(h);
     nvs_close(h);
 }
 
@@ -325,6 +351,9 @@ void run_update(Offer *o) {
     const char *why = "no memory";
     char whyBuf[64];
     const char *what = o->cam && !o->app ? o->camVersion : o->version; // (for the messages)
+    char attempt[40];
+    snprintf(attempt, sizeof(attempt), o->app ? "%s" : "cam-%s", what);
+    note_attempt(attempt);
     bool ok = buf != nullptr;
     if (ok && o->cam) {
         bool permanent = false;
@@ -346,6 +375,7 @@ void run_update(Offer *o) {
     }
     if (ok && !o->app) {
         heap_caps_free(buf);
+        note_attempt("");
         tries = 0;
         delete o;
         busy = false;
@@ -353,13 +383,13 @@ void run_update(Offer *o) {
     }
     if (ok) set_state(o->fs ? "downloading %s (web files)" : "downloading %s", o->version);
     uint8_t *fs = ok && o->fs ? (uint8_t *) heap_caps_malloc((size_t) o->fsSize, MALLOC_CAP_SPIRAM) : nullptr;
-    const esp_partition_t *slot = esp_ota_get_next_update_partition(nullptr);
-    esp_ota_handle_t ota = 0;
-    if (ok && (slot == nullptr || (o->fs && fs == nullptr))) {
+    uint8_t *app = ok ? (uint8_t *) heap_caps_malloc((size_t) o->size, MALLOC_CAP_SPIRAM) : nullptr;
+    const esp_partition_t *slot = nullptr;
+    if (ok && (app == nullptr || (o->fs && fs == nullptr))) {
         ok = false;
-        why = slot == nullptr ? "no OTA slot" : "no memory";
+        why = "no memory";
     }
-    bool otaBegun = false, paused = false;
+    bool paused = false;
 
     if (ok && o->fs) {
         size_t at = 0;
@@ -372,34 +402,32 @@ void run_update(Offer *o) {
         snprintf(whyBuf, sizeof(whyBuf), "web files: %s", w);
         why = whyBuf;
     }
-    // The app goes straight into the other slot (it isn't the boot app until
-    // esp_ota_set_boot_partition): its erase stalls the flash cache, so the
-    // robot is paused from here on, as for POST /update.
+    // The app into PSRAM too, checked, before anything on the robot stops:
+    // at home a download can take minutes, and the robot used to be paused
+    // (control task suspended) for all of it -- 1.5.1 -> 1.5.2 then ran into
+    // the task watchdog, again and again.
+    if (ok) {
+        set_state("downloading %s (app)", o->version);
+        size_t at = 0;
+        const char *w = "";
+        ok = download(o->path, o->size, o->sha, buf, [&](const char *d, int n) {
+            std::memcpy(app + at, d, (size_t) n);
+            at += (size_t) n;
+            return true;
+        }, &w);
+        snprintf(whyBuf, sizeof(whyBuf), "app: %s", w);
+        why = whyBuf;
+    }
+    // Only now the robot stops, for writing: the app into the other slot (not
+    // the boot app until esp_ota_set_boot_partition), then the web files.
     if (ok) {
         ota_pause_robot();
         status_led_set_updating(true);
         paused = true;
-        // Sequential: each sector is erased just before it's written. With the
-        // size given, esp_ota_begin erased all ~1.5 MB at once, and that stall
-        // tripped the task watchdog (1.4.0 -> 1.4.4: "hang", restart).
-        esp_err_t err = esp_ota_begin(slot, OTA_WITH_SEQUENTIAL_WRITES, &ota);
+        set_state("installing %s", o->version);
+        esp_err_t err = ota_write_app_image(app, (size_t) o->size, &slot);
         ok = err == ESP_OK;
-        otaBegun = ok;
-        snprintf(whyBuf, sizeof(whyBuf), "esp_ota_begin: %s", esp_err_to_name(err));
-        why = whyBuf;
-    }
-    if (ok) {
-        set_state("downloading %s (app)", o->version);
-        const char *w = "";
-        ok = download(o->path, o->size, o->sha, buf, [&](const char *d, int n) { return esp_ota_write(ota, d, (size_t) n) == ESP_OK; }, &w);
-        snprintf(whyBuf, sizeof(whyBuf), "app: %s", w);
-        why = whyBuf;
-    }
-    if (ok) {
-        otaBegun = false;
-        esp_err_t err = esp_ota_end(ota); // (checks the image)
-        ok = err == ESP_OK;
-        snprintf(whyBuf, sizeof(whyBuf), "esp_ota_end: %s", esp_err_to_name(err));
+        snprintf(whyBuf, sizeof(whyBuf), "writing the app: %s", esp_err_to_name(err));
         why = whyBuf;
     }
     if (ok && o->fs) {
@@ -423,16 +451,18 @@ void run_update(Offer *o) {
     }
     if (ok) {
         ESP_LOGI(TAG, "update to %s installed, restarting", o->version);
+        note_attempt(""); // (a planned restart; the new app's own checks take over)
         vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
-    if (otaBegun) esp_ota_abort(ota);
     if (paused) {
         status_led_set_updating(false);
         ota_resume_robot();
     }
     heap_caps_free(buf);
     heap_caps_free(fs);
+    heap_caps_free(app);
+    note_attempt(""); // (it ended without a crash: the wait below is enough)
     // A download that broke off (Wi-Fi hiccup) is no reason to give up on the
     // version: again in 5, 10, 20, 40, then every 60 minutes.
     tries++;
@@ -467,6 +497,36 @@ void rollback_task(void *) {
 void closer_update_init() {
     nvs_get_string(NVS_FAILED, failedVersion, sizeof(failedVersion));
     nvs_get_string(NVS_CAM_FAILED, camFailed, sizeof(camFailed));
+    // An update that never got to its end: the robot restarted in the middle
+    // (crash, watchdog, power). Not again right away -- after 5, 10 min, and
+    // after the third such restart not at all (until another version).
+    char tried[40];
+    nvs_get_string(NVS_TRY, tried, sizeof(tried));
+    if (tried[0]) {
+        uint8_t n = 1;
+        nvs_handle_t th;
+        if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &th) == ESP_OK) {
+            nvs_get_u8(th, NVS_TRY_N, &n);
+            nvs_close(th);
+        }
+        const char *v = std::strncmp(tried, "cam-", 4) == 0 ? tried + 4 : tried;
+        if (n >= CRASHES_MAX) {
+            if (v != tried) {
+                snprintf(camFailed, sizeof(camFailed), "%.31s", v);
+                nvs_put_str(NVS_CAM_FAILED, camFailed);
+            } else {
+                snprintf(failedVersion, sizeof(failedVersion), "%.31s", v);
+                nvs_put_str(NVS_FAILED, failedVersion);
+            }
+            note_attempt("");
+            snprintf(state, sizeof(state), "update to %s%s: restarted %d times halfway, not tried again", v != tried ? "camera " : "", v, n);
+        } else {
+            int waitMin = 5 << (n - 1);
+            retryAtUs = esp_timer_get_time() + (int64_t) waitMin * 60 * 1000000;
+            snprintf(state, sizeof(state), "update to %s%s: restarted halfway (%d), again in %d min", v != tried ? "camera " : "", v, n, waitMin);
+        }
+        ESP_LOGW(TAG, "%s", state);
+    }
     uint8_t flag = 0;
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
@@ -498,6 +558,7 @@ void closer_update_on_reply(const char *replyJson) {
         }
         failedVersion[0] = '\0';
         fromServer = false;
+        note_attempt("");
         set_state("firmware %s confirmed", esp_app_get_description()->version);
     }
     reported = true;

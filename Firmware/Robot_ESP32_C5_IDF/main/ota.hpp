@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "esp_ota_ops.h"
+
 // App firmware + filesystem OTA, lifted from the proven-on-hardware
 // Test_ESP32_S3_Feather_ESP_IDF spike's update_post_handler/
 // update_fs_post_handler, with three hardening changes on top:
@@ -55,3 +57,9 @@ void ota_resume_robot();
 // valid image / too big, nothing changed. Call between ota_pause_robot() and
 // a restart (or ota_resume_robot() on failure). For closer_update.cpp.
 esp_err_t ota_write_fs_image_zlib(const uint8_t *in, size_t len, size_t *changed);
+
+// Writes an app image (in RAM, already checked) into the other app slot and
+// checks it (esp_ota_end); *slot is that slot, for esp_ota_set_boot_partition.
+// In 4 KB steps with a tick's pause after each. Call between
+// ota_pause_robot() and a restart (or ota_resume_robot()).
+esp_err_t ota_write_app_image(const uint8_t *img, size_t len, const esp_partition_t **slot);
