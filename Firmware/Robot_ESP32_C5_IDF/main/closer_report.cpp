@@ -12,7 +12,9 @@
 #include "watchdog.hpp"
 #include "breadcrumb.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "cJSON.h"
@@ -25,6 +27,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_random.h"
+#include "miniz.h"
 #include "nvs.h"
 
 static const char *TAG = "closer";
@@ -310,7 +314,95 @@ void put32(uint8_t *p, uint32_t v) {
     p[3] = (uint8_t) (v >> 24);
 }
 
-// One second on both chips (cpu_trace.h), then one upload: "LXTR", u32
+// zlib-compresses the upload (the ROM's miniz deflate), into PSRAM: 0 (and
+// nothing in *out) if that didn't work -- then it goes uncompressed. In
+// steps of 16 KB with a tick's pause after each: a few hundred KB at once
+// would keep everything below this task off the CPU for most of a second.
+size_t compress_trace(const uint8_t *in, size_t len, uint8_t **out) {
+    *out = nullptr;
+    auto *d = (tdefl_compressor *) heap_caps_malloc(sizeof(tdefl_compressor), MALLOC_CAP_SPIRAM);
+    size_t cap = len + len / 8 + 1024;
+    auto *buf = (uint8_t *) heap_caps_malloc(cap, MALLOC_CAP_SPIRAM);
+    size_t done = 0, made = 0;
+    tdefl_status st = TDEFL_STATUS_BAD_PARAM;
+    if (d != nullptr && buf != nullptr && tdefl_init(d, nullptr, nullptr, TDEFL_WRITE_ZLIB_HEADER | 32) == TDEFL_STATUS_OKAY) {
+        do {
+            size_t inSize = std::min<size_t>(len - done, 16384);
+            size_t outSize = cap - made;
+            bool last = done + inSize == len;
+            st = tdefl_compress(d, in + done, &inSize, buf + made, &outSize, last ? TDEFL_FINISH : TDEFL_NO_FLUSH);
+            done += inSize;
+            made += outSize;
+            vTaskDelay(1);
+        } while (st == TDEFL_STATUS_OKAY && made < cap);
+    }
+    free(d);
+    if (st != TDEFL_STATUS_DONE) {
+        free(buf);
+        return 0;
+    }
+    *out = buf;
+    return made;
+}
+
+// POSTs the upload in pieces of 16 KB (TRACE_URL/<id>?upload=&offset=&total=
+// [&z=1]); the server answers with how much it has ("have"), and after a
+// connection breaks off the next piece starts there -- at home the
+// connection to the server breaks off every few seconds, and a single POST
+// of a few hundred KB never got through. 200 when all of it is in (the last
+// piece's answer), -1 without a connection, else the refusing HTTP status.
+int upload_trace(const uint8_t *data, size_t len, bool zlibbed) {
+    constexpr size_t PIECE = 16384;
+    char id[12];
+    snprintf(id, sizeof(id), "%08lx", (unsigned long) esp_random());
+    char auth[sizeof(deviceKey) + 8];
+    snprintf(auth, sizeof(auth), "Bearer %s", deviceKey);
+    char url[192];
+    snprintf(url, sizeof(url), "%s/%s", TRACE_URL, demoId);
+    esp_http_client_config_t cfg = {};
+    cfg.url = url;
+    cfg.method = HTTP_METHOD_POST;
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.timeout_ms = 15000;
+    cfg.event_handler = on_http_event;
+    Reply reply = {};
+    cfg.user_data = &reply;
+    esp_http_client_handle_t c = nullptr;
+    size_t have = 0;
+    int status = -1, stuck = 0;
+    for (int attempt = 0; attempt < 80 && stuck < 5; attempt++) {
+        if (c == nullptr) {
+            c = esp_http_client_init(&cfg);
+            if (c == nullptr) break;
+            esp_http_client_set_header(c, "Authorization", auth);
+            esp_http_client_set_header(c, "Content-Type", "application/octet-stream");
+        }
+        size_t n = std::min(PIECE, len - have);
+        snprintf(url, sizeof(url), "%s/%s?upload=%s&offset=%u&total=%u%s", TRACE_URL, demoId, id, (unsigned) have,
+                 (unsigned) len, zlibbed ? "&z=1" : "");
+        esp_http_client_set_url(c, url);
+        esp_http_client_set_post_field(c, (const char *) data + have, (int) n);
+        reply.len = 0;
+        reply.text[0] = '\0';
+        esp_err_t err = esp_http_client_perform(c); // (the same connection while it lasts)
+        status = err == ESP_OK ? esp_http_client_get_status_code(c) : -1;
+        const char *h = std::strstr(reply.text, "\"have\":");
+        size_t before = have;
+        if ((status == 200 || status == 409) && h != nullptr) have = (size_t) std::strtoul(h + 7, nullptr, 10);
+        if (status == 200 && have >= len) break;            // all in, and taken
+        if (status != 200 && status != 409 && status > 0) break; // refused (bad key, bad data ...)
+        if (status < 0) {                                   // broke off: a new connection
+            esp_http_client_cleanup(c);
+            c = nullptr;
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        stuck = have > before ? 0 : stuck + 1;
+    }
+    if (c != nullptr) esp_http_client_cleanup(c);
+    return status == 200 && have >= len ? 200 : status == 409 ? -1 : status;
+}
+
+// One second on both chips (cpu_trace.h), then one upload (compressed, in pieces): "LXTR", u32
 // length of the JSON that follows (build_trace_meta), the JSON, the robot's
 // blob, the camera's blob (if it sent one). Nothing goes out while recording.
 void run_trace() {
@@ -339,26 +431,14 @@ void run_trace() {
         std::memcpy(body + 8, meta, metaLen);
         std::memcpy(body + 8 + metaLen, mine, mineLen);
         if (camLen) std::memcpy(body + 8 + metaLen + mineLen, cam, camLen);
-        char url[128];
-        snprintf(url, sizeof(url), "%s/%s", TRACE_URL, demoId);
-        esp_http_client_config_t cfg = {};
-        cfg.url = url;
-        cfg.method = HTTP_METHOD_POST;
-        cfg.crt_bundle_attach = esp_crt_bundle_attach;
-        cfg.timeout_ms = 20000;
-        esp_http_client_handle_t c = esp_http_client_init(&cfg);
-        if (c) {
-            char auth[sizeof(deviceKey) + 8];
-            snprintf(auth, sizeof(auth), "Bearer %s", deviceKey);
-            esp_http_client_set_header(c, "Authorization", auth);
-            esp_http_client_set_header(c, "Content-Type", "application/octet-stream");
-            esp_http_client_set_post_field(c, (const char *) body, (int) len);
-            esp_err_t err = esp_http_client_perform(c);
-            int status = esp_http_client_get_status_code(c);
-            traceState = err != ESP_OK ? "failed: no connection" : status == 200 ? (camLen ? "sent" : "sent (robot only)") : "failed: refused";
-            ESP_LOGI(TAG, "trace: %u + %u bytes, %s (HTTP %d)", (unsigned) mineLen, (unsigned) camLen, esp_err_to_name(err), status);
-            esp_http_client_cleanup(c);
-        }
+        uint8_t *packed = nullptr;
+        size_t packedLen = compress_trace(body, len, &packed);
+        const uint8_t *send = packed ? packed : body;
+        size_t sendLen = packed ? packedLen : len;
+        int status = upload_trace(send, sendLen, packed != nullptr);
+        traceState = status == 200 ? (camLen ? "sent" : "sent (robot only)") : status < 0 ? "failed: no connection" : "failed: refused";
+        ESP_LOGI(TAG, "trace: %u + %u bytes, sent as %u, HTTP %d", (unsigned) mineLen, (unsigned) camLen, (unsigned) sendLen, status);
+        free(packed);
     } else {
         traceState = "failed: no memory";
     }

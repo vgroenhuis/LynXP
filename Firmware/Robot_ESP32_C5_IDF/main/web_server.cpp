@@ -162,29 +162,40 @@ esp_err_t send_captive_redirect(httpd_req_t *req) {
 // -- ETags: web_etags.txt (made at build time by tools/prepare_web.py) has
 // each file's content hash, one "/path hash" per line. Read on the first
 // request; it can't go stale, as a filesystem OTA reboots. (Only the httpd
-// task serves files, so no lock.)
-std::vector<std::pair<std::string, std::string>> g_etags;
+// task serves files, so no lock.) Kept as the file itself, in one PSRAM
+// buffer with the spaces and line ends turned into '\0': as ~60 pairs of
+// std::string it took several KB of internal RAM in small allocations.
+char *g_etags = nullptr;
+size_t g_etagsLen = 0;
 bool g_etagsLoaded = false;
 
 const char *etag_for(const char *littlefsPath) {
     if (!g_etagsLoaded) {
         g_etagsLoaded = true;
         if (FILE *f = fopen("/littlefs/web_etags.txt", "r")) {
-            char line[160];
-            while (fgets(line, sizeof(line), f)) {
-                char *sp = std::strchr(line, ' ');
-                if (sp == nullptr) continue;
-                *sp = '\0';
-                char *hash = sp + 1;
-                hash[std::strcspn(hash, "\r\n")] = '\0';
-                g_etags.emplace_back(line, hash);
+            fseek(f, 0, SEEK_END);
+            long size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            g_etags = size > 0 ? (char *) heap_caps_malloc((size_t) size + 1, MALLOC_CAP_SPIRAM) : nullptr;
+            if (g_etags != nullptr) {
+                g_etagsLen = fread(g_etags, 1, (size_t) size, f);
+                for (size_t i = 0; i < g_etagsLen; i++) {
+                    if (g_etags[i] == ' ' || g_etags[i] == '\r' || g_etags[i] == '\n') g_etags[i] = '\0';
+                }
+                g_etags[g_etagsLen] = '\0';
             }
             fclose(f);
         }
     }
+    // path '\0' hash '\0' ... (with empty strings where a line ended in "\r\n")
     const char *rel = littlefsPath + std::strlen("/littlefs");
-    for (const auto &e : g_etags) {
-        if (e.first == rel) return e.second.c_str();
+    for (size_t i = 0; i < g_etagsLen;) {
+        const char *path = g_etags + i;
+        i += std::strlen(path) + 1;
+        if (path[0] != '/') continue;
+        const char *hash = i < g_etagsLen ? g_etags + i : "";
+        i += std::strlen(hash) + 1;
+        if (std::strcmp(path, rel) == 0 && hash[0]) return hash;
     }
     return nullptr;
 }
