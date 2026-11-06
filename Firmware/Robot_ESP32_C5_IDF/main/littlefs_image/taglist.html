@@ -30,7 +30,7 @@
       <p class="tags-dim">Every tag the robot has seen on a cube (Free drive's cube detection, Knight on Blocks):
         its cube size -- all cubes with one tag are the same size, measured to the cm once one stands on the
         floor, then remembered -- how many cubes carry it, and where they were last seen (world coordinates, cm,
-        the center of each cube). Tags 24-29 are the world-frame cube. "Exist": how many cubes with that tag
+        the center of each cube; a place not seen for 24 hours is forgotten, as the cube has likely been moved). Tags 24-29 are the world-frame cube. "Exist": how many cubes with that tag
         really exist -- no more are tracked; a cube seen elsewhere then moves the one seen longest ago.</p>
       <div id="tagsBody">Loading...</div>
       <div class="tags-actions">
@@ -41,6 +41,7 @@
   </div>
   <script>
     const FRAME = { 24: "+X", 25: "+Y", 26: "+Z", 27: "−Z", 28: "−Y", 29: "−X" }; // (like a die: opposite faces add up)
+    const PLACE_MAX_AGE_MS = 24 * 3600 * 1000; // (as in tagblocks.js)
     const body = document.getElementById("tagsBody");
     const ago = (ms) => {
       const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -69,7 +70,10 @@
         return;
       }
       const rows = ids.map((id) => {
-        const t = doc.tags[id];
+        // places last seen over 24 h ago are forgotten (the cube has likely been
+        // moved): not listed -- the camera page drops them at its next save
+        const t = { ...doc.tags[id] };
+        t.blocks = (t.blocks || []).filter((b) => Date.now() - (b[4] || t.at || 0) <= PLACE_MAX_AGE_MS);
         // every cube with this tag; [x, y, z, 0, ...] = since found gone from there
         const where = (t.blocks || []).map((b, i, all) => `${all.length > 1 ? `${i + 1}: ` : ""}(${cm(b[0])}, ${cm(b[1])}, ${cm(b[2])})${b[3] === 0 ? " <span class='tags-dim'>(not there any more)</span>" : ""}`).join("<br>") || "<span class='tags-dim'>not placed</span>";
         const name = id === 24 ? `24–29 <span class="tags-frame">frame cube</span>` : FRAME[id] ? `${id} <span class="tags-frame">frame ${FRAME[id]}</span>` : `${id}`;
@@ -78,7 +82,7 @@
         // the cube's size: measured to the cm from the first cube standing on the floor (sensitive to the camera
         // calibration), or set here -- then it stays (empty: measured again). The frame cube's is a setting.
         const size = id === 24 ? `${t.cm} cm` : `<input class="tags-size" type="number" min="1" max="20" step="1" data-id="${id}" value="${t.cm || ""}" placeholder="auto" title="The cube's side in cm. ${t.user ? "Set by hand: it stays. Empty it to measure it again." : "Measured; type the real size to set it."}"> cm${t.user ? " <span class='tags-dim' title='set by hand'>✎</span>" : ""}`;
-        return `<tr><td>${name}</td><td class="num">${(t.blocks || []).length || t.count || 0}</td><td class="num">${exist}</td><td class="num">${size}</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
+        return `<tr><td>${name}</td><td class="num">${t.blocks.length}</td><td class="num">${exist}</td><td class="num">${size}</td><td>${where}</td><td class="tags-dim">${t.at ? ago(t.at) : ""}</td></tr>`;
       });
       body.innerHTML = `<table class="tags-table"><thead><tr><th>Tag</th><th class="num">Cubes</th><th class="num">Exist</th><th class="num">Size</th><th>Where (x, y, z cm)</th><th>Last seen</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
       body.querySelectorAll(".tags-max").forEach((el) => el.addEventListener("change", () => setMax(+el.dataset.id, Math.round(+el.value) || 0)));

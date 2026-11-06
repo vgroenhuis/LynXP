@@ -38,6 +38,8 @@ constexpr const char *NVS_FS_SHA = "upd_fs_sha";     // the web files last writt
 constexpr const char *NVS_CAM_FAILED = "upd_cam_bad"; // a camera version it didn't come back with
 constexpr const char *NVS_TRY = "upd_try";           // an update under way: what ("1.5.2" or "cam-1.4.0")
 constexpr const char *NVS_TRY_N = "upd_try_n";       //   and how many times in a row one ended in a restart
+constexpr const char *NVS_LAST = "upd_last";         // the last failure's message, kept across restarts
+constexpr const char *NVS_LAST_V = "upd_last_v";     //   and what it was for ("1.5.5" or "cam-1.4.0")
 constexpr int CRASHES_MAX = 3;
 constexpr size_t CAM_MAX = 3 * 1024 * 1024;          // the camera's app slots
 constexpr int CAM_BACK_S = 120;                      // for the camera to restart into its new app
@@ -59,6 +61,11 @@ char camOffered[32];       // the camera version the server offers
 char camFailed[32];
 int64_t answeredUs = 0;    // when the server last answered a report
 char state[160];          // (the heartbeat sends at most 119 characters of it: the server's limit)
+// The last update that failed, remembered across restarts (it used to be lost
+// with the restart that often follows -- or a manual flash): why, and for which
+// version. Cleared by a successful update, or once that version runs anyway.
+char lastFailure[160];
+char lastFailureFor[40];
 
 void set_state(const char *fmt, const char *a = "", int b = 0) {
     snprintf(state, sizeof(state), fmt, a, b);
@@ -103,6 +110,20 @@ void note_attempt(const char *what) {
     }
     nvs_commit(h);
     nvs_close(h);
+}
+
+void remember_failure(const char *what, const char *message) {
+    snprintf(lastFailure, sizeof(lastFailure), "%s", message);
+    snprintf(lastFailureFor, sizeof(lastFailureFor), "%s", what);
+    nvs_put_str(NVS_LAST, lastFailure);
+    nvs_put_str(NVS_LAST_V, lastFailureFor);
+}
+
+void forget_failure() {
+    if (!lastFailure[0] && !lastFailureFor[0]) return;
+    lastFailure[0] = lastFailureFor[0] = '\0';
+    nvs_put_str(NVS_LAST, "");
+    nvs_put_str(NVS_LAST_V, "");
 }
 
 void hex(const uint8_t *in, int n, char *out) {
@@ -376,6 +397,7 @@ void run_update(Offer *o) {
     if (ok && !o->app) {
         heap_caps_free(buf);
         note_attempt("");
+        forget_failure();
         tries = 0;
         delete o;
         busy = false;
@@ -452,6 +474,7 @@ void run_update(Offer *o) {
     if (ok) {
         ESP_LOGI(TAG, "update to %s installed, restarting", o->version);
         note_attempt(""); // (a planned restart; the new app's own checks take over)
+        forget_failure();
         vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
@@ -470,6 +493,7 @@ void run_update(Offer *o) {
     retryAtUs = esp_timer_get_time() + (int64_t) waitMin * 60 * 1000000;
     snprintf(state, sizeof(state), "update to %s%s failed (%s), again in %d min", o->cam && !o->app ? "camera " : "", what, why, waitMin);
     ESP_LOGE(TAG, "%s", state);
+    remember_failure(attempt, state);
     delete o;
     busy = false;
 }
@@ -545,6 +569,16 @@ void closer_update_init() {
         nvs_put_str(NVS_FROM_SERVER, "");
     }
     if (failedVersion[0] && std::strcmp(failedVersion, running) != 0) set_state("update to %s failed, rolled back", failedVersion);
+    // The last failure from before this restart: shown until an update works,
+    // or the version it was for runs anyway (e.g. flashed by hand).
+    nvs_get_string(NVS_LAST, lastFailure, sizeof(lastFailure));
+    nvs_get_string(NVS_LAST_V, lastFailureFor, sizeof(lastFailureFor));
+    if (lastFailureFor[0] && std::strcmp(lastFailureFor, running) == 0) {
+        forget_failure();
+    } else if (lastFailure[0] && !state[0]) {
+        snprintf(state, sizeof(state), "before the restart: %.130s", lastFailure);
+        ESP_LOGW(TAG, "%s", state);
+    }
 }
 
 void closer_update_on_reply(const char *replyJson) {
@@ -559,6 +593,7 @@ void closer_update_on_reply(const char *replyJson) {
         failedVersion[0] = '\0';
         fromServer = false;
         note_attempt("");
+        forget_failure();
         set_state("firmware %s confirmed", esp_app_get_description()->version);
     }
     reported = true;
@@ -566,6 +601,11 @@ void closer_update_on_reply(const char *replyJson) {
     // Which version the camera runs: for an offered camera update, the update
     // panel and the OLED. (A quick local request, nothing if there's no link.)
     if (!read_cam_version(camVersion, sizeof(camVersion))) camVersion[0] = '\0';
+    // (a camera failure is over once the camera runs that version anyway)
+    if (camVersion[0] && std::strncmp(lastFailureFor, "cam-", 4) == 0 && std::strcmp(lastFailureFor + 4, camVersion) == 0) {
+        forget_failure();
+        if (std::strncmp(state, "before the restart:", 19) == 0) state[0] = '\0';
+    }
     esp_ota_img_states_t st;
     if (busy || (esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY)) {
         return; // (not before ota.cpp has confirmed the running app)
@@ -635,7 +675,7 @@ namespace {
 
 // {"version", "offered" ("" = nothing new), "cam_version" ("" = not known),
 // "cam_offered", "busy", "checked_s" (seconds
-// since the server last answered, -1 = not yet), "state"}
+// since the server last answered, -1 = not yet), "state", "last_failure"}
 esp_err_t send_status(httpd_req_t *req) {
     cJSON *j = cJSON_CreateObject();
     cJSON_AddStringToObject(j, "version", esp_app_get_description()->version);
@@ -647,6 +687,7 @@ esp_err_t send_status(httpd_req_t *req) {
     cJSON_AddBoolToObject(j, "busy", busy);
     cJSON_AddNumberToObject(j, "checked_s", answeredUs ? (double) ((esp_timer_get_time() - answeredUs) / 1000000) : -1);
     cJSON_AddStringToObject(j, "state", state);
+    cJSON_AddStringToObject(j, "last_failure", lastFailure); // ("" = none; kept across restarts)
     char *out = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     httpd_resp_set_type(req, "application/json");

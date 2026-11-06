@@ -113,6 +113,9 @@ window.Lynx = window.Lynx || {};
   const MAX_VOTES = 40; // size votes per tag ID (enough to settle it)
   const FORGET_UNCONFIRMED_MS = 10000;
   const SAVE_EVERY_MS = 10000;
+  // A remembered place last seen longer ago than this is forgotten (the cube
+  // has likely been moved meanwhile); the tag's size and limit stay.
+  const PLACE_MAX_AGE_MS = 24 * 3600 * 1000;
 
   // The robot's "tags" document: {v: 1, tags: {id: {cm, count, at (ms since
   // 1970), blocks: [[x, y, z] (m, world, block centers)]}}}. A load that
@@ -254,14 +257,18 @@ window.Lynx = window.Lynx || {};
             if ((!I.fixed || t.user) && t.cm >= MIN_CM && t.cm <= MAX_CM) Object.assign(I, { cm: t.cm, fixed: true });
             I.max = t.max > 0 ? t.max : 0;
             // its cubes where they were last seen -- not shown until seen again, but
-            // a sighting overlapping one of them is that cube (same instance, same count)
+            // a sighting overlapping one of them is that cube (same instance, same count).
+            // Places older than PLACE_MAX_AGE_MS are left out (and so dropped at the next save).
             const cm = I.cm;
             if (!cm || I.blocks.length || !Array.isArray(t.blocks)) return;
             const B = cm / 100;
-            I.blocks = t.blocks.slice(0, 20).map((b) => ({
-              uid: nextUid++, id: +id, x: b[0], y: b[1], h: b[2], level: Math.max(0, Math.round((b[2] - B / 2) / B)), yaw: 0,
-              n: 1, ok: true, present: false, miss: 0, seen: b[4] ? fromEpoch(b[4]) : fromEpoch(t.at || 0),
-            }));
+            I.blocks = t.blocks
+              .filter((b) => Date.now() - (b[4] || t.at || 0) <= PLACE_MAX_AGE_MS)
+              .slice(0, 20)
+              .map((b) => ({
+                uid: nextUid++, id: +id, x: b[0], y: b[1], h: b[2], level: Math.max(0, Math.round((b[2] - B / 2) / B)), yaw: 0,
+                n: 1, ok: true, present: false, miss: 0, seen: fromEpoch(b[4] || t.at || 0),
+              }));
             I.count = single.has(+id) ? 1 : I.blocks.length; // (a saved count beyond the places known meant nothing)
             applyLimit(I);
           });
