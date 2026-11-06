@@ -239,12 +239,17 @@ window.addEventListener("DOMContentLoaded", () => {
           })
       )
       .catch(() => {
-        document.getElementById("cam-status").textContent = "Unable to load camera settings from the robot -- retrying...";
+        const st = document.getElementById("cam-status");
+        st.textContent = "Unable to load camera settings from the robot -- retrying...";
+        st.dataset.calibError = "1"; // (the text may be shown in Dutch: i18n.js)
         return new Promise((resolve) => setTimeout(resolve, CALIB_RETRY_MS)).then(loadCalib);
       });
   const calibPromise = loadCalib().then((calib) => {
     const status = document.getElementById("cam-status");
-    if (status.textContent.startsWith("Unable to load camera settings")) status.textContent = "";
+    if (status.dataset.calibError) {
+      status.textContent = "";
+      delete status.dataset.calibError;
+    }
     return calib;
   });
 

@@ -38,6 +38,18 @@ body {
   color: #fff;
 }
 
+/* the EN / NL button (i18n.js): at the right end of the top bar */
+button.nav-link.lang-btn {
+  margin-left: auto;
+  background: none;
+  border: 1px solid #555;
+  cursor: pointer;
+  font-family: inherit;
+}
+button.nav-link.lang-btn:hover {
+  background: #444;
+}
+
 /* --- Cam page: fullscreen webcam viewer (overrides the dashboard body's
    centered/padded layout, since this page is just the stream - no nav bar,
    an overlay button substitutes for it so the stream can use the full

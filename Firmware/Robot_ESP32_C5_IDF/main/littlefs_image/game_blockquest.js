@@ -708,25 +708,27 @@ Lynx.games = Lynx.games || {};
       return { fr, list, allOk, missing: required.filter((x) => x.st.s !== "ok").length + (fr.s === "ok" ? 0 : 1) };
     }
     const cmText = (u) => `${Math.round(Math.abs(u) * G.U * 100)} cm`;
+    // (the checklist is put together from pieces: each in the page's language, i18n.js)
+    const T = (s) => (Lynx.tr ? Lynx.tr(s) : s);
     // Places are given from the frame cube's own faces (they're printed on
     // it): +x is the way face 24 points, +y the way face 25 points -- "in
     // front of the robot" was ambiguous (the robot's front or the camera's?).
-    const towards = (v, pos, neg) => `face ${v > 0 ? pos : neg}`;
+    const towards = (v, pos, neg) => T(`face ${v > 0 ? pos : neg}`);
     function moveText(st) {
       const parts = [];
-      if (Math.abs(st.dx) > 0.004) parts.push(`${Math.round(Math.abs(st.dx) * 100)} cm toward ${towards(st.dx, 24, 29)}`);
-      if (Math.abs(st.dy) > 0.004) parts.push(`${Math.round(Math.abs(st.dy) * 100)} cm toward ${towards(st.dy, 25, 28)}`);
+      if (Math.abs(st.dx) > 0.004) parts.push(T(`${Math.round(Math.abs(st.dx) * 100)} cm toward ${towards(st.dx, 24, 29)}`));
+      if (Math.abs(st.dy) > 0.004) parts.push(T(`${Math.round(Math.abs(st.dy) * 100)} cm toward ${towards(st.dy, 25, 28)}`));
       return parts.join(", ") || "";
     }
     function placeText(en) {
       const [x, y] = en.at;
-      const name = en.label ? `${en.label} (cube #${en.tag})` : `cube #${en.tag}`;
-      const out = (v, pos, neg) => `${cmText(v)} out from ${towards(v, pos, neg)}`;
+      const name = T(en.label ? `${en.label} (cube #${en.tag})` : `cube #${en.tag}`);
+      const out = (v, pos, neg) => T(`${cmText(v)} out from ${towards(v, pos, neg)}`);
       const parts = [];
       if (Math.abs(x) >= 0.15) parts.push(out(x, 24, 29));
       if (Math.abs(y) >= 0.15) parts.push(out(y, 25, 28));
-      const stack = en.stack ? ` -- on top of ${en.onTag !== undefined ? `cube ${en.onTag}` : "the cube below"}` : "";
-      return `${name}: ${parts.join(", ") || "right next to the frame cube"}${stack}`;
+      const stack = en.stack ? T(en.onTag !== undefined ? ` -- on top of cube ${en.onTag}` : " -- on top of the cube below") : "";
+      return `${name}: ${parts.join(", ") || T("right next to the frame cube")}${stack}`;
     }
     // What the camera looks at while the cubes are laid out: the frame cube's
     // spot first, then the next cube still to place (Tab / RB, LB: another).
@@ -1184,7 +1186,7 @@ Lynx.games = Lynx.games || {};
       const g = ar.ctx;
       g.save();
       g.font = `bold ${size}px system-ui, sans-serif`;
-      const words = String(text).split(/\s+/);
+      const words = String(Lynx.tr ? Lynx.tr(String(text)) : text).split(/\s+/); // (in the page's language before the lines are broken)
       const lines = [];
       let cur = "";
       words.forEach((wd) => {
@@ -1229,9 +1231,9 @@ Lynx.games = Lynx.games || {};
         const mark = st.s === "ok" ? (st.settled ? "✔" : "✋") : st.s === "missing" ? "✖" : "→";
         const col = st.s === "ok" ? (st.settled ? "#80ff9c" : "#d8ff90") : st.s === "missing" ? "#ffc060" : "#ffa060";
         let t = `${focusMark(i + 1)}${mark} ${placeText(en)}`;
-        if (st.s === "ok" && !st.settled) t += " -- in its spot; fine-tune it, then let go";
-        else if (st.s === "off") t += st.stackOk === false ? " -- not stacked right" : ` -- move it ${moveText(st)}`;
-        lines.push({ t: en.optional ? `${t} (optional)` : t, c: col, s: size, wrap: true });
+        if (st.s === "ok" && !st.settled) t += T(" -- in its spot; fine-tune it, then let go");
+        else if (st.s === "off") t += T(st.stackOk === false ? " -- not stacked right" : ` -- move it ${moveText(st)}`);
+        lines.push({ t: en.optional ? `${t}${T(" (optional)")}` : t, c: col, s: size, wrap: true });
       });
       if (small) {
         const placed = (G.items || []).filter((it) => it.done).length;

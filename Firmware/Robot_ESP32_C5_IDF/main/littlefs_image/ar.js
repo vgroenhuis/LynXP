@@ -585,6 +585,7 @@ window.Lynx = window.Lynx || {};
     // -- HUD helpers -----------------------------------------------------------
 
     ar.text = (str, x, y, opts = {}) => {
+      if (typeof str === "string" && Lynx.tr) str = Lynx.tr(str); // (English / Dutch: i18n.js)
       const size = opts.size || 16;
       ctx.save();
       ctx.font = `${opts.weight || "bold"} ${size}px ${opts.font || "system-ui, sans-serif"}`;
