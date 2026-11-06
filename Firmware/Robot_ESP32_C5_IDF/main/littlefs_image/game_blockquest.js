@@ -35,6 +35,17 @@ Lynx.games = Lynx.games || {};
   const HIT = { 1: [0.32, 0.56], 2: [0.32, 0.56], 3: [0.4, 0.62] };
   const POWER = { 1: 1, 2: 1, 3: 2 };
   const SETUP_OK_S = 2.0;
+  // Laying out, a cube counts as placed -- and the camera moves on to the
+  // next one -- only once it has stood still in its spot for SETTLE_S: the
+  // player may still be nudging it into place. A cube shifted after the
+  // camera has left looks, to the robot, just like an error in its own
+  // position, so the camera waits until the hands are off.
+  const SETTLE_S = 2.5;
+  const SETTLE_MOVE_M = 0.006; // ...moving more than this (or turning more than SETTLE_TURN) starts the wait again
+  const SETTLE_TURN = 0.07;
+  const SETTLE_KEEP_M = 0.02; // once placed: only moving this far (seen moving), or out of its spot, undoes it
+  const SETTLE_KEEP_TURN = 0.17;
+  const SETTLE_SEEN_MS = 700; // (only fresh sightings count: a hand over the tag doesn't)
   const FRAME_AHEAD_M = 0.3; // laying out, the frame cube not found yet: the camera looks this far ahead of the robot
   const STORE = "blockquestDone";
 
@@ -67,7 +78,7 @@ Lynx.games = Lynx.games || {};
       sel: 0, idx: -1, lv: null, t: 0, time: 0, levelTime: 0,
       maxHearts, hearts: maxHearts, bombs: 0, score: 0, U: clamp((+cfg.blockCm || 5) / 100, 0.02, 0.1), diff: DIFF[diffKey], diffKey,
       stats: { kills: 0, damage: 0, bombs: 0, parries: 0 },
-      okT: 0, anywayAt: -1e9, focus: 0, focusManual: null, focusManualOk: false, items: null, done: new Set(store.get()), userCam: api.camDist(), frameOk: false, shake: 0, flash: null, hint: false, wonT: 0, lostT: 0,
+      okT: 0, settle: {}, anywayAt: -1e9, focus: 0, focusManual: null, focusManualOk: false, items: null, done: new Set(store.get()), userCam: api.camDist(), frameOk: false, shake: 0, flash: null, hint: false, wonT: 0, lostT: 0,
       get heroAlive() { return this.hearts > 0; },
       skins: cfg.skins !== false,
     };
@@ -563,6 +574,7 @@ Lynx.games = Lynx.games || {};
       G.phase = "setup";
       G.t = 0;
       G.okT = 0;
+      G.settle = {};
       G.focusManual = null;
       G.hint = false;
       G.U = measureU();
@@ -652,9 +664,42 @@ Lynx.games = Lynx.games || {};
       const dist = Math.hypot(dx, dy);
       const tol = (en.tol || 0.55) * G.U;
       const stackOk = Math.abs(c.h0 - (en.stack || 0) * c.size) < 0.45 * c.size;
-      if (en.free) return { s: Math.hypot(c.mx - ex, c.my - ey) < en.free * G.U ? "ok" : "off", dx, dy, dist, c, stackOk: true };
       return { s: dist < tol && stackOk ? "ok" : "off", dx, dy, dist, c, stackOk };
     }
+    // Has the cube (key: its tag, or "frame") stood still in its spot for
+    // SETTLE_S? Kept per cube in G.settle; out of view it stays as it was.
+    function settleStep(key, ok, b, dt) {
+      const T = G.settle;
+      const wb = b && b.world;
+      if (!ok || !wb) {
+        delete T[key];
+        return false;
+      }
+      const s = T[key];
+      const fresh = performance.now() - wb.seen < SETTLE_SEEN_MS;
+      if (!fresh) return !!(s && s.done);
+      const at = { x: wb.x, y: wb.y, a: wb.yaw, t: 0, done: false };
+      if (!s) {
+        T[key] = at;
+        return false;
+      }
+      const turn = Math.abs(wrap(4 * (wb.yaw - s.a)) / 4); // (a cube's yaw, seen from another face, may come out a quarter turn off)
+      const moved = Math.hypot(wb.x - s.x, wb.y - s.y) > (s.done ? SETTLE_KEEP_M : SETTLE_MOVE_M) || turn > (s.done ? SETTLE_KEEP_TURN : SETTLE_TURN);
+      if (moved) {
+        T[key] = at;
+        return false;
+      }
+      s.t += dt;
+      if (s.t >= SETTLE_S) s.done = true;
+      return s.done;
+    }
+    function settleAll(S2, dt) {
+      S2.fr.settled = settleStep("frame", S2.fr.s === "ok", S2.fr.b, dt);
+      S2.list.forEach(({ en, st }) => (st.settled = settleStep(en.tag, st.s === "ok", st.c && st.c.b, dt)));
+      // (all in place and let go of -- an optional cube too, if it's there)
+      S2.allOk = S2.allOk && S2.fr.settled && S2.list.every(({ st }) => st.s !== "ok" || st.settled);
+    }
+    const settleLeft = (key) => Math.max(0, SETTLE_S - ((G.settle[key] && G.settle[key].t) || 0));
     function setupState() {
       const fr = frameStatus();
       const list = (lv().cubes || []).filter((c) => !(c.soloSkip && cfg.solo)).map((en) => ({ en, st: entryStatus(en) }));
@@ -677,7 +722,6 @@ Lynx.games = Lynx.games || {};
       const [x, y] = en.at;
       const name = en.label ? `${en.label} (cube #${en.tag})` : `cube #${en.tag}`;
       const out = (v, pos, neg) => `${cmText(v)} out from ${towards(v, pos, neg)}`;
-      if (en.free) return `${name}: anywhere in the ringed area, ${out(x, 24, 29)} of the frame cube`;
       const parts = [];
       if (Math.abs(x) >= 0.15) parts.push(out(x, 24, 29));
       if (Math.abs(y) >= 0.15) parts.push(out(y, 25, 28));
@@ -688,8 +732,8 @@ Lynx.games = Lynx.games || {};
     // spot first, then the next cube still to place (Tab / RB, LB: another).
     function setupItems(S2) {
       return [
-        { at: [0, 0], z: 0.5, ok: S2.fr.s === "ok", tag: "frame" },
-        ...S2.list.map(({ en, st }) => ({ at: en.at, z: (en.stack || 0) + 0.5, ok: st.s === "ok", tag: en.tag, optional: !!en.optional })),
+        { at: [0, 0], z: 0.5, ok: S2.fr.s === "ok", done: !!S2.fr.settled, tag: "frame" },
+        ...S2.list.map(({ en, st }) => ({ at: en.at, z: (en.stack || 0) + 0.5, ok: st.s === "ok", done: !!st.settled, tag: en.tag, optional: !!en.optional })),
       ];
     }
     // another cube for the camera to look at (Tab / RB, LB, the touch button)
@@ -697,19 +741,22 @@ Lynx.games = Lynx.games || {};
       if (G.phase !== "setup" || !G.items) return;
       const n = G.items.length;
       G.focusManual = (((G.focus + d) % n) + n) % n;
-      G.focusManualOk = G.items[G.focusManual].ok;
+      G.focusManualOk = G.items[G.focusManual].done;
       G.focus = G.focusManual;
       api.recenter();
       sfx("click");
     }
     function updateFocus(S2) {
       const items = setupItems(S2);
-      // (a cube chosen by hand stays chosen till it falls into place -- or, chosen in place already, till another is chosen)
+      // (a cube chosen by hand stays chosen till it's placed and let go of -- or, chosen placed already, till another is chosen)
+      // The camera stays on a cube until it's placed and let go of, not
+      // just in its spot (see SETTLE_S).
       const m = G.focusManual !== null ? items[G.focusManual] : null;
-      if (m && (G.focusManualOk || !m.ok)) G.focus = G.focusManual;
+      if (m && (G.focusManualOk || !m.done)) G.focus = G.focusManual;
       else {
         G.focusManual = null;
-        const i = items.findIndex((it) => !it.ok && !it.optional);
+        // (an optional cube only once it's there: then it must be let go of too)
+        const i = items.findIndex((it) => !it.done && (!it.optional || it.ok));
         G.focus = i >= 0 ? i : 0;
       }
       G.items = items;
@@ -720,6 +767,7 @@ Lynx.games = Lynx.games || {};
       G.frameOk = S2.fr.s === "ok";
       G.U = measureU();
       placeSpawn();
+      settleAll(S2, dt);
       if (S2.allOk) {
         G.okT += dt;
         if (G.okT >= SETUP_OK_S) beginPlay();
@@ -1072,31 +1120,20 @@ Lynx.games = Lynx.games || {};
       const blink = focused && !ok && Math.sin(t * 19) > 0; // (3 times a second)
       const col = ok ? "90,255,150" : blink ? "255,255,255" : miss || focused ? "255,214,90" : "255,150,60";
       const alpha = ok ? 0.25 : focused ? 0.45 : 0.22 + 0.2 * pulse;
-      const rad = en.free ? en.free * G.U : null;
-      if (rad) {
-        const pts = [];
-        for (let k = 0; k < 28; k++) {
-          const p = w.toLocal(ex + rad * Math.cos((k / 28) * 2 * Math.PI), ey + rad * Math.sin((k / 28) * 2 * Math.PI));
-          pts.push([p.f, p.r, 0.001]);
-        }
-        const sp = w.polyScreen(pts, 1);
-        if (sp) w.fillPoly(sp, `rgba(${col},${alpha * 0.5})`, `rgba(${col},0.9)`, 2);
-      } else {
-        const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => w.toLocal(ex + a * half, ey + b * half));
-        const floorP = (h) => cs.map((c) => [c.f, c.r, h]);
-        const bottom = w.polyScreen(floorP(h0 + 0.001), 2);
-        if (bottom) w.fillPoly(bottom, `rgba(${col},${alpha})`, `rgba(${col},0.95)`, 2.2);
-        const top = w.polyScreen(floorP(h1), 2);
-        if (top && !ok) w.fillPoly(top, `rgba(${col},${alpha * 0.45})`, `rgba(${col},0.7)`, 1.2);
-        cs.forEach((c) => w.line3([[c.f, c.r, h0 + 0.001], [c.f, c.r, h1]], `rgba(${col},0.55)`, 1, 0.02));
-      }
+      const cs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => w.toLocal(ex + a * half, ey + b * half));
+      const floorP = (h) => cs.map((c) => [c.f, c.r, h]);
+      const bottom = w.polyScreen(floorP(h0 + 0.001), 2);
+      if (bottom) w.fillPoly(bottom, `rgba(${col},${alpha})`, `rgba(${col},0.95)`, 2.2);
+      const top = w.polyScreen(floorP(h1), 2);
+      if (top && !ok) w.fillPoly(top, `rgba(${col},${alpha * 0.45})`, `rgba(${col},0.7)`, 1.2);
+      cs.forEach((c) => w.line3([[c.f, c.r, h0 + 0.001], [c.f, c.r, h1]], `rgba(${col},0.55)`, 1, 0.02));
       const lab = w.project(...(() => {
         const l = w.toLocal(ex, ey);
         return [l.f, l.r, (en.stack || 0) * G.U + G.U + 0.004];
       })());
       if (lab) {
         ar.text(en.label ? `${en.label}` : `${en.tag}`, lab.x, lab.y - 2, { size: 15, align: "center", color: `rgb(${col})` });
-        if (!en.free) ar.text(`#${en.tag}`, lab.x, lab.y + 12, { size: 11, align: "center", color: "rgba(255,255,255,0.85)" });
+        ar.text(`#${en.tag}`, lab.x, lab.y + 12, { size: 11, align: "center", color: "rgba(255,255,255,0.85)" });
       }
       // an arrow from where it is to where it goes
       if (st.s === "off" && st.c && (focused || st.dist < 0.45)) {
@@ -1183,19 +1220,21 @@ Lynx.games = Lynx.games || {};
       lines.push({ t: Lynx.smallScreen() ? `Level ${G.idx + 1}: lay out the cubes` : `LEVEL ${G.idx + 1} -- ${l.name.toUpperCase()}: lay out the cubes`, c: "#ffd870", s: size + 1 });
       const fr = S2.fr;
       const focusMark = (i) => (G.focus === i ? "\u25b6 " : "");
-      if (!Lynx.smallScreen() || G.focus === 0) lines.push({ t: `${focusMark(0)}${fr.s === "ok" ? "✔" : fr.s === "measuring" ? "…" : "✖"} ${Lynx.smallScreen() ? "Frame cube (24-29): ~30 cm ahead, where the camera looks; face 24 away from the robot" : "Frame cube (24-29) on the floor about 30 cm ahead of the robot, where the camera looks, face 24 pointing away from the robot. Everything below is measured from it."}`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
+      const frMark = fr.s === "ok" ? (fr.settled ? "✔" : "✋") : fr.s === "measuring" ? "…" : "✖";
+      if (!Lynx.smallScreen() || G.focus === 0) lines.push({ t: `${focusMark(0)}${frMark} ${Lynx.smallScreen() ? "Frame cube (24-29): ~30 cm ahead, where the camera looks; face 24 away from the robot" : "Frame cube (24-29) on the floor about 30 cm ahead of the robot, where the camera looks, face 24 pointing away from the robot. Everything below is measured from it."}`, c: fr.s === "ok" ? "#80ff9c" : "#ffc060", s: size, wrap: true });
       const small = Lynx.smallScreen();
       S2.list.forEach(({ en, st }, i) => {
         // (a phone: only the one the camera is on -- the rest are on the map)
         if (small && G.focus !== i + 1) return;
-        const mark = st.s === "ok" ? "✔" : st.s === "missing" ? "✖" : "→";
-        const col = st.s === "ok" ? "#80ff9c" : st.s === "missing" ? "#ffc060" : "#ffa060";
+        const mark = st.s === "ok" ? (st.settled ? "✔" : "✋") : st.s === "missing" ? "✖" : "→";
+        const col = st.s === "ok" ? (st.settled ? "#80ff9c" : "#d8ff90") : st.s === "missing" ? "#ffc060" : "#ffa060";
         let t = `${focusMark(i + 1)}${mark} ${placeText(en)}`;
-        if (st.s === "off") t += st.stackOk === false ? " -- not stacked right" : ` -- move it ${moveText(st)}`;
+        if (st.s === "ok" && !st.settled) t += " -- in its spot; fine-tune it, then let go";
+        else if (st.s === "off") t += st.stackOk === false ? " -- not stacked right" : ` -- move it ${moveText(st)}`;
         lines.push({ t: en.optional ? `${t} (optional)` : t, c: col, s: size, wrap: true });
       });
       if (small) {
-        const placed = (G.items || []).filter((it) => it.ok).length;
+        const placed = (G.items || []).filter((it) => it.done).length;
         lines.push({ t: `${placed} of ${(G.items || []).length} in place · \u21c4: another`, c: "#e8dcc0", s: size });
       }
       const out = [];
@@ -1213,8 +1252,15 @@ Lynx.games = Lynx.games || {};
         if (ln.t) ar.text(ln.t, x + 12, yy, { size: ln.s, color: ln.c, outline: false, weight: ln.s > size + 1 ? "bold" : "600" });
         yy += lh(ln);
       });
-      const msg = S2.allOk ? `All in place -- starting in ${Math.max(0, SETUP_OK_S - G.okT).toFixed(1)} s (Fire: now)` : "The camera looks where the \u25b6 cube goes · Tab / RB, LB: another · Fire: start anyway · R: look again";
-      if (!Lynx.smallScreen() || S2.allOk) ar.text(msg, v.cx, v.y + v.h - 40, { size: Lynx.smallScreen() ? 12 : 14, align: "center", color: S2.allOk ? "#80ff9c" : "#ffe9a8" });
+      // the cube the camera is on: in its spot, but not let go of yet
+      const fi = G.items && G.items[G.focus];
+      const holding = fi && fi.ok && !fi.done;
+      const msg = S2.allOk
+        ? `All in place -- starting in ${Math.max(0, SETUP_OK_S - G.okT).toFixed(1)} s (Fire: now)`
+        : holding
+          ? `In its spot -- fine-tune it if you like, then hands off -- the camera moves on in ${settleLeft(fi.tag).toFixed(1)} s`
+          : "The camera looks where the \u25b6 cube goes · Tab / RB, LB: another · Fire: start anyway · R: look again";
+      if (!Lynx.smallScreen() || S2.allOk || holding) ar.text(msg, v.cx, v.y + v.h - 40, { size: Lynx.smallScreen() ? 12 : 14, align: "center", color: S2.allOk ? "#80ff9c" : "#ffe9a8" });
     }
     // A small map while laying out (top right): the robot in the middle, its
     // front up -- the way the right stick drives it -- the frame cube, the

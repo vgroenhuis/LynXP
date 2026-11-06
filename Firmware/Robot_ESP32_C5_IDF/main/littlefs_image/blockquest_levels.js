@@ -5,7 +5,8 @@
 //
 //   {id, name, tags (what the level is about), blurb, story,
 //    cubes: [{tag, at: [x, y], stack (0 floor, 1 on a cube...), onTag, label,
-//             tol, optional, free (a radius: anywhere within it)}],
+//             tol, optional}] -- each cube has its own exact spot (no "anywhere
+//             in this area": that only confused the layout)
 //    spawn: {at: [x, y], yaw (deg)}, bombs: n carried at the start,
 //    skins: {tag: style}, frameSkin, floor: "lava" | "flags" | "water", area: [x0, y0, x1, y1],
 //    init(L), update(L, dt), draw(L), objective(L) -> text | {text, at: [x, y], h},
@@ -94,7 +95,7 @@ window.Lynx = window.Lynx || {};
       { tag: 2, at: [4.95, 0.2], label: "Stone 2" },
       { tag: 3, at: [8.5, 0.2], stack: 0, label: "Pedestal" },
       { tag: 4, at: [8.5, 0.2], stack: 1, onTag: 3, label: "Pedestal top" },
-      { tag: 5, at: [-0.4, -3.4], free: 1.4, label: "Spare stone", optional: false },
+      { tag: 5, at: [-0.4, -3.4], label: "Spare stone" },
     ],
     spawn: { at: [0, 0], yaw: 0 },
     skins: { 0: "basalt", 1: "basalt", 2: "basalt", 3: "basalt", 4: "basalt", 5: "basalt" },
@@ -355,10 +356,10 @@ window.Lynx = window.Lynx || {};
     story: "A sun-orb throws a beam across the floor. The cubes are mirrors: set one at 45 degrees and the beam turns a right angle. The prism (cube 3) splits a beam in two. The frame cube and the obsidian block swallow light. Light both crystals -- then the vault door lifts.",
     intro: "Aim the beam: turn the mirror cubes 45 degrees. H: a hint",
     cubes: [
-      { tag: 0, at: [-0.6, -3.2], free: 1.6, label: "Mirror" },
-      { tag: 1, at: [0.8, -3.3], free: 1.6, label: "Mirror" },
-      { tag: 2, at: [-0.4, -4.6], free: 1.6, label: "Mirror", optional: true },
-      { tag: 3, at: [-1.6, 2.4], free: 1.6, label: "Prism" },
+      { tag: 0, at: [-0.6, -3.2], label: "Mirror" },
+      { tag: 1, at: [0.8, -3.3], label: "Mirror" },
+      { tag: 2, at: [-0.4, -4.6], label: "Mirror", optional: true },
+      { tag: 3, at: [-1.6, 2.4], label: "Prism" },
     ],
     spawn: { at: [1.0, 0.0], yaw: 0 },
     skins: { 0: "ivory", 1: "ivory", 2: "ivory", 3: "sea" },
@@ -826,8 +827,8 @@ window.Lynx = window.Lynx || {};
     story: "The treasury of the old kings opens only while all three bronze plates are pressed. The knight is heavy enough for one. The hall's weights -- cubes 0 and 1 -- will do for the others: lift them onto the plates by hand. Release a plate and the gate falls five heartbeats later.",
     intro: "Weigh down all three plates: two with cubes (by hand), one with the knight",
     cubes: [
-      { tag: 0, at: [1.0, -3.6], free: 1.2, label: "Weight" },
-      { tag: 1, at: [1.0, 3.6], free: 1.2, label: "Weight" },
+      { tag: 0, at: [1.0, -3.6], label: "Weight" },
+      { tag: 1, at: [1.0, 3.6], label: "Weight" },
       { tag: 2, at: [5.4, -2.6], label: "Pillar" },
       { tag: 3, at: [5.4, 2.6], label: "Pillar" },
     ],
