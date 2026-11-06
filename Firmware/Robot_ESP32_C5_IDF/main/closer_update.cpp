@@ -60,11 +60,11 @@ char camVersion[32];       // what the camera runs ("" = not known: no link, not
 char camOffered[32];       // the camera version the server offers
 char camFailed[32];
 int64_t answeredUs = 0;    // when the server last answered a report
-char state[160];          // (the heartbeat sends at most 119 characters of it: the server's limit)
+char state[200];          // (the heartbeat sends at most 119 characters of it: the server's limit)
 // The last update that failed, remembered across restarts (it used to be lost
 // with the restart that often follows -- or a manual flash): why, and for which
 // version. Cleared by a successful update, or once that version runs anyway.
-char lastFailure[160];
+char lastFailure[200];
 char lastFailureFor[40];
 
 void set_state(const char *fmt, const char *a = "", int b = 0) {
@@ -151,9 +151,15 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
         *why = "no SHA-256";
         return false;
     }
-    static char detail[48];
+    static char detail[96];
     *why = "no connection";
     int got = 0, stuck = 0;
+    // What the last try got, for the failure message: the HTTP status and
+    // length of its answer, and what the last read returned (0: the server
+    // closed; <0: an error) -- or why it couldn't open the connection.
+    esp_err_t lastOpen = ESP_OK;
+    int lastStatus = 0, lastRead = 0;
+    int64_t lastLen = 0;
     bool broken = false;
     for (int attempt = 0; attempt < 60 && stuck < 5 && !broken && got < size; attempt++) {
         if (attempt) vTaskDelay(pdMS_TO_TICKS(1000));
@@ -166,9 +172,15 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
             snprintf(range, sizeof(range), "bytes=%d-", got);
             esp_http_client_set_header(c, "Range", range);
         }
-        if (esp_http_client_open(c, 0) == ESP_OK) {
+        lastOpen = esp_http_client_open(c, 0);
+        lastStatus = 0;
+        lastLen = 0;
+        lastRead = 0;
+        if (lastOpen == ESP_OK) {
             int64_t len = esp_http_client_fetch_headers(c);
             int status = esp_http_client_get_status_code(c);
+            lastStatus = status;
+            lastLen = len;
             // No answer (connection dropped before the headers): just another
             // try. Only an answer that doesn't fit ends it.
             if (len < 0 || status <= 0) {
@@ -179,7 +191,7 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
                 *why = detail;
                 broken = true;
             }
-            int n;
+            int n = 0;
             while (!broken && len >= 0 && status > 0 && (n = esp_http_client_read(c, buf, CHUNK)) > 0) {
                 if (got + n > size || psa_hash_update(&sha, (uint8_t *) buf, n) != PSA_SUCCESS || !sink(buf, n)) {
                     *why = "write error";
@@ -188,6 +200,7 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
                     got += n;
                 }
             }
+            lastRead = n;
         }
         esp_http_client_close(c);
         esp_http_client_cleanup(c);
@@ -199,7 +212,12 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
     bool ok = !broken && got == size && psa_hash_finish(&sha, digest, sizeof(digest), &dlen) == PSA_SUCCESS && dlen == 32;
     psa_hash_abort(&sha);
     if (!ok && !broken && got < size) {
-        snprintf(detail, sizeof(detail), "broke off at %d of %d bytes", got, size);
+        if (lastOpen != ESP_OK) {
+            snprintf(detail, sizeof(detail), "broke off at %d of %d bytes; open: %.24s", got, size, esp_err_to_name(lastOpen));
+        } else {
+            snprintf(detail, sizeof(detail), "broke off at %d of %d bytes; HTTP %d, len %lld, read %d", got, size, lastStatus,
+                     (long long) lastLen, lastRead);
+        }
         *why = detail;
     }
     if (!ok) return false;
@@ -290,7 +308,7 @@ const char *update_camera(const Offer *o, char *buf, bool *permanent) {
     }, &w);
     if (!ok) {
         heap_caps_free(img);
-        snprintf(why, sizeof(why), "camera: %s", w);
+        snprintf(why, sizeof(why), "camera: %.46s", w);
         return why;
     }
 
@@ -370,7 +388,7 @@ void run_update(Offer *o) {
     char *buf = (char *) heap_caps_malloc(CHUNK, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (buf == nullptr) buf = (char *) heap_caps_malloc(CHUNK, MALLOC_CAP_SPIRAM);
     const char *why = "no memory";
-    char whyBuf[64];
+    char whyBuf[112];
     const char *what = o->cam && !o->app ? o->camVersion : o->version; // (for the messages)
     char attempt[40];
     snprintf(attempt, sizeof(attempt), o->app ? "%s" : "cam-%s", what);
@@ -491,7 +509,7 @@ void run_update(Offer *o) {
     tries++;
     int waitMin = tries >= 5 ? 60 : 5 << (tries - 1);
     retryAtUs = esp_timer_get_time() + (int64_t) waitMin * 60 * 1000000;
-    snprintf(state, sizeof(state), "update to %s%s failed (%s), again in %d min", o->cam && !o->app ? "camera " : "", what, why, waitMin);
+    snprintf(state, sizeof(state), "update to %s%.24s failed (%.100s), again in %d min", o->cam && !o->app ? "camera " : "", what, why, waitMin);
     ESP_LOGE(TAG, "%s", state);
     remember_failure(attempt, state);
     delete o;

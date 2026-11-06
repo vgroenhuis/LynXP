@@ -54,5 +54,9 @@ const char *watchdog_abnormal_boot_short();
 // control task suspended (uploads legitimately starve the OLED). Call once
 // from app_main() after the control task exists.
 void watchdog_health_start(TaskHandle_t ctrlTask);
+// After a task watchdog reset: which tasks didn't check in, and what each
+// core ran (" - ctrl (CPU 0); ran IDLE0"); "" otherwise.
+const char *watchdog_twdt_culprits();
+
 // Called by the OLED task on every loop iteration.
 void watchdog_oled_heartbeat();

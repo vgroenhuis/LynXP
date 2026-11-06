@@ -1,5 +1,7 @@
 #include "watchdog.hpp"
 
+#include <cstdio>
+
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -30,6 +32,36 @@ uint32_t g_bootHealthDetail = 0;
 constexpr uint32_t LOW_MEMORY_BYTES = 4096;
 constexpr int LOW_MEMORY_SECONDS = 10;
 constexpr int64_t OLED_STALL_US = 20LL * 1000 * 1000;
+
+// Which tasks tripped the task watchdog, and what each core was running:
+// written by esp_task_wdt_isr_user_handler() just before the panic, kept in
+// RTC memory across the reset, read once at the next start (the boot report
+// to the lab demos server carries it -- no serial console needed).
+constexpr uint32_t TWDT_MAGIC = 0x7D0C3A11;
+struct RtcTwdt {
+    char text[80];
+    uint32_t magic;
+};
+RTC_NOINIT_ATTR RtcTwdt g_rtcTwdt;
+char g_bootTwdt[80] = "";
+size_t g_twdtLen = 0;
+bool g_twdtCaption = true; // (the first message is IDF's caption: skipped)
+
+void IRAM_ATTR twdt_add(const char *m) {
+    for (; *m && g_twdtLen < sizeof(g_rtcTwdt.text) - 1; m++) {
+        if (*m == '\n') continue;
+        g_rtcTwdt.text[g_twdtLen++] = *m;
+    }
+    g_rtcTwdt.text[g_twdtLen] = '\0';
+}
+
+void IRAM_ATTR twdt_msg(void *, const char *m) {
+    if (g_twdtCaption) {
+        g_twdtCaption = false;
+        return;
+    }
+    twdt_add(m);
+}
 
 volatile int64_t g_oledBeatUs = 0;
 TaskHandle_t g_ctrlTask = nullptr;
@@ -69,6 +101,22 @@ void health_task(void *) {
 
 } // namespace
 
+// (ESP-IDF calls this from the task watchdog's interrupt, before the panic.)
+extern "C" void IRAM_ATTR esp_task_wdt_isr_user_handler(void) {
+    g_rtcTwdt.magic = 0;
+    g_twdtLen = 0;
+    g_twdtCaption = true;
+    g_rtcTwdt.text[0] = '\0';
+    esp_task_wdt_print_triggered_tasks(twdt_msg, nullptr, nullptr); // " - ctrl (CPU 0) - IDLE0 (CPU 0)"
+    twdt_add("; ran");
+    for (int core = 0; core < CONFIG_FREERTOS_NUMBER_OF_CORES; core++) {
+        TaskHandle_t t = xTaskGetCurrentTaskHandleForCore(core);
+        twdt_add(" ");
+        twdt_add(t ? pcTaskGetName(t) : "?");
+    }
+    g_rtcTwdt.magic = TWDT_MAGIC;
+}
+
 void watchdog_system_init(TaskHandle_t ctrlTask, TaskHandle_t pollTask) {
     esp_task_wdt_add(ctrlTask);
     // pollTask is null in builds where ws_broadcast.cpp doesn't exist yet
@@ -92,10 +140,20 @@ void watchdog_health_start(TaskHandle_t ctrlTask) {
         g_bootHealthDetail = g_rtcHealth.detail;
     }
     g_rtcHealth.magic = 0;
+    if (g_rtcTwdt.magic == TWDT_MAGIC && esp_reset_reason() == ESP_RST_TASK_WDT) {
+        g_rtcTwdt.text[sizeof(g_rtcTwdt.text) - 1] = '\0';
+        snprintf(g_bootTwdt, sizeof(g_bootTwdt), "%s", g_rtcTwdt.text);
+        ESP_LOGW(TAG, "task watchdog before this start:%s", g_bootTwdt);
+    }
+    g_rtcTwdt.magic = 0;
     g_ctrlTask = ctrlTask;
     // Above the web server and WiFi tasks, so it still runs when they're the
     // ones hogging the CPU; below the 1 kHz control task.
     xTaskCreate(health_task, "health", 3072, nullptr, 15, nullptr);
+}
+
+const char *watchdog_twdt_culprits() {
+    return g_bootTwdt;
 }
 
 void watchdog_oled_heartbeat() {

@@ -161,9 +161,16 @@ char *build_report(const char *event) {
     if (std::strcmp(event, "boot") == 0 && watchdog_last_reboot_was_hang()) {
         const BreadcrumbSnapshot &bc = breadcrumb_get_boot_snapshot();
         char msg[120]; // (the server takes messages up to 120 characters)
-        snprintf(msg, sizeof(msg), "hang: control at %s (tick %lu), ws at %s, last WS '%s'",
-                 breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), (unsigned long) bc.core1TickCountAtLastMark,
-                 breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), bc.lastWsMessageType);
+        const char *wdt = watchdog_twdt_culprits();
+        if (wdt[0]) {
+            // (the task watchdog's own record first: who didn't check in)
+            snprintf(msg, sizeof(msg), "task wdt:%.70s; control at %s, ws at %s", wdt,
+                     breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), breadcrumb_core0_checkpoint_name(bc.core0Checkpoint));
+        } else {
+            snprintf(msg, sizeof(msg), "hang: control at %s (tick %lu), ws at %s, last WS '%s'",
+                     breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), (unsigned long) bc.core1TickCountAtLastMark,
+                     breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), bc.lastWsMessageType);
+        }
         cJSON_DeleteItemFromObject(j, "message");
         cJSON_AddStringToObject(j, "message", msg);
     }
