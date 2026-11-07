@@ -3,7 +3,7 @@
 // sword -> bow -> laser pistol -> bombs -> double pistol -> lightning gun ->
 // rainbow cannon), the others coins or a heart. Each plays differently: the
 // sword only reaches what's right in front of you (and knocks it back), bow
-// arrows fall (aim above), bombs roll along the floor to where you aim and go
+// arrows fall (aim above), bombs roll along the floor until they hit something and go
 // off when you press fire again (or by themselves) -- the blast opens crates
 // too, and catches you if you're close. A wooden shield (hold X / gamepad B /
 // the button) stops monsters that run into it while it has energy. Monsters crawl toward you; clear every crate and every

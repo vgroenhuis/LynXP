@@ -6,7 +6,7 @@
 // Levels 5 and 10 end with a giant poop.
 // Weapons (1-4, Tab / LB / RB, the Switch button): water gun; bow (arrows
 // fall: aim above the poop); toilet brush (close up, knocks them back); bombs
-// (roll along the floor to where you aim, fire again to set one off -- or it
+// (roll along the floor until they hit something, fire again to set one off -- or it
 // goes off by itself; walls stop the blast). The toilet lid is a shield
 // (hold X / gamepad B / the button): poops that run into it bounce off.
 

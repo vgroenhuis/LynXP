@@ -12,9 +12,9 @@
 //     hurtPlayer: (fraction) => {},              // optional: caught in your own blast (0..1, 1 = at its middle)
 //   });
 //
-// Bombs: fire rolls one along the floor, at a steady speed, toward where the
-// crosshair meets the floor (or as far as it goes when aiming higher) -- it
-// stops there and waits. Fire again to set it off, or it goes off by itself
+// Bombs: fire rolls one along the floor, at a steady speed, the way the
+// crosshair points -- until it meets a wall or a target, or has gone maxM --
+// and there it waits. Fire again to set it off, or it goes off by itself
 // when the fuse burns down. Its blast reaches as far as the red ring drawn
 // around it, you too.
 //
@@ -156,10 +156,10 @@ window.Lynx = window.Lynx || {};
       const l = Math.hypot(a.x, a.y) || 1;
       const dx = a.x / l;
       const dy = a.y / l;
-      const maxM = o.maxM || 2.5;
-      // where the crosshair meets the floor (from the robot's middle)
-      let dist = maxM;
-      if (a.h < -0.02) dist = Math.max(0.25, Math.min(maxM, (c.h / -a.h) * l));
+      // It rolls straight on until a wall, a target or maxM -- no longer only
+      // to where the crosshair meets the floor: with the camera tilted down
+      // that was close by, and the bomb stopped in the open "by itself".
+      const dist = o.maxM || 2.5;
       const start = 0.1;
       bombs.push({ x: c.x + dx * start, y: c.y + dy * start, dx, dy, left: Math.max(0, dist - start), speed: o.speed || 0.6,
         fuse: o.fuse || 5, fuse0: o.fuse || 5, splash: o.splash || { r: 0.45, dmg: 10 }, t: 0, spin: 0 });
@@ -175,6 +175,7 @@ window.Lynx = window.Lynx || {};
           const nx = b.x + b.dx * step;
           const ny = b.y + b.dy * step;
           if (wallAt(nx, ny, BOMB_R)) b.left = 0; // (stops against a wall)
+          else if (targets().some((t) => Math.hypot(t.x - nx, t.y - ny) < (t.r || 0.05) + BOMB_R)) b.left = 0; // (and against a target)
           else {
             b.x = nx;
             b.y = ny;

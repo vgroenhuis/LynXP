@@ -56,7 +56,7 @@ window.Lynx = window.Lynx || {};
       icon: "\u{1F4E6}",
       blurb:
         "Shoot open the crates on the floor: the golden one always holds a new weapon -- water pistol, wooden sword (up close), " +
-        "bow (arrows fall: aim above), laser pistol, bombs (they roll to where you aim; fire again to blow them up), double pistol, " +
+        "bow (arrows fall: aim above), laser pistol, bombs (they roll on until they hit something; fire again to blow them up), double pistol, " +
         "lightning gun, rainbow cannon. Hold X / gamepad B for your shield. Beat the monsters and get through as many levels as you can!",
       settings: [
         // the option keys stay Dutch (stored settings use them); the game started out in Dutch
@@ -80,7 +80,7 @@ window.Lynx = window.Lynx || {};
         "Shoot the poops that crawl toward you. Ten levels, every one with long stone walls: the poops have to walk around them, " +
         "they stop your shots -- and they stop the robot too, so you have to drive around them to find a clear line of fire. " +
         "Weapons: a water gun, a bow (arrows fall with gravity, so aim a bit above the poop), a toilet brush for up close, " +
-        "and bombs that roll to where you aim (fire again to blow them up; walls stop the blast). Hold X / gamepad B for the toilet-lid shield. " +
+        "and bombs that roll on until they hit something (fire again to blow them up; walls stop the blast). Hold X / gamepad B for the toilet-lid shield. " +
         "A giant poop waits in levels 5 and 10; golden poops are worth a lot.",
       settings: [
         { key: "startLevel", label: "Start at level", type: "number", def: 1, min: 1, max: 10, step: 1 },
