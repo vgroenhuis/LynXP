@@ -7,19 +7,16 @@
 // bench-verified one from Test_ESP32_C5_Robot_Peripherals (motors/encoders/
 // servos all confirmed correct on real hardware -- see that project's own
 // board_pins.hpp for the full strapping-pin/PSRAM-pin research this is
-// based on); MOTOR_TRANSMISSION_RATIO/ENCODER_COUNTS_PER_REVOLUTION are
-// carried over from Robot_ESP32_S3_IDF's board_pins.hpp as a PLACEHOLDER --
-// this robot's actual gearbox/encoder spec hasn't been confirmed, so
-// odometry/PID distance and velocity units will be correctly *computed* but
-// wrongly *scaled* until these are corrected, the same way MOTOR_INVERT
-// started as a guess and got fixed empirically during bring-up.
+// based on). MOTOR_TRANSMISSION_RATIO / ENCODER_COUNTS_PER_REVOLUTION: see
+// their own comment further down.
 //
 // ESP32-C5 strapping pins, per the official ESP-IDF GPIO guide: GPIO2,
 // GPIO7, GPIO25, GPIO27, GPIO28 -- see Test_ESP32_C5_Robot_Peripherals's
 // board_pins.hpp for the full reasoning on why each one used below is safe.
 // Also reserved: GPIO16-22 (SPI flash/PSRAM) and GPIO13/14 (USB-JTAG).
 // GPIO15 is additionally unavailable on this specific N16R8 module (wired to
-// its octal PSRAM, confirmed via board silkscreen).
+// its PSRAM -- run in quad mode, CONFIG_SPIRAM_MODE_QUAD -- confirmed via
+// board silkscreen).
 
 // ---------------------------------------------------------------------------
 // Motor driver: TB6612FNG dual H-bridge
@@ -60,10 +57,10 @@ constexpr gpio_num_t ENCODER_PIN[2][2] = {
 // needed on either wheel.
 constexpr int ENCODER_SIGN[2] = {+1, +1};
 
-// PLACEHOLDER -- copied from Robot_ESP32_S3_IDF's board_pins.hpp, NOT
-// verified for this robot's actual motors/gearbox/encoders. Odometry and
-// PID distance/velocity units are wrong (but the code runs fine) until this
-// is measured and corrected on this hardware.
+// The ratio matches the motor in the README's bill of materials (GM37-520,
+// 30:1). The encoder's 48 counts per motor turn came over from the S3 robot
+// and haven't been measured on this one: if odometry distances come out
+// scaled, this is the number to check (drive a known distance, compare).
 constexpr int MOTOR_TRANSMISSION_RATIO = 30;
 constexpr int ENCODER_COUNTS_PER_REVOLUTION = 48; // on the motor axis, not the wheel axis
 

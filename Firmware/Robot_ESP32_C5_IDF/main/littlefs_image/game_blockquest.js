@@ -17,7 +17,7 @@
 //
 // Controls (on top of Knight on Blocks's): hold X / gamepad B / touch Shield
 // to block; Fire while the shield is up: bash; B / RB / Tab: set a bomb;
-// E / LB: detonate every bomb set; H: show where the cubes go; L: level menu.
+// G / LB: detonate every bomb set (not E: Q / E turn the camera); H: show where the cubes go; L: level menu.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -1533,7 +1533,7 @@ Lynx.games = Lynx.games || {};
         ar.text(need, v.cx, by + 2, { size: blurbSize, align: "center", color: "#a0e0ff" });
       }
       ar.text(
-        small ? "Tap a level · tap it again (or \u2694 Sword): start" : "Click a level, again to start · LB / RB, Tab, 1-7: choose · Fire: start · tags: /tags.html",
+        small ? "Tap a level · tap it again (or \u2694 Sword): start" : "Click a level, again to start · LB / RB, Tab, 1-9: choose · Fire: start · tags: /tags.html",
         v.cx, bottomY + 26, { size: small ? 12 : 13, align: "center", color: "#ffe9a8" },
       );
     }
@@ -1576,7 +1576,7 @@ Lynx.games = Lynx.games || {};
       const t = e.target;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA"))) return;
       if (e.code === "KeyB" && G.phase === "play") placeBomb();
-      else if (e.code === "KeyE" && G.phase === "play") A.detonate();
+      else if (e.code === "KeyG" && G.phase === "play") A.detonate();
       else if (e.code === "KeyH" && (G.phase === "setup" || G.phase === "play")) G.hint = !G.hint;
       else if (e.code === "KeyF" && G.phase !== "menu") stepFloorOpacity();
       else if (e.code === "KeyL" && api.state === "playing") {
@@ -1759,7 +1759,7 @@ Lynx.games = Lynx.games || {};
       },
       helpLine(auto) {
         if (G.phase === "setup") return "Robot: right stick / arrows (the map: its front up) · Tab / RB, LB: look at another cube · L: menu";
-        const bombs = lv() && (lv().bombs || G.bombs) ? " · Bomb B · Detonate E" : "";
+        const bombs = lv() && (lv().bombs || G.bombs) ? " · Bomb B · Detonate G" : "";
         return `Knight: stick / WASD · Jump: Space · Sword: Fire · Shield: hold X${bombs} · F: floor see-through · L: menu`;
       },
       onFire(state) {

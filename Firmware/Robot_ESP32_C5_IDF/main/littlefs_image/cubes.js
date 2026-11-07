@@ -376,13 +376,13 @@ window.Lynx = window.Lynx || {};
         g.beginPath();
         d.corners.forEach((p, i) => (i ? g.lineTo(v.x + p.x * sx, v.y + p.y * sy) : g.moveTo(v.x + p.x * sx, v.y + p.y * sy)));
         g.closePath();
-        // (light blue, like a seen cube on the map: green means "in its spot"
-        // in the placement guides, and the two got mixed up)
-        g.strokeStyle = "rgba(80,200,255,0.9)";
+        // (violet: green means "in its spot" in the placement guides, cyan a
+        // detected block, magenta a cube gone from where it was)
+        g.strokeStyle = "rgba(170,110,255,0.95)";
         g.lineWidth = 2;
         g.stroke();
         const cc = d.corners.reduce((m, p) => ({ x: m.x + p.x / 4, y: m.y + p.y / 4 }), { x: 0, y: 0 });
-        ar.text(String(d.id), v.x + cc.x * sx, v.y + cc.y * sy + 4, { size: 11, align: "center", color: "#a0e4ff" });
+        ar.text(String(d.id), v.x + cc.x * sx, v.y + cc.y * sy + 4, { size: 11, align: "center", color: "#d0b0ff" });
       });
     }
     // a failure, and the frame cube's progress

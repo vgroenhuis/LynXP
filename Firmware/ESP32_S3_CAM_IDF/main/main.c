@@ -503,8 +503,8 @@ static bool init_camera(void) {
 // frame carries a chunk of a text byte stream per direction (the lines "STAT",
 // "NET", "AP"... out, "WIFI", "OTA", "SCAN" in), with CRC, acknowledgements
 // and resync after a restart: see cam_link_proto.h, which is the same file as
-// in Robot_ESP32_C5_IDF/main. Room is left in it for camera frames (type
-// VIDEO), to be streamed through the robot's own, 5 GHz capable, Wi-Fi.
+// in Robot_ESP32_C5_IDF/main. It also carries the camera's frames (VIDEO,
+// below), which the robot streams over its own, 5 GHz capable, Wi-Fi.
 //
 // Wires, on the XIAO ESP32-S3 Sense header (robot side: board_pins.hpp):
 //   D0  = GPIO1  MISO    D1  = GPIO2  CS     (the two UART wires: same pins, same directions)

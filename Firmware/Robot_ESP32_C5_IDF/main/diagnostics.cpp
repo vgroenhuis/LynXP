@@ -81,7 +81,7 @@ void diagnostics_get_snapshot(DiagnosticsSnapshot *out) {
     out->core1TickMaxUs = g_core1Window.maxUsResult;
 
     // MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT is the same general-purpose pool
-    // malloc()/new draw from on this board (no PSRAM). Unlike the Pico's
+    // malloc()/new draw from for small blocks (bigger ones go to PSRAM). Unlike the Pico's
     // mallinfo().arena (which only reflects how much the allocator has
     // claimed SO FAR and grows on demand), ESP-IDF's heap regions are all
     // registered at boot and never grow, so arena == the true ceiling here.

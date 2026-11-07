@@ -262,7 +262,7 @@ window.Lynx = window.Lynx || {};
     },
     objective(L) {
       const bar = L.E.barricades[0];
-      if (bar && !bar.dead) return { text: L.G.bombs + L.A.bombs.length ? "Set bombs at the rubble (B), step back behind a pillar, detonate (E). Or move a powder keg beside it by hand" : "Out of bombs: find more, or carry a powder keg (cube 4 / 5) to the wall and strike it", at: [6.2, 0], h: 0.04 };
+      if (bar && !bar.dead) return { text: L.G.bombs + L.A.bombs.length ? "Set bombs at the rubble (B), step back behind a pillar, detonate (G). Or move a powder keg beside it by hand" : "Out of bombs: find more, or carry a powder keg (cube 4 / 5) to the wall and strike it", at: [6.2, 0], h: 0.04 };
       const brute = L.flag("brute");
       if (brute && brute.state !== "dead") return { text: brute.armor ? "The brute's armor turns the sword: set a bomb where it will pass, detonate when it is near" : "Its armor is cracked -- strike now!" };
       return { text: "Take the treasure from the vault", at: [11, 0], h: 0.04 };
@@ -799,7 +799,7 @@ window.Lynx = window.Lynx || {};
     objective(L) {
       const boss = L.flag("boss");
       if (L.flag("clear")) return { text: "Climb the altar and take the crown", at: [0, 0], h: 0.07 };
-      if (boss.dormant) return { text: "The Warden sleeps -- bombs: B sets, E detonates. Kegs: carry them by hand where it will walk" };
+      if (boss.dormant) return { text: "The Warden sleeps -- bombs: B sets, G detonates. Kegs: carry them by hand where it will walk" };
       return { text: boss.armor ? "Its armor turns the sword: a blast cracks it (bomb, keg) -- jump the shockwaves!" : "Armor cracked -- strike!" };
     },
   });

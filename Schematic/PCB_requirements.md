@@ -26,7 +26,7 @@ committing to the layout.
 | Analog inputs | — | **8-channel I²C ADC** for add-on sensors (new, see §5.2) |
 | Programming | Devkit USB | One USB-C port to the ESP32-C5 native USB (no USB-UART chip) |
 | Camera (XIAO ESP32-S3 Sense) | Loose jumper wires | Keyed connector for a 4-wire flat cable |
-| OLED display | 1.3" 128×64 I²C module on jumper wires | **1.3" 128×64 OLED integrated on the PCB** (strongly recommended; 4-pin header acceptable, see §5.1) |
+| OLED display | 0.96" 128×64 I²C module on jumper wires (too small: 1.3" from now on) | **1.3" 128×64 OLED integrated on the PCB** (strongly recommended; 4-pin header acceptable, see §5.1) |
 | nOOds LED, buttons, power switch | Loose wires | Connectors / on-board parts |
 | Headlights | — | Two headlight outputs with connectors (new, see §11.1) |
 | Microphone, speaker | — | **Optional, very low priority**: on-board I²S microphone and speaker amplifier (new, see §11.2); better done on the camera's ESP32-S3 |

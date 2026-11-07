@@ -159,7 +159,7 @@ window.Lynx = window.Lynx || {};
         "cut them off and box them in, and keep clear of their trails. FIRE sends a pulse that wipes nearby rival walls when you are trapped. " +
         "Every level adds a rival and speeds them up.",
       settings: [
-        { key: "areaRadiusM", label: "Arena radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
+        { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
         { key: "lives", label: "Lives", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "trailS", label: "How long walls last", type: "number", unit: "s", def: 10, min: 3, max: 30, step: 1 },
         { key: "enemySpeedMps", label: "Rival speed", type: "number", unit: "m/s", def: 0.2, min: 0.05, max: 0.6, step: 0.025 },
@@ -178,7 +178,7 @@ window.Lynx = window.Lynx || {};
         "If the ink swamps nearly half the arena it's over. FIRE throws a soap bubble that wipes a wide patch (slow to recharge). " +
         "Each level has more wells and faster ink.",
       settings: [
-        { key: "areaRadiusM", label: "Arena radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
+        { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
         { key: "cellM", label: "Tile size", type: "number", unit: "m", def: 0.2, min: 0.1, max: 0.5, step: 0.05 },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
       ],
@@ -292,7 +292,7 @@ window.Lynx = window.Lynx || {};
         { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
         { key: "scan", label: "Look around at the start (turning on the spot)", type: "checkbox", def: false },
         { key: "showBlocks", label: "Show detected blocks (cyan outlines; also a switch in Overlays)", type: "checkbox", def: true },
-        { key: "showTags", label: "Show tag detections (green outlines; also a switch in Overlays)", type: "checkbox", def: true },
+        { key: "showTags", label: "Show tag detections (violet outlines; also a switch in Overlays)", type: "checkbox", def: true },
       ],
       boards: [],
     },
@@ -300,7 +300,7 @@ window.Lynx = window.Lynx || {};
       id: "blockquest",
       kind: "game",
       name: "Block Quest",
-      icon: "\u2694\uFE0F",
+      icon: "\u{1F3F0}",
       blurb:
         "Knight on Blocks with real levels, built around the tagged cubes (tags 0-5, 40 mm) and the frame cube. Each level starts with a placement guide: " +
         "a checklist and ghost footprints on the floor tell where every cube goes (the frame cube is the origin), and the level starts when they are there. " +
@@ -331,7 +331,7 @@ window.Lynx = window.Lynx || {};
         { key: "camDeadzoneDeg", label: "Camera dead zone, left / right", type: "number", unit: "deg", def: 12, min: 0, max: 30, step: 1 },
         { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
         { key: "showBlocks", label: "Show detected blocks (cyan outlines)", type: "checkbox", def: false },
-        { key: "showTags", label: "Show tag detections (green outlines)", type: "checkbox", def: false },
+        { key: "showTags", label: "Show tag detections (violet outlines)", type: "checkbox", def: false },
       ],
       boards: [],
     },
@@ -380,7 +380,7 @@ window.Lynx = window.Lynx || {};
     {
       id: "monster_hunt",
       kind: "game",
-      name: "Monster hunt",
+      name: "Monster Hunt",
       icon: "\u{1F7E2}",
       blurb: "The original: green monsters roam around the robot; fling fireballs at them. Relaxed, no score.",
       settings: [
@@ -395,7 +395,7 @@ window.Lynx = window.Lynx || {};
       id: "focus",
       kind: "app",
       name: "Focus check",
-      icon: "\u{1F50E}",
+      icon: "\u{1F52C}",
       blurb:
         "Shows how sharp the camera's picture is, live, for turning the lens to its best focus: a sharpness number " +
         "with the best so far and a graph, the sharpness of 3 x 3 regions (is it even over the picture?), and a " +

@@ -1,10 +1,10 @@
 # Camera link: ESP32-C5 (robot) <-> ESP32-S3 (camera)
 
 The robot board and the camera talk over **SPI**: the ESP32-C5 is the master, the XIAO
-ESP32-S3 Sense the slave. (It was a 115200-baud UART with text lines.) SPI has the bandwidth to
-later pass camera frames to the C5, which can then serve the stream over its own Wi-Fi, also on 5 GHz
-(the S3 is 2.4 GHz only). Today the link carries exactly what the UART carried; video is not
-sent over it yet.
+ESP32-S3 Sense the slave. (It was a 115200-baud UART with text lines.) It carries what the UART
+carried (status, Wi-Fi, commands) and, since robot 1.2.0 / camera 1.1.0, the camera's frames: the C5
+serves them as a second stream over its own Wi-Fi, also on 5 GHz (the S3 is 2.4 GHz only) -- see
+"Video through the robot" below. The camera page still uses the camera's own stream.
 
 ## Wiring
 

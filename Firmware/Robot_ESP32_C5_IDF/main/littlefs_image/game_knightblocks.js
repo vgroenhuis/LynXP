@@ -1328,7 +1328,7 @@ Lynx.games = Lynx.games || {};
         ar.text(
           X && X.helpLine ? X.helpLine(autoDrive) : autoDrive
             ? "Run: stick / WASD · Jump: A / Space · Behind: Y / C · Center: V · Zoom: + / \u2212, RB / LB · Rescan: R · Manual drive: M"
-            : "Knight: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Center: V / Y · Rescan: R · Auto drive: M",
+            : "Knight: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Center: V / Y / C · Rescan: R · Auto drive: M",
           v.cx, v.y + v.h - 20, { size: 13, align: "center" },
         );
         const mode = autoDrive ? "auto drive" : "manual drive";

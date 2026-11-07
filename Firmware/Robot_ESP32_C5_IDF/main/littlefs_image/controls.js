@@ -6,8 +6,8 @@
 //   W / S        drive forward / back          A / D   strafe left / right
 //   Left/Right   turn the camera (and robot)   Up/Down tilt the camera
 //   Q / E        same as Left / Right          Shift   half speed
-//   Z / Ctrl     fire / action (hold = auto)   1-3     pick weapon
-//   Space        jump in games with jumping,   Tab     next weapon
+//   Z / Ctrl     fire / action (hold = auto)   1-9     pick weapon (slot)
+//   Space        jump in games with jumping,   Tab     next weapon (Shift + Tab: previous)
 //                else fire / action (like gamepad A; J jumps too)
 //   X (held)     raise the shield (games that have one; gamepad B)
 //   C            camera action (games that have one, e.g. the knight:
@@ -540,7 +540,7 @@ window.Lynx = window.Lynx || {};
       }
       if (e.code === "Tab") {
         e.preventDefault();
-        listeners.weapon.forEach((cb) => cb("next"));
+        listeners.weapon.forEach((cb) => cb(e.shiftKey ? "prev" : "next")); // (Shift + Tab: like LB)
         return;
       }
       if (!MOVEMENT_KEYS.has(e.code)) return;

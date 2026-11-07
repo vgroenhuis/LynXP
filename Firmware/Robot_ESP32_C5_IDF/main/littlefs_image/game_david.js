@@ -666,7 +666,7 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("DAVID", "Press FIRE to start", { color: "#ffd84a" });
-        ar.text("Shoot the crates open · the golden crate holds a new weapon · beat the monsters · hold X / B: shield", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text("Shoot the crates open · the golden crate holds a new weapon · beat the monsters · hold X / gamepad B: shield", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "over") {
         ar.flash("#000", 0.45);

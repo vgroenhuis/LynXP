@@ -29,7 +29,8 @@
 //     "# control_rad=..,t0_us=..,next=N": ask for ?from=N next time to get
 //     only newer samples (the ring keeps the latest MAX_SAMPLES).
 //
-// No PSRAM on this build, so the log is packed to 20 bytes/sample (~20 KB).
+// The log is packed to 20 bytes/sample (~20 KB, malloc'd when an experiment
+// starts: PSRAM).
 // GET /debug/pantune[?interval=20][&lead=70]
 //     Reads/sets the servo-follow knobs (not persisted; reboot resets them).
 //

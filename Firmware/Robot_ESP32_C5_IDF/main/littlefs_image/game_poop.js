@@ -738,7 +738,7 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("POOP SHOOTER", "Press FIRE to start", { color: "#c88a3c" });
-        ar.text(`${levelSet.length} levels, each with walls · walls stop your shots and the robot · bow arrows drop: aim high · 1-4 weapons · hold X / B: lid shield`, v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text(`${levelSet.length} levels, each with walls · walls stop your shots and the robot · bow arrows drop: aim high · 1-4 weapons · hold X / gamepad B: lid shield`, v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "over" || state === "won") {
         ar.flash("#000", 0.45);
