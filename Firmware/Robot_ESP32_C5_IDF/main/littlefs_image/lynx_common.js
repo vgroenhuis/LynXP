@@ -194,7 +194,7 @@ window.Lynx = window.Lynx || {};
         "and steer them through the gap into the pen. Foxes sneak in from the edge to catch strays -- drive at them to " +
         "scare them off. FIRE barks (a short, wide scare). Each level has more sheep and more foxes; the flock must be home before time runs out.",
       settings: [
-        { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
+        { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.0, min: 0.8, max: 5, step: 0.25 },
         { key: "timeS", label: "Time per level", type: "number", unit: "s", def: 90, min: 30, max: 300, step: 10 },
       ],
       boards: [{ key: "shepherd", title: "Shepherd", better: "higher", format: "points" }],

@@ -112,7 +112,14 @@ window.Lynx = window.Lynx || {};
       const u = upper.get(core);
       if (u !== undefined) return u.toUpperCase();
     }
-    return depth > 3 ? null : lookPattern(core);
+    if (depth > 3) return null;
+    // (an icon or symbol in front, "🐑 Shepherd" in the game menu: the rest)
+    const ic = /^([^A-Za-z0-9]+\s+)([A-Za-z][\s\S]*)$/.exec(core);
+    if (ic) {
+      const t = look(ic[2]);
+      if (t !== null) return ic[1] + t;
+    }
+    return lookPattern(core);
   }
   function tr(s) {
     if (lang !== "nl" || typeof s !== "string" || !s || !/[A-Za-z]/.test(s)) return s;

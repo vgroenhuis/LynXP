@@ -9,10 +9,10 @@ Lynx.games = Lynx.games || {};
 
 (function (Lynx) {
   const SHEEP_R = 0.05;
-  const FLEE_R = 0.55; // a sheep starts to run when the robot is this close
+  const FLEE_R = 0.4; // a sheep starts to run when the robot is this close (1.5.15: was 0.55)
   const BARK_R = 1.0;
   const BARK_COOLDOWN_S = 2.5;
-  const SHEEP_SPEED = 0.28; // m/s at full panic
+  const SHEEP_SPEED = 0.16; // m/s at full panic (1.5.15: was 0.28 -- they ran out of a living room)
   const GRAZE_SPEED = 0.03;
   const FOX_SPEED = 0.2;
   const FOX_FLEE_R = 0.45;
@@ -300,8 +300,8 @@ Lynx.games = Lynx.games || {};
           s.vx *= cap / sp;
           s.vy *= cap / sp;
         }
-        s.vx *= Math.pow(0.35, dt);
-        s.vy *= Math.pow(0.35, dt);
+        s.vx *= Math.pow(0.15, dt); // (they stop sooner once the robot is gone)
+        s.vy *= Math.pow(0.15, dt);
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         if (Math.abs(s.vx) > 0.01) s.dir = s.vx > 0 ? 1 : -1;
