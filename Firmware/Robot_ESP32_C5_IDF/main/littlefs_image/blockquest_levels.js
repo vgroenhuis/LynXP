@@ -591,18 +591,16 @@ window.Lynx = window.Lynx || {};
     name: "The Ember Ferry",
     tags: "co-op · two players · lava river",
     blurb: "A two-player level: the knight rides the ferry (cube 5) across the lava river while a second human slides that cube by hand round the rocks and between the geysers. (Solo setting: the ferry sails itself.)",
-    story: "A river of lava between the docks, and a ferry that has no ferryman. Player 2 is the ferryman: slide cube 5 across by hand, round the grey rocks (a bump hurts the knight) and clear of the geysers, while the knight stands on it and shields itself from the archers on the far bank.",
+    story: "A river of lava between the docks, and a ferry that has no ferryman. Player 2 is the ferryman: slide cube 5 across by hand, round the grey rocks (a bump hurts the knight) and clear of the geysers, while the knight stands on it. A skeleton guards the far bank: it wakes when the ferry lands.",
     intro: "All aboard: Player 2 slides the ferry (cube 5)",
     cubes: [
       { tag: 4, at: [1.5, 0], label: "Near dock" },
       { tag: 5, at: [3.1, 0], label: "THE FERRY (Player 2 moves it)", soloSkip: true },
       { tag: 3, at: [9.7, 0], stack: 0, label: "Far dock" },
       { tag: 2, at: [9.7, 0], stack: 1, onTag: 3, label: "Dock top" },
-      { tag: 0, at: [9.7, -3.3], label: "Archer's perch" },
-      { tag: 1, at: [9.7, 3.3], label: "Archer's perch" },
     ],
     spawn: { at: [0, 0], yaw: 0 },
-    skins: { 0: "basalt", 1: "basalt", 2: "stone", 3: "stone", 4: "stone", 5: null },
+    skins: { 2: "stone", 3: "stone", 4: "stone", 5: null },
     frameSkin: "stone",
     floor: "lava",
     area: [2.3, -5.5, 9.0, 5.5],
@@ -615,9 +613,10 @@ window.Lynx = window.Lynx || {};
       L.flag("s", 0);
       L.flag("cool", 0);
       L.flag("hits", 0);
-      // (they only see the ferry once it's most of the way over, and take their time)
-      L.enemy("archer", [0, 0], { perch: 0, yawDeg: 180, sight: 0.34, reloadK: 1.5 });
-      L.enemy("archer", [0, 0], { perch: 1, yawDeg: 180, sight: 0.34, reloadK: 1.5 });
+      // Steering the ferry is hard enough (no archers since 1.5.13): one skeleton
+      // on the far bank, asleep until the knight is nearly over -- awake any
+      // earlier it would walk across the lava (it doesn't burn) to the ferry.
+      L.flag("guard", L.enemy("skeleton", [10.5, -1.6], { dormant: true, yawDeg: 180 }));
       L.pickup("feather", null, { tag: 2, lift: 0.01, size: 1.5, name: "feather", onTake: (L2) => L2.win(L2.flag("hits") ? "The Phoenix Feather is yours" : "The Phoenix Feather -- and not a scratch on the ferry!") });
       L.pickup("heart", [1.5, 2.6]);
       L.brazier([1.2, 3.8]);
@@ -633,6 +632,11 @@ window.Lynx = window.Lynx || {};
     update(L, dt) {
       const solo = L.api.cfg.solo;
       const on = L.heroOn() === 5 || (solo && L.api.hero.standOn === "ferry");
+      const guard = L.flag("guard");
+      if (guard && guard.dormant && L.heroU()[0] > 8.4) {
+        L.A.wake(guard);
+        L.say("A skeleton guards the far dock!", "#ffe080");
+      }
       if (solo && on) {
         L.flag("s", Math.min(LANE_LEN, L.flag("s") + 0.3 * dt));
         const q = laneAt(L.flag("s"));
@@ -704,7 +708,7 @@ window.Lynx = window.Lynx || {};
         if (far) return { text: "Take the Phoenix Feather from the top of the far dock", at: [9.7, 0], h: 0.1 };
         return { text: L.api.cfg.solo ? "Board the ferry -- it sails when you stand on it" : "Hop aboard the ferry (cube 5). Player 2: slide it along the blue lane, round the rocks", at: fp ? [fp.x, fp.y] : [3.1, 0], h: 0.07 };
       }
-      return { text: L.api.cfg.solo ? "Riding the ferry -- shield up against the archers!" : "Player 2: along the lane, clear of the rocks and the geysers! Knight: shield up!", at: [9.7, 0], h: 0.1 };
+      return { text: L.api.cfg.solo ? "Riding the ferry -- a skeleton waits on the far bank" : "Player 2: along the lane, clear of the rocks and the geysers! Knight: a skeleton waits on the far bank", at: [9.7, 0], h: 0.1 };
     },
   });
 
