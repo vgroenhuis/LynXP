@@ -398,7 +398,8 @@ Lynx.games = Lynx.games || {};
       firePressed = true;
     });
     Lynx.onAction("weapon", (which) => {
-      if (which === "next" || which === "prev") weapon = (weapon + 1) % WEAPONS.length;
+      if (which === "next") weapon = (weapon + 1) % WEAPONS.length;
+      else if (which === "prev") weapon = (weapon - 1 + WEAPONS.length) % WEAPONS.length;
       else if (which >= 1 && which <= WEAPONS.length) weapon = which - 1;
       cooldown = Math.min(cooldown, 0.2);
     });
