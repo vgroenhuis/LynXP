@@ -336,6 +336,35 @@ window.Lynx = window.Lynx || {};
       boards: [],
     },
     {
+      id: "runes",
+      kind: "game",
+      name: "Rune Stones",
+      icon: "\u{1F5DD}\u{FE0F}",
+      blurb:
+        "A puzzle game for the knight of Knight on Blocks -- no fighting, no enemies. Each level appears on the floor in front of the robot, from where it stands: " +
+        "chasms, fire, spikes, ghostly bridges and gates between the knight and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
+        "cubes 0-5: 0 Island raises ground round itself, 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
+        "4 Key in its socket opens the portal, 5 Earth sinks spikes. Every level needs all six, and some need a stone twice: move it on while the knight waits. " +
+        "No setup and no frame cube: just the cubes 0-5 at hand. Five levels. Needs internet once (the tag detector). Tags to print: /tags.html",
+      settings: [
+        { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
+        { key: "cellCm", label: "Level scale: one map cell (the cubes fit in one)", type: "number", unit: "cm", def: 5, min: 3, max: 10, step: 0.5 },
+        { key: "knightCm", label: "Knight's height (3 cm climbs 5 cm blocks)", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
+        { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
+        { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
+        { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
+        { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
+        { key: "driveSpeedCmS", label: "Manual drive: top speed", type: "number", unit: "cm/s", def: 16, min: 3, max: 35, step: 1 },
+        { key: "turnSpeedDeg", label: "Manual drive: top turning speed", type: "number", unit: "deg/s", def: 60, min: 10, max: 150, step: 5 },
+        { key: "camSpeedDeg", label: "Camera turning speed", type: "number", unit: "deg/s", def: 40, min: 2, max: 40, step: 1 },
+        { key: "camDeadzoneDeg", label: "Camera dead zone, left / right", type: "number", unit: "deg", def: 12, min: 0, max: 30, step: 1 },
+        { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
+        { key: "showBlocks", label: "Show detected blocks (cyan outlines)", type: "checkbox", def: false },
+        { key: "showTags", label: "Show tag detections (violet outlines)", type: "checkbox", def: false },
+      ],
+      boards: [],
+    },
+    {
       id: "race",
       kind: "game",
       name: "Time Trial",
