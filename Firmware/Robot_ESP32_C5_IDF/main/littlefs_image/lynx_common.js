@@ -157,6 +157,26 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "echo", title: "Echo", better: "higher", format: "points" }],
     },
     {
+      id: "crossing",
+      released: "2026-11-07",
+      kind: "game",
+      name: "Crossing",
+      icon: "\u{1F6A6}",
+      blurb:
+        "Frogger on your floor. Lanes of traffic -- cars and trucks at their own speeds, alternating direction -- run across the way ahead. " +
+        "Drive across them without being run over; green median strips are safe. Reach the far side and the course flips: " +
+        "cross back, with faster and denser traffic. FIRE honks and freezes the traffic for a moment (slow to recharge). " +
+        "Needs a clear floor of roughly 1.5 m wide and 2.5 m long.",
+      settings: [
+        { key: "lanesCount", label: "Traffic lanes", type: "number", def: 5, min: 2, max: 9, step: 1 },
+        { key: "laneM", label: "Lane depth", type: "number", unit: "m", def: 0.4, min: 0.3, max: 0.8, step: 0.05 },
+        { key: "widthM", label: "Course width", type: "number", unit: "m", def: 1.6, min: 0.8, max: 4, step: 0.1 },
+        { key: "carSpeedMps", label: "Traffic speed", type: "number", unit: "m/s", def: 0.2, min: 0.05, max: 0.6, step: 0.025 },
+        { key: "lives", label: "Lives", type: "number", def: 3, min: 1, max: 9, step: 1 },
+      ],
+      boards: [{ key: "crossing", title: "Crossing", better: "higher", format: "points" }],
+    },
+    {
       id: "lightwall",
       released: "2026-10-24",
       kind: "game",
@@ -712,6 +732,7 @@ window.Lynx = window.Lynx || {};
     suspect: (t) => tone(t, "triangle", 520, 780, 0.18, 0.25),
     alarm: (t) => { for (let i = 0; i < 4; i++) tone(t + i * 0.16, "square", i % 2 ? 660 : 880, null, 0.14, 0.28); },
     jump: (t) => tone(t, "square", 300, 900, 0.16, 0.2),
+    honk: (t) => { tone(t, "square", 380, null, 0.28, 0.25); tone(t, "square", 480, null, 0.28, 0.2); },
     echo0: (t) => tone(t, "triangle", 262, null, 0.5, 0.4),
     echo1: (t) => tone(t, "triangle", 330, null, 0.5, 0.4),
     echo2: (t) => tone(t, "triangle", 392, null, 0.5, 0.4),
