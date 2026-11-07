@@ -17,6 +17,10 @@
 // all six. Moving a stone the knight is relying on (an island it stands on,
 // the light of a bridge) drops it -- careful.
 //
+// Raised ground (as in Temple of LynXP), in 4 cm steps -- a cube's height:
+// the explorer climbs one step, not two, so a stone doubles as a step up, or
+// as a stepping stone across a gap between two ledges.
+//
 // No setup: the level is laid out on the floor in front of the robot from
 // where it stands when the level starts (its drive axle; ahead is up the
 // level's map), and the stones count wherever the cube finder sees them --
@@ -43,6 +47,12 @@ Lynx.games = Lynx.games || {};
   //   F  fire            f  fire, on and off (cross between bursts)
   //   ^  spikes          v  spikes, up and down
   //   a b  pressure plates   A B  their gates (plate a opens every A)
+  // and optionally `rise`, the same shape: how high each cell is raised, in
+  // 4 cm steps -- the height of a tag cube (. or 0 the floor, 1 4 cm, 2 8 cm,
+  // 3 12 cm). Raised ground is a column from the floor up; a raised ghost
+  // bridge (~) hangs in the air, held only while lit. The explorer (3 cm)
+  // climbs 4 cm, not 8: a cube is a step, and a stepping stone over a gap
+  // between two ledges (she jumps about 6 cm). Stones only work on the floor.
   const LEVELS = [
     {
       id: "first",
@@ -153,6 +163,82 @@ Lynx.games = Lynx.games || {};
         ".S........",
       ],
     },
+    {
+      id: "steps",
+      name: "Stepping Stones",
+      intro: "Raised ground, 4 cm a step, like the stones: hop across a stone, climb onto one",
+      hint: "A stone in the gap between the two ledges to hop across; the Weight on its plate is the step up onto the high ground",
+      map: [
+        ".E.......",
+        ".~.......",
+        ".~..K....",
+        ".#.......",
+        ".#vA#a...",
+        ".....#...",
+        ".....F...",
+        ".....#...",
+        ".........",
+        ".........",
+        ".....#...",
+        ".....#...",
+        ".....#...",
+        ".....S...",
+      ],
+      rise: [
+        ".2.......",
+        ".2.......",
+        ".2.......",
+        ".2.......",
+        ".2222....",
+        ".........",
+        ".........",
+        ".....1...",
+        ".........",
+        ".........",
+        ".....1...",
+        ".........",
+        ".........",
+        ".........",
+      ],
+    },
+    {
+      id: "towers",
+      name: "The Towers",
+      intro: "Up to the 12 cm tower: the Key is a stepping stone before it goes in its socket",
+      hint: "Island over the first chasm, Earth at the spikes; the Key between the towers to hop across, Rain at the fire up there, Weight on plate b, Lantern at the high bridge, then the Key in its socket",
+      map: [
+        "......E..",
+        "...K..~..",
+        "....b.~..",
+        "..#F#B#..",
+        ".........",
+        ".........",
+        "..#......",
+        "..##.....",
+        "...^.....",
+        "...#.....",
+        ".........",
+        ".........",
+        "...#.....",
+        "...S.....",
+      ],
+      rise: [
+        "......3..",
+        "......3..",
+        "......3..",
+        "..22223..",
+        ".........",
+        ".........",
+        "..2......",
+        "..21.....",
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+        ".........",
+      ],
+    },
   ];
 
   const STONES = [
@@ -172,6 +258,8 @@ Lynx.games = Lynx.games || {};
   const FIRE_H = 0.035; // m
   const SPIKE_H = 0.012;
   const GATE_H = 0.07;
+  const RISE = 0.04; // m: one step of raised ground (a tag cube's height)
+  const SLAB = 0.008; // a raised ghost bridge's thickness
   const FIRE_PERIOD = 3.2; // s (f: on for the first FIRE_ON of it)
   const FIRE_ON = 1.5;
   const SPIKE_PERIOD = 2.4; // s (v: up for the first SPIKE_UP of it)
@@ -241,6 +329,8 @@ Lynx.games = Lynx.games || {};
       return [G.O.H - 1 + 0.5 - (u - MAP_AHEAD_M) / CELL, v / CELL + (G.O.W - 1) / 2];
     }
     const tileAt = (i, j) => (i < 0 || j < 0 || i >= G.O.H || j >= G.O.W ? "." : G.O.rows[i][j]);
+    // a cell's raised height (m; 0 on the floor, and for a chasm)
+    const baseAt = (i, j) => (i < 0 || j < 0 || i >= G.O.H || j >= G.O.W || G.O.rows[i][j] === "." ? 0 : G.O.base[i][j]);
     const cellCenterFR = (i, j) => toFR(...cellUV(i, j));
 
     // -- the stones ------------------------------------------------------------------------------------------
@@ -283,21 +373,31 @@ Lynx.games = Lynx.games || {};
       const j = Math.round(cj);
       const ch = tileAt(i, j);
       if (ch === ".") return null;
-      if (ch === "~") return lit(i, j) ? "bridge" : null;
+      if (ch === "~") return lit(i, j) && !baseAt(i, j) ? "bridge" : null; // (under a raised bridge: the chasm)
       return ch;
+    }
+    // Where the explorer stands on the level's own ground -- the floor, or the
+    // top of raised ground -- its cell [i, j] (else null: in the air, hanging,
+    // on a cube)
+    function groundCell() {
+      if (hero.mode !== "move" || !hero.onGround || G.fallT > 0) return null;
+      const s = hero.standOn;
+      if (s === null ? hero.z >= 0.003 : !(typeof s === "string" && s.startsWith("plat"))) return null;
+      if (s !== null) return s.slice(4).split("_").map(Number); // (the column she stands on)
+      const [ci, cj] = cellAt(hero.f, hero.r);
+      return [Math.round(ci), Math.round(cj)];
     }
 
     // -- plates, gates, the portal ------------------------------------------------------------------------------
     function updateMechanisms(dt) {
       const o = G.O;
       const pressed = {};
-      const [hi, hj] = cellAt(hero.f, hero.r);
-      const heroOnFloor = hero.onGround && hero.standOn === null && hero.z < 0.003 && G.fallT <= 0;
+      const gc = groundCell();
       for (let i = 0; i < o.H; i++) {
         for (let j = 0; j < o.W; j++) {
           const ch = o.rows[i][j];
           if (ch !== "a" && ch !== "b") continue;
-          const byKnight = heroOnFloor && Math.round(hi) === i && Math.round(hj) === j;
+          const byKnight = !!gc && gc[0] === i && gc[1] === j;
           if (onSpot(1, i, j) || byKnight) pressed[ch.toUpperCase()] = true;
         }
       }
@@ -328,7 +428,25 @@ Lynx.games = Lynx.games || {};
           const h1 = GATE_H * (1 - g.lift);
           if (h1 < 0.004) continue;
           const [cf, cr] = cellCenterFR(i, j);
-          out.push({ id: `gate${i}_${j}`, cf, cr, yaw: o.th, half: CELL * 0.48, h0: 0, h1 });
+          const b0 = baseAt(i, j);
+          out.push({ id: `gate${i}_${j}`, cf, cr, yaw: o.th, half: CELL * 0.48, h0: b0, h1: b0 + h1 });
+        }
+      }
+      return out;
+    }
+    // raised ground: a column per cell (climbed, stood on like a cube); a
+    // raised ghost bridge, a thin slab, there only while lit
+    function platSolids() {
+      const out = [];
+      const o = G.O;
+      for (let i = 0; i < o.H; i++) {
+        for (let j = 0; j < o.W; j++) {
+          const h = baseAt(i, j);
+          if (!h) continue;
+          const bridge = o.rows[i][j] === "~";
+          if (bridge && !lit(i, j)) continue;
+          const [cf, cr] = cellCenterFR(i, j);
+          out.push({ id: `plat${i}_${j}`, cf, cr, yaw: o.th, half: CELL * 0.5, h0: bridge ? h - SLAB : 0, h1: h });
         }
       }
       return out;
@@ -386,16 +504,15 @@ Lynx.games = Lynx.games || {};
         }
         return;
       }
-      if (hero.mode !== "move") return; // (hanging on / climbing a cube: safe)
-      const onFloor = hero.onGround && hero.standOn === null && hero.z < 0.003;
-      if (!onFloor) return;
-      const fl = floorAt(hero.f, hero.r);
+      // (hanging on / climbing a ledge, on a cube, in the air: safe)
+      const gc = groundCell();
+      if (!gc) return;
+      const [i, j] = gc;
+      const raised = hero.standOn !== null; // (on raised ground: no chasm under her feet)
+      const fl = raised ? tileAt(i, j) : floorAt(hero.f, hero.r);
       if (!fl) return startFall();
-      const [ci, cj] = cellAt(hero.f, hero.r);
-      const i = Math.round(ci);
-      const j = Math.round(cj);
       const ch = fl === "island" ? "#" : tileAt(i, j);
-      if ((ch === "F" || ch === "f") && fireOn(ch, i, j) && hero.z < FIRE_H) hurt("Burned! Put the fire out with the Rain stone");
+      if ((ch === "F" || ch === "f") && fireOn(ch, i, j) && hero.z - baseAt(i, j) < FIRE_H) hurt("Burned! Put the fire out with the Rain stone");
       else if ((ch === "^" || ch === "v") && spikesUp(ch, i, j)) hurt("Spikes! The Earth stone sinks them");
       else if (ch === "E" && G.portalOpen) win();
       else if (ch !== "F" && ch !== "f" && ch !== "^" && ch !== "v" && ch !== "A" && ch !== "B") G.safe = { f: hero.f, r: hero.r };
@@ -419,6 +536,7 @@ Lynx.games = Lynx.games || {};
       const ch = api.chassis();
       G.O = { f: ch.f, r: ch.r, th: ch.th, rows: lv.map, H: lv.map.length, W: Math.max(...lv.map.map((s) => s.length)) };
       G.O.rows = lv.map.map((s) => s.padEnd(G.O.W, "."));
+      G.O.base = G.O.rows.map((row, i) => [...row].map((c, j) => clamp(+((lv.rise && lv.rise[i] && lv.rise[i][j]) || 0) || 0, 0, 9) * RISE));
       G.gates = {};
       lv.map.join("").replace(/[AB]/g, (c) => (G.gates[c] = { open: false, lift: 0 }));
       let si = G.O.H - 1;
@@ -632,6 +750,11 @@ Lynx.games = Lynx.games || {};
       for (let i = -PAD; i < o.H + PAD; i++) {
         for (let j = -PAD; j < o.W + PAD; j++) {
           const ch = tileAt(i, j);
+          if (baseAt(i, j)) {
+            // raised: drawn standing (queued); under a raised bridge, the chasm
+            if (ch === "~") addQuad(chasm, cellQuad(i, j, i, j, 0, -0.02));
+            continue;
+          }
           if (ch === "." || (ch === "~" && !lit(i, j))) {
             addQuad(chasm, cellQuad(i, j, i, j, 0, -0.02)); // (a hair bigger: no seams)
             if (ch === "~") addQuad(ghosts, cellQuad(i, j, i, j, 0, 0.08));
@@ -658,23 +781,8 @@ Lynx.games = Lynx.games || {};
       fillPath(wet, LOOK.doused, null);
       fillPath(spikes, LOOK.spikes, null);
 
-      // the special cells
-      for (let i = 0; i < o.H; i++) {
-        for (let j = 0; j < o.W; j++) {
-          const ch = o.rows[i][j];
-          const [cf, cr] = cellCenterFR(i, j);
-          if (ch === "a" || ch === "b") {
-            const down = G.gates[ch.toUpperCase()] && G.gates[ch.toUpperCase()].open;
-            poly(cellQuad(i, j, i, j, 0, 0.2), down ? "rgba(70,150,70,0.85)" : "rgba(190,140,50,0.9)", "rgba(40,30,10,0.9)", 2);
-          } else if (ch === "K") {
-            poly(ring(cf, cr, CELL * 0.42, 0, 4), G.portalOpen ? "rgba(240,200,60,0.55)" : "rgba(240,200,60,0.2)", "rgba(240,200,60,0.95)", 2);
-          } else if (ch === "E") {
-            poly(ring(cf, cr, CELL * 0.45, 0, 16), G.portalOpen ? `rgba(190,110,255,${0.45 + 0.15 * Math.sin(t * 5)})` : "rgba(120,110,140,0.45)", G.portalOpen ? "rgba(230,190,255,0.95)" : "rgba(160,150,180,0.8)", 2);
-          } else if (ch === "S") {
-            poly(ring(cf, cr, CELL * 0.35, 0, 12), null, "rgba(255,255,255,0.6)", 1);
-          }
-        }
-      }
+      // the special cells (on raised ground: drawn with its top)
+      for (let i = 0; i < o.H; i++) for (let j = 0; j < o.W; j++) if (!baseAt(i, j)) cellMark(i, j, 0);
 
       // the stones' reach
       G.stones.forEach((s, tag) => {
@@ -708,6 +816,97 @@ Lynx.games = Lynx.games || {};
           ringLine(cf, cr, REACH * CELL, rgba(st.color, 0.85), 2, [3, 3]);
         } else ringLine(cf, cr, s.b.half * 1.5, rgba(st.color, 0.9), 2);
       });
+    }
+
+    // a plate, the Key's socket, the portal, the start: on the cell's ground at height h
+    function cellMark(i, j, h) {
+      const ch = G.O.rows[i][j];
+      if ("abKES".indexOf(ch) < 0) return;
+      const [cf, cr] = cellCenterFR(i, j);
+      if (ch === "a" || ch === "b") {
+        const down = G.gates[ch.toUpperCase()] && G.gates[ch.toUpperCase()].open;
+        poly(cellQuad(i, j, i, j, h, 0.2), down ? "rgba(70,150,70,0.85)" : "rgba(190,140,50,0.9)", "rgba(40,30,10,0.9)", 2);
+      } else if (ch === "K") {
+        poly(ring(cf, cr, CELL * 0.42, h, 4), G.portalOpen ? "rgba(240,200,60,0.55)" : "rgba(240,200,60,0.2)", "rgba(240,200,60,0.95)", 2);
+      } else if (ch === "E") {
+        poly(ring(cf, cr, CELL * 0.45, h, 16), G.portalOpen ? `rgba(190,110,255,${0.45 + 0.15 * Math.sin(G.time * 5)})` : "rgba(120,110,140,0.45)", G.portalOpen ? "rgba(230,190,255,0.95)" : "rgba(160,150,180,0.8)", 2);
+      } else if (ch === "S") {
+        poly(ring(cf, cr, CELL * 0.35, h, 12), null, "rgba(255,255,255,0.6)", 1);
+      }
+    }
+
+    // -- raised ground: a stone column per cell, its sides in 4 cm courses (a
+    // cube's height: so the eye can count them), queued with its box so the
+    // explorer and the real cubes go in front / behind right ----------------------------------------------------------------
+    const RAISED = {
+      top: ["rgba(214,184,128,0.97)", "rgba(226,200,146,0.97)", "rgba(238,218,170,0.97)"], // 4, 8, 12+ cm: lighter higher up
+      side: "rgba(150,110,62,0.97)",
+      sideDark: "rgba(112,80,44,0.97)",
+      line: "rgba(60,40,18,0.9)",
+    };
+    function queueRaised() {
+      const o = G.O;
+      const cam = w.camLocal();
+      for (let i = 0; i < o.H; i++) {
+        for (let j = 0; j < o.W; j++) {
+          const h = baseAt(i, j);
+          if (!h) continue;
+          const ch = o.rows[i][j];
+          const bridge = ch === "~";
+          const on = !bridge || lit(i, j);
+          const h0 = bridge ? h - SLAB : 0;
+          const [cf, cr] = cellCenterFR(i, j);
+          const top = cellQuad(i, j, i, j, h);
+          const z = w.camZ(cf, cr, (h0 + h) / 2);
+          if (z < w.near && top.every((p) => w.camZ(...p) < w.near)) continue;
+          const fs = top.map((p) => p[0]);
+          const rs = top.map((p) => p[1]);
+          ar.queue(z, () => {
+            if (!on) {
+              // an unlit raised bridge: only its ghostly outline, up in the air
+              const g = ar.ctx;
+              const q = [];
+              addQuad(q, cellQuad(i, j, i, j, h, 0.08));
+              g.setLineDash([4, 4]);
+              fillPath(q, null, LOOK.ghost, 1);
+              g.setLineDash([]);
+              return;
+            }
+            // the sides that face the camera, down to the lower neighbour (or the floor)
+            const sides = [];
+            const dark = [];
+            const nb = [[0, -1], [-1, 0], [0, 1], [1, 0]]; // corner k -> k+1: left, far, right, near
+            for (let k = 0; k < 4; k++) {
+              const a = top[k];
+              const b = top[(k + 1) % 4];
+              const [ni, nj] = [i + nb[k][0], j + nb[k][1]];
+              const nc = tileAt(ni, nj);
+              const nh = bridge ? (baseAt(ni, nj) >= h - 1e-6 && (nc !== "~" || lit(ni, nj)) ? h : h0) : nc === "~" ? 0 : baseAt(ni, nj);
+              if (nh >= h - 1e-6) continue;
+              const mf = (a[0] + b[0]) / 2;
+              const mr = (a[1] + b[1]) / 2;
+              if ((cam.f - mf) * (mf - cf) + (cam.r - mr) * (mr - cr) <= 0) continue; // (faces away)
+              const out = k % 2 ? sides : dark;
+              for (let lo = nh; lo < h - 1e-6; lo += bridge ? SLAB : RISE) {
+                const hi = Math.min(h, lo + (bridge ? SLAB : RISE));
+                addQuad(out, [[a[0], a[1], lo], [b[0], b[1], lo], [b[0], b[1], hi], [a[0], a[1], hi]]);
+              }
+            }
+            fillPath(sides, bridge ? LOOK.bridge : RAISED.side, RAISED.line, 1);
+            fillPath(dark, bridge ? LOOK.bridge : RAISED.sideDark, RAISED.line, 1);
+            if (cam.h <= h) return;
+            const tp = [];
+            addQuad(tp, top);
+            if (bridge) fillPath(tp, LOOK.bridge, LOOK.bridgeLine, 1.5);
+            else fillPath(tp, RAISED.top[clamp(Math.round(h / RISE) - 1, 0, 2)], RAISED.line, 1.2);
+            const inner = [];
+            if (ch === "F" || ch === "f") addQuad(inner, cellQuad(i, j, i, j, h, 0.12));
+            else if (ch === "^" || ch === "v") addQuad(inner, cellQuad(i, j, i, j, h, 0.12));
+            if (inner.length) fillPath(inner, ch === "^" || ch === "v" ? LOOK.spikes : doused(i, j) ? LOOK.doused : LOOK.fire, null);
+            cellMark(i, j, h);
+          }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), h0, h, top));
+        }
+      }
     }
 
     // -- the stones' looks -------------------------------------------------------------------------------------------
@@ -998,7 +1197,8 @@ Lynx.games = Lynx.games || {};
       // across the way the path runs (the path continues in front and behind)
       const along = walkTile(tileAt(i - 1, j)) || walkTile(tileAt(i + 1, j)) || tileAt(i - 1, j) === "~" || tileAt(i + 1, j) === "~";
       const [u, v] = cellUV(i, j);
-      const P = (s, h) => [...(along ? toFR(u, v + s * CELL) : toFR(u + s * CELL, v)), h];
+      const b0 = baseAt(i, j);
+      const P = (s, h) => [...(along ? toFR(u, v + s * CELL) : toFR(u + s * CELL, v)), b0 + h];
       const z = w.camZ(...P(0, GATE_H / 2));
       if (z < w.near) return;
       ar.queue(z, () => {
@@ -1054,6 +1254,7 @@ Lynx.games = Lynx.games || {};
       const o = G.O;
       const t = G.time;
       const g = ar.ctx;
+      queueRaised();
       G.stones.forEach((s, tag) => {
         if (!s) return;
         if (tag === 0) queuePalm(s.b);
@@ -1069,7 +1270,8 @@ Lynx.games = Lynx.games || {};
             continue;
           }
           const [cf, cr] = cellCenterFR(i, j);
-          const z = w.camZ(cf, cr, 0.02);
+          const hb = baseAt(i, j); // (on raised ground: on its top)
+          const z = w.camZ(cf, cr, hb + 0.02);
           if (z < w.near) continue;
           if ((ch === "F" || ch === "f") && fireOn(ch, i, j)) {
             ar.queue(z, () => {
@@ -1078,9 +1280,9 @@ Lynx.games = Lynx.games || {};
                 const ff = cf + Math.cos(a) * CELL * 0.22;
                 const rr = cr + Math.sin(a) * CELL * 0.22;
                 const hgt = FIRE_H * (0.7 + 0.3 * Math.sin(t * 11 + k * 2.1 + j));
-                const b0 = w.project(ff - CELL * 0.12, rr, 0);
-                const b1 = w.project(ff + CELL * 0.12, rr, 0);
-                const top = w.project(ff, rr, hgt);
+                const b0 = w.project(ff - CELL * 0.12, rr, hb);
+                const b1 = w.project(ff + CELL * 0.12, rr, hb);
+                const top = w.project(ff, rr, hb + hgt);
                 if (!b0 || !b1 || !top) continue;
                 g.beginPath();
                 g.moveTo(b0.x, b0.y);
@@ -1097,9 +1299,9 @@ Lynx.games = Lynx.games || {};
               for (const [du, dv] of [[-0.22, -0.22], [-0.22, 0.22], [0.22, -0.22], [0.22, 0.22]]) {
                 const ff = cf + du * CELL;
                 const rr = cr + dv * CELL;
-                const b0 = w.project(ff, rr - CELL * 0.1, 0);
-                const b1 = w.project(ff, rr + CELL * 0.1, 0);
-                const top = w.project(ff, rr, SPIKE_H);
+                const b0 = w.project(ff, rr - CELL * 0.1, hb);
+                const b1 = w.project(ff, rr + CELL * 0.1, hb);
+                const top = w.project(ff, rr, hb + SPIKE_H);
                 if (!b0 || !b1 || !top) continue;
                 g.beginPath();
                 g.moveTo(b0.x, b0.y);
@@ -1115,7 +1317,7 @@ Lynx.games = Lynx.games || {};
               for (let k = 0; k <= 16; k++) {
                 const a = (k / 16) * Math.PI * 2;
                 const [pf, pr] = toFR(cellUV(i, j)[0], cellUV(i, j)[1] + Math.cos(a) * CELL * 0.4);
-                pts.push([pf, pr, CELL * 0.6 + Math.sin(a) * CELL * 0.6]);
+                pts.push([pf, pr, hb + CELL * 0.6 + Math.sin(a) * CELL * 0.6]);
               }
               w.line3(pts, `rgba(210,150,255,${0.7 + 0.3 * Math.sin(t * 6)})`, 3, 0.01);
             });
@@ -1201,7 +1403,7 @@ Lynx.games = Lynx.games || {};
           [...row].forEach((ch, j) => {
             if ("abAB".indexOf(ch) < 0) return;
             const [cf, cr] = cellCenterFR(i, j);
-            const p = w.project(cf, cr, ch === "a" || ch === "b" ? 0.004 : GATE_H * (1 - G.gates[ch.toUpperCase()].lift) + 0.01);
+            const p = w.project(cf, cr, baseAt(i, j) + (ch === "a" || ch === "b" ? 0.004 : GATE_H * (1 - G.gates[ch.toUpperCase()].lift) + 0.01));
             if (p) ar.text(ch, p.x, p.y, { size: 13, align: "center", color: "#ffe9a8" });
           }),
         );
@@ -1312,7 +1514,7 @@ Lynx.games = Lynx.games || {};
         });
       }
       ar.text(
-        small ? "Tap a level · tap it again (or ▶): start" : "The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-5: choose · Fire / A: start",
+        small ? "Tap a level · tap it again (or ▶): start" : "The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-7: choose · Fire / A: start",
         v.cx, v.y + v.h - 22, { size: small ? 11 : 12, align: "center", color: "#ffe9a8" },
       );
     }
@@ -1366,7 +1568,7 @@ Lynx.games = Lynx.games || {};
     return {
       actionLabel: "▶ OK",
       frozen: () => G.phase !== "play" || G.fallT > 0,
-      solids: () => (G.phase === "menu" ? [] : gateSolids()),
+      solids: () => (G.phase === "menu" || !G.O ? [] : gateSolids().concat(platSolids())),
       drawFloor,
       draw() {
         drawStanding();
@@ -1437,7 +1639,7 @@ Lynx.games = Lynx.games || {};
         stones: G.stones.map((s, tag) => (s ? `${tag}@${s.i.toFixed(2)},${s.j.toFixed(2)}` : `${tag}:-`)),
         hero: G.O ? cellAt(hero.f, hero.r).map((x) => +x.toFixed(2)) : null, floor: G.O ? floorAt(hero.f, hero.r) : null,
       }),
-      debug: { G, LEVELS, loadLevel, cellAt, cellCenterFR, floorAt, findStones, win, retry },
+      debug: { G, LEVELS, loadLevel, cellAt, cellCenterFR, floorAt, findStones, win, retry, baseAt, platSolids, groundCell },
     };
   };
 })(window.Lynx);

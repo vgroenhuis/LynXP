@@ -362,7 +362,7 @@ window.Lynx = window.Lynx || {};
         "chasms, fire, spikes, ghostly bridges and gates between the explorer and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
         "cubes 0-5: 0 Island raises ground round itself, 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
         "4 Key in its socket opens the portal, 5 Earth sinks spikes. Every level needs all six, and some need a stone twice: move it on while the explorer waits. " +
-        "No setup and no frame cube: just the cubes 0-5 at hand. Five levels. Needs internet once (the tag detector). Tags to print: /tags.html",
+        "No setup and no frame cube: just the cubes 0-5 at hand. Raised ground in 4 cm steps -- a cube's height -- makes the stones steps and stepping stones too. Seven levels. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
         { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "cellCm", label: "Level scale: one map cell (the cubes fit in one)", type: "number", unit: "cm", def: 5, min: 3, max: 10, step: 0.5 },
