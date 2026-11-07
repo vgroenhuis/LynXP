@@ -23,6 +23,7 @@
 #include "closer_report.hpp"
 #include "closer_update.hpp"
 #include "app_data.hpp"
+#include "reset_log.hpp"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -48,6 +49,10 @@ extern "C" void app_main(void) {
     // Harmless to call this early: it only reads RTC memory, no dependency
     // on anything initialized after it.
     breadcrumb_capture_boot_snapshot();
+    // Likewise: what the previous run left (the watchdogs' records, the last
+    // task switches, a panic), before this run starts writing its own.
+    watchdog_capture_boot();
+    reset_log_capture();
 
     ESP_LOGI("main", "LynXP ESP32-C5 -- full feature parity (wifi + http + control modes + diagnostics + CAM link + OTA)");
 
@@ -61,6 +66,7 @@ extern "C" void app_main(void) {
         nvsErr = nvs_flash_init();
     }
     ESP_ERROR_CHECK(nvsErr);
+    reset_log_store(); // this start, in the reset history (GET /resets)
 
     // Try to load a previous session's settings, and only fall back to (and
     // persist) defaults if none exist yet or the version doesn't match.
@@ -90,6 +96,7 @@ extern "C" void app_main(void) {
     closer_update_register_routes(); // GET /api/update, POST /api/update/check
     cam_stream_start(); // MJPEG of the camera's frames over this board's Wi-Fi, port 81 (cam_stream.hpp)
     debug_pan_register_routes();
+    reset_log_register_routes(); // GET /resets
     closer_report_start(); // heartbeats to the CloSer lab demos page, once a device key is stored
 
     // Both tasks now exist -- subscribe them to the task watchdog and start

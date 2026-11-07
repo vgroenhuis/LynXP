@@ -11,6 +11,7 @@
 #include "cpu_trace.h"
 #include "watchdog.hpp"
 #include "breadcrumb.hpp"
+#include "reset_log.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -163,7 +164,10 @@ char *build_report(const char *event) {
         const BreadcrumbSnapshot &bc = breadcrumb_get_boot_snapshot();
         char msg[120]; // (the server takes messages up to 120 characters)
         const char *wdt = watchdog_twdt_culprits();
-        if (wdt[0]) {
+        if (reset_log_summary()[0]) {
+            // (reset_log.cpp: the chip's reset cause, the task that had the CPU, a panic's address)
+            snprintf(msg, sizeof(msg), "%.119s", reset_log_summary());
+        } else if (wdt[0]) {
             // (the task watchdog's own record first: who didn't check in)
             snprintf(msg, sizeof(msg), "task wdt:%.70s; control at %s, ws at %s", wdt,
                      breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), breadcrumb_core0_checkpoint_name(bc.core0Checkpoint));
@@ -224,7 +228,9 @@ bool send_report() {
         esp_http_client_set_header(c, "Authorization", auth);
         esp_http_client_set_header(c, "Content-Type", "application/json");
         esp_http_client_set_post_field(c, body, (int) std::strlen(body));
+        reset_log_net(bootSent ? "https heartbeat" : "https boot report");
         esp_err_t err = esp_http_client_perform(c);
+        reset_log_net(err == ESP_OK ? "report done" : "report failed");
         int status = esp_http_client_get_status_code(c);
         if (err != ESP_OK) {
             snprintf(lastResult, sizeof(lastResult), "%s: %s", event, esp_err_to_name(err));
@@ -488,6 +494,7 @@ int upload_trace(const uint8_t *data, size_t len, bool zlibbed) {
         esp_http_client_set_post_field(c, (const char *) data + have, (int) n);
         reply.len = 0;
         reply.text[0] = '\0';
+        reset_log_net("https trace upload");
         esp_err_t err = esp_http_client_perform(c); // (the same connection while it lasts)
         status = err == ESP_OK ? esp_http_client_get_status_code(c) : -1;
         const char *h = std::strstr(reply.text, "\"have\":");

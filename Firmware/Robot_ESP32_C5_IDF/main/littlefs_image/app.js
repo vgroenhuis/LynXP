@@ -1854,8 +1854,16 @@ function loadParams() {
         // register pointed at boot, i.e. right before the hang - see
         // src/breadcrumb.cpp for the full checkpoint list and reasoning.
         rebootText += ` — core0 was at: ${data.lastHangCore0Checkpoint}; core1 was at: ${data.lastHangCore1Checkpoint} (tick ${data.lastHangCore1Ticks}); last WS message: '${data.lastHangWsMessage}'`;
+        // reset_log.cpp: the chip's own reset cause, the task that had the CPU, a panic's address
+        if (data.lastResetDetail) rebootText += ` — ${data.lastResetDetail}`;
       }
-      document.getElementById("reboot-reason-display").textContent = rebootText;
+      const rr = document.getElementById("reboot-reason-display");
+      rr.textContent = rebootText + " ";
+      const hist = document.createElement("a");
+      hist.href = "/resets";
+      hist.target = "_blank";
+      hist.textContent = "(reset history)";
+      rr.appendChild(hist);
 
       document.getElementById("wheelbaseMm").value = data.wheelbaseMm;
       document.getElementById("wheelDiameterMm").value = data.wheelDiameterMm;

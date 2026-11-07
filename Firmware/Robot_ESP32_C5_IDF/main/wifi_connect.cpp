@@ -1,5 +1,6 @@
 #include "esp_attr.h"
 #include "wifi_connect.hpp"
+#include "reset_log.hpp"
 #include "ws_broadcast.hpp"
 #include "wifi_networks.hpp"
 #include "captive_dns.hpp"
@@ -840,6 +841,7 @@ void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data
         // 2 AUTH_EXPIRE / 15 4WAY_HANDSHAKE_TIMEOUT / 204 HANDSHAKE_TIMEOUT
         // usually mean a wrong password; 201 NO_AP_FOUND means out of range.
         ESP_LOGW(TAG, "%s (reason=%d)", wasConnected ? "disconnected" : "connect attempt failed", event->reason);
+        reset_log_net(wasConnected ? "wifi disconnected" : "wifi connect failed");
         xEventGroupSetBits(s_events, BIT_DISCONNECTED);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
         ESP_LOGI(TAG, "a device joined the setup hotspot");
@@ -852,6 +854,7 @@ void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data
         }
         ESP_LOGI(TAG, "connected to %s, ip=%s", g_attemptSsid, g_ip);
         g_connected = true;
+        reset_log_net("wifi got IP");
         xEventGroupSetBits(s_events, BIT_CONNECTED);
     }
 }

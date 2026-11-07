@@ -31,6 +31,7 @@ idf_component_register(
         "ws_broadcast.cpp"
         "diagnostics.cpp"
         "watchdog.cpp"
+        "reset_log.cpp"
         "littlefs_init.cpp"
         "ota.cpp"
         "app_data.cpp"
@@ -67,6 +68,10 @@ idf_component_register(
         qrcode          # espressif/qrcode managed component
         joltwallet__littlefs   # joltwallet/littlefs's actual registered component name
 )
+
+# reset_log.cpp records a panic's reason and address before the panic
+# handler prints (and maybe hangs): it wraps esp_panic_handler.
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_panic_handler")
 
 # cpu_trace.c logs every context switch: the scheduler (tasks.c) must see
 # its traceTASK_SWITCHED_IN.

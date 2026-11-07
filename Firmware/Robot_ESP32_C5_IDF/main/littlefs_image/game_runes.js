@@ -47,7 +47,7 @@ Lynx.games = Lynx.games || {};
     {
       id: "first",
       name: "Six Stones",
-      intro: "Every rune stone once: make the knight's way to the portal",
+      intro: "Every rune stone once: make the explorer's way to the portal",
       hint: "Island in the chasm, Weight on the plate, Rain at the fire, Lantern at the ghost bridge, Earth at the spikes, Key in the socket",
       map: [
         "..KE...",
@@ -68,7 +68,7 @@ Lynx.games = Lynx.games || {};
     {
       id: "fires",
       name: "Fire Twice",
-      intro: "Two fires, one Rain stone: carry it on while the knight waits",
+      intro: "Two fires, one Rain stone: carry it on while the explorer waits",
       hint: "Put out the first fire, walk past it, then move the Rain stone to the second fire",
       map: [
         ".E.......",
@@ -112,7 +112,7 @@ Lynx.games = Lynx.games || {};
     {
       id: "gates",
       name: "Two Gates",
-      intro: "Two gates, one Weight: the first gate may close behind the knight",
+      intro: "Two gates, one Weight: the first gate may close behind the explorer",
       hint: "Weight on plate a, through gate A, then move the Weight to plate b",
       map: [
         "E~~#.....",
@@ -135,7 +135,7 @@ Lynx.games = Lynx.games || {};
       id: "vault",
       name: "The Rune Vault",
       intro: "Two chasms, two ghost bridges and a fire that comes and goes",
-      hint: "The Island and the Lantern each go twice: move them on behind the knight",
+      hint: "The Island and the Lantern each go twice: move them on behind the explorer",
       map: [
         "..K.......",
         "..E.......",
@@ -379,7 +379,7 @@ Lynx.games = Lynx.games || {};
           G.hearts = Math.max(0, G.hearts - 1);
           if (G.hearts <= 0) {
             respawn();
-            return lose("The knight fell into the chasm");
+            return lose("The explorer fell into the chasm");
           }
           respawn();
           say("Into the chasm! Back to firm ground", "#ff9080");
@@ -478,17 +478,101 @@ Lynx.games = Lynx.games || {};
       sfx("click");
     }
 
-    // -- drawing: all flat, cheap -----------------------------------------------------------------------------------------
+    // -- drawing: flat and batched, cheap on an old phone -----------------------------------------------------------
+    // The floor goes through the calibrated lens (world3d's lens option),
+    // which gives nothing for points past the lens's edge: a long polygon
+    // reaching out there loses corners and turns into a wedge. So the floor
+    // is drawn cell by cell -- a cell that doesn't project whole, or is big
+    // on the screen (near the camera: the lens's curve shows), is split in
+    // four (twice at most) -- and the cells of one look go into one path,
+    // filled once.
     const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
-    // a quad of cells (rows i0..i1, columns j0..j1, inclusive) on the floor, at height h
-    function cellQuad(i0, j0, i1, j1, h = 0) {
-      const [u0, v0] = [MAP_AHEAD_M + (G.O.H - 1 - i1) * CELL, (j0 - (G.O.W - 1) / 2 - 0.5) * CELL];
-      const [u1, v1] = [MAP_AHEAD_M + (G.O.H - i0) * CELL, (j1 - (G.O.W - 1) / 2 + 0.5) * CELL];
+    const V = {
+      add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
+      mul: (a, k) => [a[0] * k, a[1] * k, a[2] * k],
+    };
+    // a quad of cells (rows i0..i1, columns j0..j1, inclusive) on the floor at
+    // height h, shrunk by `inset` cells each side (negative: grown)
+    function cellQuad(i0, j0, i1, j1, h = 0, inset = 0) {
+      const [u0, v0] = [MAP_AHEAD_M + (G.O.H - 1 - i1 + inset) * CELL, (j0 - (G.O.W - 1) / 2 - 0.5 + inset) * CELL];
+      const [u1, v1] = [MAP_AHEAD_M + (G.O.H - i0 - inset) * CELL, (j1 - (G.O.W - 1) / 2 + 0.5 - inset) * CELL];
       return [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(([u, v]) => [...toFR(u, v), h]);
     }
+    function offView(s, m) {
+      const v = ar.view;
+      return s.every((p) => p.x < v.x - m) || s.every((p) => p.x > v.x + v.w + m) || s.every((p) => p.y < v.y - m) || s.every((p) => p.y > v.y + v.h + m);
+    }
+    // a floor quad (4 points [f, r, h]) into `path` (a list of screen quads)
+    function addQuad(path, pts, depth = 0) {
+      let s = [];
+      for (const p of pts) {
+        const q = w.project(p[0], p[1], p[2]);
+        if (!q) {
+          s = null;
+          break;
+        }
+        s.push(q);
+      }
+      if (s) {
+        if (offView(s, 4)) return;
+        const size = Math.max(Math.abs(s[0].x - s[2].x), Math.abs(s[0].y - s[2].y), Math.abs(s[1].x - s[3].x), Math.abs(s[1].y - s[3].y));
+        if (size < 110 || depth >= 2) {
+          path.push(s);
+          return;
+        }
+      } else if (depth >= 2) return;
+      const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+      const [a, b, c, d] = pts;
+      const ab = mid(a, b);
+      const bc = mid(b, c);
+      const cd = mid(c, d);
+      const da = mid(d, a);
+      const m = mid(a, c);
+      addQuad(path, [a, ab, m, da], depth + 1);
+      addQuad(path, [ab, b, bc, m], depth + 1);
+      addQuad(path, [m, bc, c, cd], depth + 1);
+      addQuad(path, [da, m, cd, d], depth + 1);
+    }
+    // a turned square (a stone's frame: half-size in m) in n x n pieces
+    function addSquare(path, b, half, n = 4) {
+      for (let a = 0; a < n; a++) {
+        for (let c = 0; c < n; c++) {
+          const u0 = -half + (2 * half * a) / n;
+          const u1 = -half + (2 * half * (a + 1)) / n;
+          const v0 = -half + (2 * half * c) / n;
+          const v1 = -half + (2 * half * (c + 1)) / n;
+          addQuad(path, [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(([u, v]) => [...api.fromB(b, u, v), 0]));
+        }
+      }
+    }
+    function fillPath(path, fill, stroke, width = 1) {
+      if (!path.length) return;
+      const g = ar.ctx;
+      g.beginPath();
+      for (const s of path) {
+        g.moveTo(s[0].x, s[0].y);
+        for (let k = 1; k < s.length; k++) g.lineTo(s[k].x, s[k].y);
+        g.closePath();
+      }
+      if (fill) {
+        g.fillStyle = fill;
+        g.fill();
+      }
+      if (stroke) {
+        g.strokeStyle = stroke;
+        g.lineWidth = width;
+        g.stroke();
+      }
+    }
+    // a small floor shape (a socket, a portal ring): all of it or nothing
     function poly(pts, fill, stroke, width = 1) {
-      const p = w.polyScreen(pts, 2);
-      if (p) w.fillPoly(p, fill, stroke, width);
+      const s = [];
+      for (const p of pts) {
+        const q = w.project(p[0], p[1], p[2]);
+        if (!q) return;
+        s.push(q);
+      }
+      fillPath([s], fill, stroke, width);
     }
     function ring(f, r, rad, h, n = 20) {
       const pts = [];
@@ -498,73 +582,492 @@ Lynx.games = Lynx.games || {};
       }
       return pts;
     }
+    // a circle on the floor, outlined (line3 breaks where it leaves the lens)
+    function ringLine(f, r, rad, color, width, dash) {
+      const pts = ring(f, r, rad, 0, 28);
+      pts.push(pts[0]);
+      const g = ar.ctx;
+      if (dash) g.setLineDash(dash);
+      w.line3(pts, color, width, 0.02);
+      if (dash) g.setLineDash([]);
+    }
+    // a disc on the floor, filled: a fan of small pieces (only those that project)
+    function addDisc(path, f, r, rad, n = 16) {
+      for (let k = 0; k < n; k++) {
+        const a0 = (k / n) * Math.PI * 2;
+        const a1 = ((k + 1) / n) * Math.PI * 2;
+        const p = (a, s) => [f + Math.cos(a) * rad * s, r + Math.sin(a) * rad * s, 0];
+        addQuad(path, [p(a0, 0.5), p(a0, 1), p(a1, 1), p(a1, 0.5)]);
+        addQuad(path, [[f, r, 0], p(a0, 0.5), p((a0 + a1) / 2, 0.5), p(a1, 0.5)]);
+      }
+    }
+
     const PAD = 2; // chasm drawn this many cells round the map (it's all chasm out there)
-    const CHASM = "rgba(6,5,18,0.82)";
+    const LOOK = {
+      chasm: "rgba(6,5,18,0.84)",
+      path: "rgba(226,198,138,0.66)", // the walkable stones
+      grout: "rgba(70,48,22,0.8)",
+      bridge: "rgba(150,235,255,0.5)",
+      bridgeLine: "rgba(225,252,255,0.95)",
+      ghost: "rgba(150,230,255,0.5)",
+      fire: "rgba(210,60,20,0.5)",
+      doused: "rgba(70,85,110,0.5)",
+      spikes: "rgba(80,80,92,0.55)",
+      sand: "rgba(236,208,140,0.92)",
+      grass: "rgba(104,170,64,0.92)",
+    };
+    const walkTile = (ch) => "#SKEabABFf^v".indexOf(ch) >= 0;
+
     function drawFloor() {
       if (!G.O || G.phase === "menu") return;
       const o = G.O;
-      // the chasm: per row, runs of cells the knight would fall through (unlit bridges too)
+      const t = G.time;
+      const chasm = [];
+      const path = [];
+      const bridges = [];
+      const ghosts = [];
+      const fires = [];
+      const wet = [];
+      const spikes = [];
       for (let i = -PAD; i < o.H + PAD; i++) {
-        let j0 = null;
-        for (let j = -PAD; j <= o.W + PAD; j++) {
-          const ch = j < o.W + PAD ? tileAt(i, j) : "#";
-          const hole = ch === "." || (ch === "~" && !lit(i, j));
-          if (hole && j0 === null) j0 = j;
-          if (!hole && j0 !== null) {
-            poly(cellQuad(i, j0, i, j - 1), CHASM, null);
-            j0 = null;
+        for (let j = -PAD; j < o.W + PAD; j++) {
+          const ch = tileAt(i, j);
+          if (ch === "." || (ch === "~" && !lit(i, j))) {
+            addQuad(chasm, cellQuad(i, j, i, j, 0, -0.02)); // (a hair bigger: no seams)
+            if (ch === "~") addQuad(ghosts, cellQuad(i, j, i, j, 0, 0.08));
+            continue;
+          }
+          if (ch === "~") {
+            addQuad(bridges, cellQuad(i, j, i, j, 0, 0.05));
+            continue;
+          }
+          if (!walkTile(ch)) continue;
+          addQuad(path, cellQuad(i, j, i, j, 0, 0.05));
+          if (ch === "F" || ch === "f") addQuad(doused(i, j) ? wet : fires, cellQuad(i, j, i, j, 0, 0.12));
+          else if (ch === "^" || ch === "v") addQuad(spikes, cellQuad(i, j, i, j, 0, 0.12));
+        }
+      }
+      fillPath(chasm, LOOK.chasm, null);
+      fillPath(path, LOOK.path, LOOK.grout, 1.2);
+      fillPath(bridges, LOOK.bridge, LOOK.bridgeLine, 1.5);
+      const g = ar.ctx;
+      g.setLineDash([4, 4]);
+      fillPath(ghosts, null, LOOK.ghost, 1);
+      g.setLineDash([]);
+      fillPath(fires, LOOK.fire, null);
+      fillPath(wet, LOOK.doused, null);
+      fillPath(spikes, LOOK.spikes, null);
+
+      // the special cells
+      for (let i = 0; i < o.H; i++) {
+        for (let j = 0; j < o.W; j++) {
+          const ch = o.rows[i][j];
+          const [cf, cr] = cellCenterFR(i, j);
+          if (ch === "a" || ch === "b") {
+            const down = G.gates[ch.toUpperCase()] && G.gates[ch.toUpperCase()].open;
+            poly(cellQuad(i, j, i, j, 0, 0.2), down ? "rgba(70,150,70,0.85)" : "rgba(190,140,50,0.9)", "rgba(40,30,10,0.9)", 2);
+          } else if (ch === "K") {
+            poly(ring(cf, cr, CELL * 0.42, 0, 4), G.portalOpen ? "rgba(240,200,60,0.55)" : "rgba(240,200,60,0.2)", "rgba(240,200,60,0.95)", 2);
+          } else if (ch === "E") {
+            poly(ring(cf, cr, CELL * 0.45, 0, 16), G.portalOpen ? `rgba(190,110,255,${0.45 + 0.15 * Math.sin(t * 5)})` : "rgba(120,110,140,0.45)", G.portalOpen ? "rgba(230,190,255,0.95)" : "rgba(160,150,180,0.8)", 2);
+          } else if (ch === "S") {
+            poly(ring(cf, cr, CELL * 0.35, 0, 12), null, "rgba(255,255,255,0.6)", 1);
           }
         }
       }
-      const t = G.time;
-      // the stones' reach, under the rest
+
+      // the stones' reach
       G.stones.forEach((s, tag) => {
         if (!s) return;
         const st = STONES[tag];
         const { cf, cr } = s.b;
         if (tag === 0) {
+          // the island: a sandy beach round a grassy middle
+          const sand = [];
+          const grass = [];
+          addSquare(sand, s.b, ISLAND_HALF * CELL, 4);
+          addSquare(grass, s.b, ISLAND_HALF * CELL * 0.7, 3);
+          fillPath(sand, LOOK.sand, null);
+          fillPath(grass, LOOK.grass, null);
           const h = ISLAND_HALF * CELL;
-          const pts = [[h, h], [h, -h], [-h, -h], [-h, h]].map(([u, v]) => [...api.fromB(s.b, u, v), 0]);
-          poly(pts, "rgba(96,140,64,0.78)", rgba(st.color, 0.95), 2);
-        } else if (tag === 2 || tag === 3 || tag === 5) {
-          const a = tag === 3 ? 0.16 + 0.04 * Math.sin(t * 3) : 0.12;
-          poly(ring(cf, cr, REACH * CELL, 0), rgba(st.color, a), rgba(st.color, 0.7), 1.5);
-        } else poly(ring(cf, cr, s.b.half * 1.5, 0, 12), null, rgba(st.color, 0.9), 2);
+          const edge = [[h, h], [h, -h], [-h, -h], [-h, h], [h, h]].map(([u, v]) => [...api.fromB(s.b, u, v), 0]);
+          w.line3(edge, "rgba(120,90,40,0.95)", 2, 0.02);
+        } else if (tag === 2) {
+          const wetDisc = [];
+          addDisc(wetDisc, cf, cr, REACH * CELL);
+          fillPath(wetDisc, "rgba(80,140,255,0.16)", null);
+          ringLine(cf, cr, REACH * CELL, rgba(st.color, 0.8), 1.5, [6, 4]);
+        } else if (tag === 3) {
+          // the lantern's light: a yellow disc and the cone from the lantern down to it
+          const disc = [];
+          addDisc(disc, cf, cr, REACH * CELL);
+          fillPath(disc, `rgba(255,214,90,${0.24 + 0.04 * Math.sin(t * 3)})`, null);
+          ringLine(cf, cr, REACH * CELL, "rgba(255,214,90,0.85)", 1.5);
+          drawLightCone(s.b);
+        } else if (tag === 5) {
+          ringLine(cf, cr, REACH * CELL, rgba(st.color, 0.85), 2, [3, 3]);
+        } else ringLine(cf, cr, s.b.half * 1.5, rgba(st.color, 0.9), 2);
       });
-      for (let i = 0; i < o.H; i++) {
-        for (let j = 0; j < o.W; j++) {
-          const ch = o.rows[i][j];
-          const [cf, cr] = cellCenterFR(i, j);
-          if (ch === "~") {
-            const on = lit(i, j);
-            poly(cellQuad(i, j, i, j), on ? "rgba(150,235,255,0.42)" : null, on ? "rgba(200,250,255,0.9)" : "rgba(120,220,255,0.35)", on ? 1.5 : 1);
-          } else if (ch === "a" || ch === "b") {
-            const down = G.gates[ch.toUpperCase()] && G.gates[ch.toUpperCase()].open;
-            poly(cellQuad(i, j, i, j), down ? "rgba(70,150,70,0.75)" : "rgba(180,140,60,0.8)", "rgba(40,30,10,0.9)", 1.5);
-          } else if (ch === "K") {
-            poly(ring(cf, cr, CELL * 0.42, 0, 4), G.portalOpen ? "rgba(240,200,60,0.5)" : "rgba(240,200,60,0.18)", "rgba(240,200,60,0.95)", 2);
-          } else if (ch === "E") {
-            poly(ring(cf, cr, CELL * 0.45, 0, 16), G.portalOpen ? `rgba(190,110,255,${0.45 + 0.15 * Math.sin(t * 5)})` : "rgba(120,110,140,0.4)", G.portalOpen ? "rgba(230,190,255,0.95)" : "rgba(160,150,180,0.8)", 2);
-          } else if (ch === "F" || ch === "f") {
-            poly(cellQuad(i, j, i, j), doused(i, j) ? "rgba(60,60,70,0.55)" : "rgba(120,30,10,0.6)", null);
-          } else if (ch === "^" || ch === "v") {
-            poly(cellQuad(i, j, i, j), sunk(i, j) ? "rgba(90,70,50,0.4)" : "rgba(70,70,80,0.6)", null);
-          } else if (ch === "S") {
-            poly(ring(cf, cr, CELL * 0.35, 0, 12), null, "rgba(255,255,255,0.45)", 1);
+    }
+
+    // -- the stones' looks -------------------------------------------------------------------------------------------
+    const LANTERN_H = 0.13; // m above the floor
+    const CLOUD_H = 0.16;
+    function hull(pts) {
+      const p = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+      const cr = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+      const lo = [];
+      for (const q of p) {
+        while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop();
+        lo.push(q);
+      }
+      const up = [];
+      for (let k = p.length - 1; k >= 0; k--) {
+        const q = p[k];
+        while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop();
+        up.push(q);
+      }
+      return lo.slice(0, -1).concat(up.slice(0, -1));
+    }
+    function drawLightCone(b) {
+      const top = w.project(b.cf, b.cr, LANTERN_H - 0.01);
+      if (!top) return;
+      const pts = [top];
+      ring(b.cf, b.cr, REACH * CELL, 0, 24).forEach((p) => {
+        const q = w.project(...p);
+        if (q) pts.push(q);
+      });
+      if (pts.length < 6) return;
+      const hp = hull(pts);
+      const g = ar.ctx;
+      g.beginPath();
+      hp.forEach((q, k) => (k ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+      g.closePath();
+      g.fillStyle = "rgba(255,225,120,0.13)";
+      g.fill();
+    }
+    // a lantern hanging in the air above the stone
+    function queueLantern(b) {
+      const p = w.project(b.cf, b.cr, LANTERN_H);
+      if (!p) return;
+      ar.queue(p.depth, () => {
+        const g = ar.ctx;
+        const s = Math.max(6, p.ppm * 0.022); // half its height, px
+        const glow = 0.85 + 0.15 * Math.sin(G.time * 7);
+        const halo = g.createRadialGradient(p.x, p.y, s * 0.2, p.x, p.y, s * 2.6);
+        halo.addColorStop(0, `rgba(255,230,120,${0.55 * glow})`);
+        halo.addColorStop(1, "rgba(255,230,120,0)");
+        g.fillStyle = halo;
+        g.beginPath();
+        g.arc(p.x, p.y, s * 2.6, 0, Math.PI * 2);
+        g.fill();
+        g.lineJoin = "round";
+        g.strokeStyle = "#1c1a18";
+        g.lineWidth = Math.max(1.5, s * 0.14);
+        // the handle
+        g.beginPath();
+        g.arc(p.x, p.y - s * 1.05, s * 0.32, Math.PI, 0);
+        g.stroke();
+        // the cap and the base
+        g.fillStyle = "#3a2c1e";
+        g.beginPath();
+        g.moveTo(p.x - s * 0.62, p.y - s * 0.62);
+        g.lineTo(p.x - s * 0.3, p.y - s * 1.0);
+        g.lineTo(p.x + s * 0.3, p.y - s * 1.0);
+        g.lineTo(p.x + s * 0.62, p.y - s * 0.62);
+        g.closePath();
+        g.fill();
+        g.stroke();
+        g.fillRect(p.x - s * 0.62, p.y + s * 0.62, s * 1.24, s * 0.26);
+        g.strokeRect(p.x - s * 0.62, p.y + s * 0.62, s * 1.24, s * 0.26);
+        // the glass, glowing
+        g.fillStyle = `rgba(255,${Math.round(200 + 40 * glow)},90,1)`;
+        g.beginPath();
+        g.rect(p.x - s * 0.5, p.y - s * 0.62, s, s * 1.24);
+        g.fill();
+        g.stroke();
+        // the frame's bars and the flame
+        g.lineWidth = Math.max(1, s * 0.08);
+        g.beginPath();
+        g.moveTo(p.x, p.y - s * 0.62);
+        g.lineTo(p.x, p.y + s * 0.62);
+        g.stroke();
+        g.fillStyle = "rgba(255,255,230,0.95)";
+        g.beginPath();
+        g.ellipse(p.x, p.y + s * 0.1, s * 0.16, s * 0.3, 0, 0, Math.PI * 2);
+        g.fill();
+      });
+    }
+    // a rain cloud above the stone, and its rain falling on the reach
+    const DROPS = Array.from({ length: 22 }, (_, k) => {
+      const a = k * 2.39996; // (golden angle: spread evenly over the disc)
+      const rr = Math.sqrt((k + 0.5) / 22);
+      return { u: Math.cos(a) * rr, v: Math.sin(a) * rr, ph: (k * 0.618) % 1 };
+    });
+    function queueRain(b) {
+      const c = w.project(b.cf, b.cr, CLOUD_H);
+      const mid = w.camZ(b.cf, b.cr, CLOUD_H / 2);
+      if (mid < w.near) return;
+      ar.queue(mid, () => {
+        const g = ar.ctx;
+        const R = REACH * CELL * 0.9;
+        // the drops: short blue streaks, falling from the cloud to the floor
+        g.strokeStyle = "rgba(80,150,255,0.9)";
+        g.lineWidth = 1.6;
+        g.lineCap = "round";
+        g.beginPath();
+        for (const d of DROPS) {
+          const f = b.cf + d.u * R;
+          const r = b.cr + d.v * R;
+          const k = (G.time * 1.8 + d.ph) % 1;
+          const h = CLOUD_H * 0.92 * (1 - k);
+          const a = w.project(f, r, h + 0.014);
+          const z = w.project(f, r, h);
+          if (!a || !z) continue;
+          g.moveTo(a.x, a.y);
+          g.lineTo(z.x, z.y);
+        }
+        g.stroke();
+        if (!c) return;
+        // the cloud: cartoon puffs, a grey underside
+        const s = Math.max(10, c.ppm * REACH * CELL * 0.5);
+        const puffs = [[-0.55, 0.05, 0.42], [-0.2, -0.22, 0.5], [0.25, -0.18, 0.48], [0.6, 0.06, 0.38], [0.02, 0.1, 0.45]];
+        const draw = (color, dy, grow) => {
+          g.fillStyle = color;
+          g.beginPath();
+          for (const [x, y, r] of puffs) {
+            g.moveTo(c.x + x * s + r * s * grow, c.y + y * s + dy);
+            g.arc(c.x + x * s, c.y + y * s + dy, r * s * grow, 0, Math.PI * 2);
           }
+          g.fill();
+        };
+        draw("rgba(40,48,64,0.9)", 0, 1.08); // outline
+        draw("rgba(150,162,185,1)", s * 0.08, 1);
+        draw("rgba(236,241,250,1)", -s * 0.04, 0.9);
+      });
+    }
+    // the Weight stone: a cartoon weight in place of the cube
+    function weightOver(b) {
+      const cs = [];
+      for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const [f, r] = api.fromB(b, u * b.half, v * b.half);
+        for (const h of [b.h0, b.h1]) {
+          const q = w.project(f, r, h);
+          if (!q) return;
+          cs.push(q);
         }
       }
+      const x0 = Math.min(...cs.map((q) => q.x));
+      const x1 = Math.max(...cs.map((q) => q.x));
+      const y0 = Math.min(...cs.map((q) => q.y));
+      const y1 = Math.max(...cs.map((q) => q.y));
+      const wd = x1 - x0;
+      const ht = y1 - y0;
+      const cx = (x0 + x1) / 2;
+      const g = ar.ctx;
+      const top = y0 + ht * 0.2;
+      g.save();
+      g.lineJoin = "round";
+      g.lineWidth = Math.max(2, wd * 0.05);
+      // the handle (a ring on top)
+      g.strokeStyle = "#151518";
+      g.lineWidth = Math.max(3, wd * 0.11);
+      g.beginPath();
+      g.ellipse(cx, top, wd * 0.2, ht * 0.17, 0, Math.PI, 0);
+      g.stroke();
+      // the body: a trapezoid, rounded
+      g.beginPath();
+      g.moveTo(x0 + wd * 0.2, top);
+      g.lineTo(x1 - wd * 0.2, top);
+      g.quadraticCurveTo(x1 - wd * 0.12, top, x1 - wd * 0.1, top + ht * 0.08);
+      g.lineTo(x1, y1 - ht * 0.06);
+      g.quadraticCurveTo(x1, y1, x1 - wd * 0.06, y1);
+      g.lineTo(x0 + wd * 0.06, y1);
+      g.quadraticCurveTo(x0, y1, x0, y1 - ht * 0.06);
+      g.lineTo(x0 + wd * 0.1, top + ht * 0.08);
+      g.quadraticCurveTo(x0 + wd * 0.12, top, x0 + wd * 0.2, top);
+      g.closePath();
+      g.fillStyle = "#1e1e24";
+      g.fill();
+      g.strokeStyle = "#050507";
+      g.lineWidth = Math.max(1.5, wd * 0.03);
+      g.stroke();
+      // a shine down the left side
+      g.strokeStyle = "rgba(255,255,255,0.18)";
+      g.lineWidth = Math.max(2, wd * 0.06);
+      g.beginPath();
+      g.moveTo(x0 + wd * 0.2, top + ht * 0.15);
+      g.lineTo(x0 + wd * 0.12, y1 - ht * 0.12);
+      g.stroke();
+      // 100t
+      g.fillStyle = "#ffffff";
+      g.font = `900 ${Math.max(8, Math.round(wd * 0.3))}px Impact, 'Arial Black', sans-serif`;
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillText("100t", cx, top + (y1 - top) * 0.55);
+      g.restore();
     }
-    // the things that stand up: queued, so the knight and the cubes go in front / behind right
+    // a palm tree on the island, by a corner
+    function queuePalm(b) {
+      const h = ISLAND_HALF * CELL;
+      const [bf, br] = api.fromB(b, h * 0.55, -h * 0.55);
+      const [lf, lr] = api.fromB(b, h * 0.75, -h * 0.85); // the way it leans
+      const baseZ = w.camZ(bf, br, 0.04);
+      if (baseZ < w.near) return;
+      ar.queue(baseZ, () => {
+        const g = ar.ctx;
+        const H = 0.085;
+        const pts = [];
+        for (let k = 0; k <= 6; k++) {
+          const u = k / 6;
+          const lean = u * u;
+          const q = w.project(bf + (lf - bf) * lean, br + (lr - br) * lean, H * u);
+          if (!q) return;
+          pts.push(q);
+        }
+        const tip = pts[pts.length - 1];
+        const ppm = tip.ppm;
+        g.save();
+        g.lineCap = "round";
+        g.lineJoin = "round";
+        const trunk = (color, wd) => {
+          g.strokeStyle = color;
+          g.lineWidth = wd;
+          g.beginPath();
+          pts.forEach((q, k) => (k ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+          g.stroke();
+        };
+        trunk("rgba(30,20,10,0.9)", Math.max(3, ppm * 0.0075));
+        trunk("#8a5a2e", Math.max(2, ppm * 0.0055));
+        // the trunk's rings
+        g.strokeStyle = "rgba(60,36,14,0.8)";
+        g.lineWidth = 1;
+        for (let k = 1; k < pts.length - 1; k++) {
+          const a = pts[k - 1];
+          const c = pts[k + 1];
+          const nx = -(c.y - a.y);
+          const ny = c.x - a.x;
+          const n = Math.hypot(nx, ny) || 1;
+          const r = Math.max(1.5, ppm * 0.0028);
+          g.beginPath();
+          g.moveTo(pts[k].x - (nx / n) * r, pts[k].y - (ny / n) * r);
+          g.lineTo(pts[k].x + (nx / n) * r, pts[k].y + (ny / n) * r);
+          g.stroke();
+        }
+        // the fronds: arching out and down, round the top
+        const [tf, tr] = [bf + (lf - bf), br + (lr - br)];
+        const sway = Math.sin(G.time * 1.3) * 0.004;
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2 + 0.4;
+          const rad = 0.034;
+          const midP = w.project(tf + Math.cos(a) * rad * 0.5, tr + Math.sin(a) * rad * 0.5 + sway, H + 0.008);
+          const endP = w.project(tf + Math.cos(a) * rad, tr + Math.sin(a) * rad + sway, H - 0.016);
+          if (!midP || !endP) continue;
+          for (const [col, wd] of [["rgba(20,40,10,0.9)", 0.0085], ["#3f9a2e", 0.0062]]) {
+            g.strokeStyle = col;
+            g.lineWidth = Math.max(2, ppm * wd);
+            g.beginPath();
+            g.moveTo(tip.x, tip.y);
+            g.quadraticCurveTo(midP.x, midP.y, endP.x, endP.y);
+            g.stroke();
+          }
+          g.strokeStyle = "rgba(200,240,140,0.6)";
+          g.lineWidth = 1;
+          g.beginPath();
+          g.moveTo(tip.x, tip.y);
+          g.quadraticCurveTo(midP.x, midP.y, endP.x, endP.y);
+          g.stroke();
+        }
+        // coconuts
+        g.fillStyle = "#5a3a1c";
+        g.strokeStyle = "rgba(20,12,6,0.9)";
+        for (const dx of [-1, 1]) {
+          g.beginPath();
+          g.arc(tip.x + dx * ppm * 0.003, tip.y + ppm * 0.003, Math.max(2, ppm * 0.0028), 0, Math.PI * 2);
+          g.fill();
+          g.stroke();
+        }
+        g.restore();
+      });
+    }
+
+    // a gate: a portcullis of thick iron bars between two posts, sliding up
+    // into its beam as it opens
+    function queueGate(i, j, gt) {
+      const o = G.O;
+      // across the way the path runs (the path continues in front and behind)
+      const along = walkTile(tileAt(i - 1, j)) || walkTile(tileAt(i + 1, j)) || tileAt(i - 1, j) === "~" || tileAt(i + 1, j) === "~";
+      const [u, v] = cellUV(i, j);
+      const P = (s, h) => [...(along ? toFR(u, v + s * CELL) : toFR(u + s * CELL, v)), h];
+      const z = w.camZ(...P(0, GATE_H / 2));
+      if (z < w.near) return;
+      ar.queue(z, () => {
+        const g = ar.ctx;
+        const seg = (a, b, color, wM, minPx) => {
+          const pa = w.project(...a);
+          const pb = w.project(...b);
+          if (!pa || !pb) return;
+          g.strokeStyle = color;
+          g.lineWidth = Math.max(minPx, wM * (pa.ppm + pb.ppm) / 2);
+          g.beginPath();
+          g.moveTo(pa.x, pa.y);
+          g.lineTo(pb.x, pb.y);
+          g.stroke();
+        };
+        g.save();
+        g.lineCap = "butt";
+        const bottom = GATE_H * gt.lift;
+        const topH = GATE_H;
+        if (topH - bottom > 0.002) {
+          // the grille: bars close enough that nobody gets through
+          const n = 7;
+          for (let k = 0; k < n; k++) {
+            const s = -0.42 + (0.84 * k) / (n - 1);
+            seg(P(s, bottom), P(s, topH), "#15171b", 0.0058, 3);
+            seg(P(s, bottom), P(s, topH), "#4a505a", 0.0038, 2);
+          }
+          for (const f of [0.12, 0.45, 0.78]) {
+            const h = bottom + (topH - bottom) * f;
+            seg(P(-0.46, h), P(0.46, h), "#15171b", 0.005, 3);
+            seg(P(-0.46, h), P(0.46, h), "#5a606a", 0.0032, 2);
+          }
+          // spikes along the bottom edge
+          for (let k = 0; k < n; k++) {
+            const s = -0.42 + (0.84 * k) / (n - 1);
+            seg(P(s, bottom), P(s, Math.max(0, bottom - 0.004)), "#2a2d33", 0.003, 2);
+          }
+        }
+        // the posts and the beam
+        for (const s of [-0.5, 0.5]) {
+          seg(P(s, 0), P(s, GATE_H + 0.012), "#20160c", 0.011, 4);
+          seg(P(s, 0), P(s, GATE_H + 0.012), "#7a5430", 0.008, 3);
+        }
+        seg(P(-0.56, GATE_H + 0.008), P(0.56, GATE_H + 0.008), "#20160c", 0.012, 4);
+        seg(P(-0.56, GATE_H + 0.008), P(0.56, GATE_H + 0.008), "#8a6238", 0.009, 3);
+        g.restore();
+      });
+    }
+
+    // the things that stand up: queued, so the explorer and the cubes go in front / behind right
     function drawStanding() {
       if (!G.O || G.phase === "menu") return;
       const o = G.O;
       const t = G.time;
       const g = ar.ctx;
+      G.stones.forEach((s, tag) => {
+        if (!s) return;
+        if (tag === 0) queuePalm(s.b);
+        else if (tag === 2) queueRain(s.b);
+        else if (tag === 3) queueLantern(s.b);
+      });
       for (let i = 0; i < o.H; i++) {
         for (let j = 0; j < o.W; j++) {
           const ch = o.rows[i][j];
           if ("FfvA^BE".indexOf(ch) < 0) continue;
+          if (ch === "A" || ch === "B") {
+            queueGate(i, j, G.gates[ch]);
+            continue;
+          }
           const [cf, cr] = cellCenterFR(i, j);
           const z = w.camZ(cf, cr, 0.02);
           if (z < w.near) continue;
@@ -606,21 +1109,6 @@ Lynx.games = Lynx.games || {};
                 g.fill();
               }
             });
-          } else if (ch === "A" || ch === "B") {
-            const gt = G.gates[ch];
-            const h1 = GATE_H * (1 - gt.lift);
-            if (h1 < 0.004) continue;
-            ar.queue(z, () => {
-              // bars across the cell (the way the path doesn't run: both ways, it's a cage)
-              const bars = [];
-              for (const d of [-0.35, 0, 0.35]) {
-                bars.push([toFR(...cellUV(i, j).map((x, k) => x + (k === 1 ? d * CELL : 0))), h1]);
-                bars.push([toFR(...cellUV(i, j).map((x, k) => x + (k === 0 ? d * CELL : 0))), h1]);
-              }
-              bars.forEach(([[bf, br], hh]) => w.line3([[bf, br, 0], [bf, br, hh]], "rgba(70,75,85,0.95)", 3, 0.03));
-              const top = cellQuad(i, j, i, j, h1);
-              w.line3([...top, top[0]], "rgba(150,155,165,0.95)", 2, 0.03);
-            });
           } else if (ch === "E" && G.portalOpen) {
             ar.queue(z, () => {
               const pts = [];
@@ -635,6 +1123,75 @@ Lynx.games = Lynx.games || {};
         }
       }
     }
+
+    // -- the explorer: a new character on the knight's skeleton (same cartoon style, no armour, no sword) -------------
+    const EXPLORER = {
+      outline: "rgba(15,12,10,0.85)", skin: "#eab48e", hair: "#b4502a", tie: "#f2c14e", tunic: "#2a9d8f", skirt: "#1f7f72",
+      belt: "#7a4a1e", legs: "#3d3552", boots: "#6b4226", eye: "#1a1410", satchel: "#9a6a34",
+    };
+    function explorerPrims(J, P) {
+      const L = EXPLORER;
+      const out = [];
+      const seg = (a, b, rad, color) => out.push({ k: "seg", a: P(a), b: P(b), rad, color });
+      const ball = (c, rad, color) => out.push({ k: "ball", c: P(c), rad, color });
+      const fwd = [Math.cos(J.twist), Math.sin(J.twist), 0];
+      const right = [-Math.sin(J.twist), Math.cos(J.twist), 0];
+      const back = V.mul(fwd, -1);
+      const speed = Math.hypot(hero.vf, hero.vr) / api.S;
+      const flow = Math.min(0.006, speed * 0.05);
+      for (const s of [-1, 1]) {
+        seg(J.hip[s], J.knee[s], 0.0022, L.legs);
+        seg(J.knee[s], J.ankle[s], 0.0019, L.legs);
+        seg(J.ankle[s], J.toe[s], 0.0019, L.boots);
+      }
+      // the skirt of the tunic: from the waist to above the knees, flaring
+      const waist = V.add(J.pelvis, V.mul(J.up, 0.004));
+      const hemC = V.add(V.add(J.pelvis, V.mul(J.up, -0.0085)), V.mul(back, flow * 0.6));
+      out.push({
+        k: "poly",
+        pts: [P(V.add(waist, V.mul(right, -0.0052))), P(V.add(waist, V.mul(right, 0.0052))), P(V.add(hemC, V.mul(right, 0.0095))), P(V.add(hemC, V.mul(right, -0.0095)))],
+        color: L.skirt,
+        lines: [[P(V.add(waist, V.mul(right, -0.0015))), P(V.add(hemC, V.mul(right, -0.0024)))], [P(V.add(waist, V.mul(right, 0.0015))), P(V.add(hemC, V.mul(right, 0.0024)))]],
+        lineColor: "rgba(0,40,36,0.5)",
+      });
+      seg(V.add(J.pelvis, V.mul(J.up, 0.003)), J.chest, 0.0045, L.tunic);
+      seg(V.add(J.pelvis, V.mul(J.up, 0.0035)), V.add(J.pelvis, V.mul(J.up, 0.0055)), 0.0049, L.belt);
+      ball(V.add(V.add(J.pelvis, V.mul(right, 0.0058)), V.mul(J.up, 0.001)), 0.0024, L.satchel); // a satchel at the hip
+      seg(J.sh[-1], J.sh[1], 0.0024, L.tunic);
+      seg(V.add(J.chest, V.mul(V.add(J.neck, V.mul(J.chest, -1)), 0.35)), J.neck, 0.0019, L.skin);
+      for (const s of [-1, 1]) {
+        seg(J.sh[s], J.elbow[s], 0.0017, L.tunic);
+        seg(J.elbow[s], J.hand[s], 0.0013, L.skin);
+        ball(J.hand[s], 0.0015, L.skin);
+      }
+      // the head: face, hair (a cap a little behind and above: the face covers
+      // it from the front), a fringe, and a ponytail swinging behind
+      // long hair down both sides, to the shoulders (behind the face from the front)
+      for (const s of [-1, 1]) {
+        const top = V.add(V.add(J.head, V.mul(right, s * 0.0036)), V.add(V.mul(fwd, -0.0012), [0, 0, 0.0012]));
+        const low = V.add(V.add(J.head, V.mul(right, s * 0.0046)), V.add(V.mul(fwd, -0.0016), [0, 0, -0.0068]));
+        seg(top, low, 0.0024, L.hair);
+      }
+      ball(J.head, 0.0055, L.skin);
+      ball(V.add(J.head, V.add(V.mul(fwd, -0.0014), [0, 0, 0.0013])), 0.0055, L.hair);
+      ball(V.add(J.head, V.add(V.mul(fwd, 0.003), [0, 0, 0.0036])), 0.0027, L.hair);
+      for (const s of [-1, 1]) ball(V.add(V.add(J.head, V.mul(fwd, 0.0052)), V.add(V.mul(right, s * 0.0019), [0, 0, 0.0004])), 0.0008, L.eye);
+      ball(V.add(J.head, V.add(V.mul(fwd, 0.0053), [0, 0, -0.0021])), 0.0007, "#c0504a"); // the mouth
+      const tieP = V.add(V.add(J.head, V.mul(back, 0.0046)), [0, 0, 0.0022]);
+      const swing = Math.sin(G.time * 7 + hero.phase) * 0.0012 * Math.min(1, speed * 20);
+      const tailEnd = V.add(V.add(tieP, V.mul(back, 0.0035 + flow)), V.add(V.mul(right, swing), [0, 0, -0.0085 + flow * 0.5]));
+      seg(tieP, tailEnd, 0.0021, L.hair);
+      ball(tieP, 0.0016, L.tie);
+      return out;
+    }
+    function drawExplorer(J, alpha) {
+      const K = api.K;
+      const prims = explorerPrims(J, K.placer(hero.f, hero.r, hero.z, hero.yaw, api.S));
+      prims.forEach((p) => p.rad && (p.rad *= api.S));
+      K.drawPrims(w, prims, ar, EXPLORER.outline, alpha);
+      return true;
+    }
+
     // each stone's mark above its cube: its number and name (on top, small)
     function drawStoneLabels() {
       if (!G.O) return;
@@ -706,11 +1263,11 @@ Lynx.games = Lynx.games || {};
       }
       if (G.phase === "won") {
         ar.flash("rgba(20,10,40,0.55)", 1);
-        ar.banner(T("THROUGH THE PORTAL!"), T(G.idx + 1 < LEVELS.length ? "Fire: the next level" : "Fire: back to the menu"), { color: "#d8a8ff" });
+        ar.banner(T("THROUGH THE PORTAL!"), T(G.idx + 1 < LEVELS.length ? "Fire / A: the next level" : "Fire / A: back to the menu"), { color: "#d8a8ff" });
         ar.text(`${T("falls")}: ${G.falls} · ${T("hurt")}: ${G.hurts} · ${T("time")}: ${Math.round(G.levelTime)} s`, v.cx, v.cy + 60, { size: 14, align: "center", color: "#e8dcff" });
       } else if (G.phase === "lost") {
         ar.flash("rgba(40,0,0,0.5)", 1);
-        ar.banner(T("NO HEARTS LEFT"), T("Fire: try again (the stones stay where they are)"), { color: "#ff7060" });
+        ar.banner(T("NO HEARTS LEFT"), T("Fire / A: try again (the stones stay where they are)"), { color: "#ff7060" });
         if (G.lostWhy) ar.text(G.lostWhy, v.cx, v.cy + 60, { size: 14, align: "center", color: "#ffd0c8" });
       }
     }
@@ -724,7 +1281,7 @@ Lynx.games = Lynx.games || {};
       let y = v.y + titleSize + 8;
       ar.text(T("RUNE STONES"), v.cx, y, { size: titleSize, align: "center", color: "#c8a8ff", font: "Impact, 'Arial Black', sans-serif", weight: "normal" });
       y += small ? 18 : 24;
-      ar.text("No fighting: set the rune stones (cubes 0-5) down by hand to make the knight's way", v.cx, y, { size: small ? 11 : 13, align: "center", color: "#d8d0f0" });
+      ar.text("No fighting: set the rune stones (cubes 0-5) down by hand to make the explorer's way", v.cx, y, { size: small ? 11 : 13, align: "center", color: "#d8d0f0" });
       const rw = Math.min(460, v.w - 40);
       const top = y + (small ? 16 : 24);
       const rowH = small ? 20 : 26;
@@ -755,7 +1312,7 @@ Lynx.games = Lynx.games || {};
         });
       }
       ar.text(
-        small ? "Tap a level · tap it again (or ▶): start" : "The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-5: choose · Fire: start",
+        small ? "Tap a level · tap it again (or ▶): start" : "The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-5: choose · Fire / A: start",
         v.cx, v.y + v.h - 22, { size: small ? 11 : 12, align: "center", color: "#ffe9a8" },
       );
     }
@@ -800,6 +1357,12 @@ Lynx.games = Lynx.games || {};
       hintBtn.style.display = G.phase === "play" ? "" : "none";
     }
 
+    function confirm(state) {
+      if (G.phase === "menu") startSelected(state);
+      else if (G.phase === "won" && G.t > 0.6) nextLevel();
+      else if (G.phase === "lost" && G.t > 0.6) retry();
+    }
+
     return {
       actionLabel: "▶ OK",
       frozen: () => G.phase !== "play" || G.fallT > 0,
@@ -840,12 +1403,21 @@ Lynx.games = Lynx.games || {};
       helpLine: () =>
         G.phase === "menu"
           ? ""
-          : "Knight: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V",
+          : "Explorer: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V",
       onFire(state) {
-        if (G.phase === "menu") startSelected(state);
-        else if (G.phase === "won" && G.t > 0.6) nextLevel();
-        else if (G.phase === "lost" && G.t > 0.6) retry();
+        confirm(state);
         return true; // (no sword)
+      },
+      // Jump (Space / gamepad A) does the same outside play: start, go on, try again
+      onJump(state) {
+        if (G.phase === "play") return false;
+        confirm(state);
+        return true;
+      },
+      unarmed: true,
+      drawHero: drawExplorer,
+      blockOver(b) {
+        if (b.tag === 1 && G.phase !== "menu") weightOver(b);
       },
       onWeapon(wpn) {
         if (G.phase !== "menu") return false;

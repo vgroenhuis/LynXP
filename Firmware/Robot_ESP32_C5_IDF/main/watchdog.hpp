@@ -54,6 +54,10 @@ const char *watchdog_abnormal_boot_short();
 // control task suspended (uploads legitimately starve the OLED). Call once
 // from app_main() after the control task exists.
 void watchdog_health_start(TaskHandle_t ctrlTask);
+// Reads what the previous run left in RTC memory (the health watchdog's
+// reason, the task watchdog's record) -- early in app_main(), before
+// reset_log_capture(); watchdog_health_start() does it too if not yet done.
+void watchdog_capture_boot();
 // After a task watchdog reset: which tasks didn't check in, and what each
 // core ran (" - ctrl (CPU 0); ran IDLE0"); "" otherwise.
 const char *watchdog_twdt_culprits();

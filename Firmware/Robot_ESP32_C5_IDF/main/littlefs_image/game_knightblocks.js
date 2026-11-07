@@ -39,12 +39,13 @@
 // blocks the knight can't pass: {id, cf, cr, yaw, half, h0, h1}), frozen(),
 // moveScale(), update(dt, now), drawFloor() / draw() (drawn under / among the
 // blocks), hud(), title() (true: its own title screen), helpLine(auto),
-// onFire(state) / onWeapon(w, state) (true: handled), heroJoints(J), drawHero(J, alpha) (true: drew the knight itself), heroPrims(J, prims, P),
+// onFire(state) / onJump(state) / onWeapon(w, state) (true: handled), heroJoints(J), drawHero(J, alpha) (true: drew the knight itself), heroPrims(J, prims, P),
 // blockOver(b) (after a real block's silhouette is cut out: a skin, light),
 // heroAlpha(), snapshot(), camTarget() ([f, r, z]: what the camera keeps in
 // view instead of the knight, or null), hideHero() (true: no knight, shadow
 // or jump hint), forceTracks() (true: the wheel tracks shown whatever the
-// switch says), forceTags() (the same for the tags found). See `api` below for what it gets.
+// switch says), forceTags() (the same for the tags found); unarmed: true (no
+// sword in the hand -- with drawHero, another character). See `api` below for what it gets.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -1123,6 +1124,7 @@ Lynx.games = Lynx.games || {};
       }
     });
     Lynx.onAction("jump", () => {
+      if (X && X.onJump && X.onJump(state)) return true;
       if (state !== "playing") return false;
       hero.jumpBuf = C.JUMP_BUFFER_S;
       return true;
@@ -1298,7 +1300,7 @@ Lynx.games = Lynx.games || {};
           // (the body's animation is in Pocket Knight units: speeds at its size)
           time, speed: h.speed / S, phase: h.phase, air: h.mode === "move" && !h.onGround ? h.vz / S : null, land: h.landT > 0 ? h.landT / 0.18 : 0,
           hang: h.mode === "hang", climb: h.mode === "climb" ? h.climb.anim : null, attack: h.attack ? { n: h.attack.n, u: h.attack.u } : null,
-          hurt: h.hurtT > 0 ? h.hurtT / 0.35 : 0, dead: h.deadT > 0 ? clamp(h.deadT / 0.7, 0, 1) : 0, brace: 0, armed: true,
+          hurt: h.hurtT > 0 ? h.hurtT / 0.35 : 0, dead: h.deadT > 0 ? clamp(h.deadT / 0.7, 0, 1) : 0, brace: 0, armed: !(X && X.unarmed),
         });
         if (X && X.heroJoints) X.heroJoints(J);
         const c = w.camLocal();

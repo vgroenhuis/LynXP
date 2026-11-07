@@ -30,9 +30,17 @@ static uint32_t s_durUs = 0;
 static bool s_have = false;         // a finished recording is there
 static char s_chip[8];
 
+// A firmware's always-on record of the last switches (the robot's
+// reset_log.cpp: kept across a hang reset); nothing by default. Called with
+// the scheduler's lock held, maybe with the flash cache off: IRAM, RAM only.
+void IRAM_ATTR __attribute__((weak)) cpu_trace_flight(void *tcb) {
+    (void) tcb;
+}
+
 // Every context switch, with the scheduler's lock held: claim a slot, write
 // it. Two cores (S3) can get here at once, hence the atomic slot counter.
 void IRAM_ATTR cpu_trace_switched_in(void *tcb) {
+    cpu_trace_flight(tcb);
     if (!s_on) return;
     uint32_t t = (uint32_t) (esp_timer_get_time() - s_start);
     if (t > s_durUs) {

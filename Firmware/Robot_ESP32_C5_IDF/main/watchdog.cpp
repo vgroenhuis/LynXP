@@ -1,5 +1,7 @@
 #include "watchdog.hpp"
 
+#include "reset_log.hpp"
+
 #include <cstdio>
 
 #include "esp_attr.h"
@@ -77,6 +79,7 @@ void health_task(void *) {
     int lowSeconds = 0;
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
+        reset_log_live(); // (uptime, RAM, task names: kept across a hang reset)
         // An OTA upload suspends the control task and legitimately starves
         // everything else for a while.
         if (g_ctrlTask != nullptr && eTaskGetState(g_ctrlTask) == eSuspended) {
@@ -134,18 +137,30 @@ bool watchdog_is_ready() {
     return g_ready;
 }
 
-void watchdog_health_start(TaskHandle_t ctrlTask) {
-    if (g_rtcHealth.magic == HEALTH_MAGIC && esp_reset_reason() == ESP_RST_SW) {
+void watchdog_capture_boot() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    esp_reset_reason_t r = esp_reset_reason();
+    if (g_rtcHealth.magic == HEALTH_MAGIC && r == ESP_RST_SW) {
         g_bootHealthReason = (HealthReason) g_rtcHealth.reason;
         g_bootHealthDetail = g_rtcHealth.detail;
     }
     g_rtcHealth.magic = 0;
-    if (g_rtcTwdt.magic == TWDT_MAGIC && esp_reset_reason() == ESP_RST_TASK_WDT) {
+    // Whatever the reset turned out to be: the task watchdog's panic can end
+    // in another watchdog (the RTC one, when the panic handler itself gets
+    // stuck), and its record is the best clue then. (Not after a power-on:
+    // RTC memory is noise.)
+    if (g_rtcTwdt.magic == TWDT_MAGIC && r != ESP_RST_POWERON) {
         g_rtcTwdt.text[sizeof(g_rtcTwdt.text) - 1] = '\0';
         snprintf(g_bootTwdt, sizeof(g_bootTwdt), "%s", g_rtcTwdt.text);
         ESP_LOGW(TAG, "task watchdog before this start:%s", g_bootTwdt);
     }
     g_rtcTwdt.magic = 0;
+}
+
+void watchdog_health_start(TaskHandle_t ctrlTask) {
+    watchdog_capture_boot();
     g_ctrlTask = ctrlTask;
     // Above the web server and WiFi tasks, so it still runs when they're the
     // ones hogging the CPU; below the 1 kHz control task.

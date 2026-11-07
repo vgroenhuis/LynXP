@@ -358,15 +358,15 @@ window.Lynx = window.Lynx || {};
       name: "Rune Stones",
       icon: "\u{1F5DD}\u{FE0F}",
       blurb:
-        "A puzzle game for the knight of Knight on Blocks -- no fighting, no enemies. Each level appears on the floor in front of the robot, from where it stands: " +
-        "chasms, fire, spikes, ghostly bridges and gates between the knight and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
+        "A puzzle game on Knight on Blocks, with a new heroine: an explorer -- no fighting, no enemies. Each level appears on the floor in front of the robot, from where it stands: " +
+        "chasms, fire, spikes, ghostly bridges and gates between the explorer and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
         "cubes 0-5: 0 Island raises ground round itself, 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
-        "4 Key in its socket opens the portal, 5 Earth sinks spikes. Every level needs all six, and some need a stone twice: move it on while the knight waits. " +
+        "4 Key in its socket opens the portal, 5 Earth sinks spikes. Every level needs all six, and some need a stone twice: move it on while the explorer waits. " +
         "No setup and no frame cube: just the cubes 0-5 at hand. Five levels. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
         { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "cellCm", label: "Level scale: one map cell (the cubes fit in one)", type: "number", unit: "cm", def: 5, min: 3, max: 10, step: 0.5 },
-        { key: "knightCm", label: "Knight's height (3 cm climbs 5 cm blocks)", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
+        { key: "knightCm", label: "Explorer's height (3 cm climbs 5 cm blocks)", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
         { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
         { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
         { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },

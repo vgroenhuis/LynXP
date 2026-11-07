@@ -16,6 +16,7 @@
 #include "motors.hpp"
 #include "watchdog.hpp"
 #include "breadcrumb.hpp"
+#include "reset_log.hpp"
 #include "ota.hpp"
 #include "closer_report.hpp"
 
@@ -705,7 +706,9 @@ esp_err_t handle_params(httpd_req_t *req) {
     json_escape(breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), core0Esc, sizeof(core0Esc));
     json_escape(breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), core1Esc, sizeof(core1Esc));
     json_escape(bc.lastWsMessageType, wsMsgEsc, sizeof(wsMsgEsc));
-    static EXT_RAM_BSS_ATTR char json[3200]; // (static: the HTTP server's one task builds one at a time; off its stack)
+    char detailEsc[340];
+    json_escape(reset_log_summary(), detailEsc, sizeof(detailEsc)); // (reset_log.cpp; the history: GET /resets)
+    static EXT_RAM_BSS_ATTR char json[3800]; // (static: the HTTP server's one task builds one at a time; off its stack)
     int n = snprintf(json, sizeof(json),
         "{\"loggingEnabled\":%s,\"debugWeb\":%s,\"dataLogRate\":%.1f,\"mode\":%d,"
         "\"logType\":%d,\"logUnit\":%d,\"kp\":%.4f,\"ki\":%.4f,\"kd\":%.4f,"
@@ -726,7 +729,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         "\"lastRebootWasWatchdog\":%s,\"lastRebootReason\":\"%s\","
         "\"lastHangCore0Checkpoint\":\"%s\",\"lastHangCore1Checkpoint\":\"%s\","
         "\"lastHangWsMessage\":\"%s\",\"lastHangCore1Ticks\":%lu,"
-        "\"lastHangConnCount\":%d,\"lastHangWsConnCount\":%d,"
+        "\"lastHangConnCount\":%d,\"lastHangWsConnCount\":%d,\"lastResetDetail\":\"%s\","
         "\"otaUsername\":\"%s\",\"otaPasswordSet\":%s}",
         settings.loggingEnabled ? "true" : "false", settings.debugWeb ? "true" : "false",
         settings.dataLogRate, settings.mode, settings.logType, settings.logUnit,
@@ -749,7 +752,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         settings.cameraHeightMm, settings.cameraTiltDeg, settings.cameraVerticalFovDeg,
         watchdog_last_reboot_was_hang() ? "true" : "false",
         reasonEsc, core0Esc, core1Esc, wsMsgEsc, (unsigned long) bc.core1TickCountAtLastMark,
-        bc.core0TotalConns, bc.core0WsConns,
+        bc.core0TotalConns, bc.core0WsConns, detailEsc,
         userEsc, settings.otaPassword[0] != '\0' ? "true" : "false");
     if (n > 0 && (size_t) n < sizeof(json) && json[n - 1] == '}') {
         // the servos' calibration tables (servo_table.hpp), before the closing brace
