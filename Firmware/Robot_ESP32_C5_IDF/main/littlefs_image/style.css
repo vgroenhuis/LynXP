@@ -1277,6 +1277,33 @@ button {
   font-size: 0.8rem;
 }
 
+.games-sortbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+.games-sortbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.games-sortbar select {
+  width: auto;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.games-card-date {
+  font-size: 0.75rem;
+  color: #777;
+  margin-bottom: 2px;
+}
+
 .games-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

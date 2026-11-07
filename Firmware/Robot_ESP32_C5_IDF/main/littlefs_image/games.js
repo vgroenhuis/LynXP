@@ -26,10 +26,38 @@
   }
 
   // -- catalog cards -------------------------------------------------------------
+  // The order of the cards: the catalog's own, by name or by release date
+  // (remembered per browser). Free drive stays first whatever the order.
+  const SORT_KEY = "gamesSort";
+  let sortBy = "default";
+  try {
+    sortBy = localStorage.getItem(SORT_KEY) || "default";
+  } catch (e) {
+    // (not remembered)
+  }
+  const shownName = (e) => (Lynx.tr ? Lynx.tr(e.name) : e.name);
+  function sortedCatalog() {
+    const list = Lynx.CATALOG.slice();
+    const byName = (a, b) => shownName(a).localeCompare(shownName(b), Lynx.lang || undefined, { sensitivity: "base" });
+    const date = (e) => e.released || "";
+    if (sortBy === "name") list.sort(byName);
+    else if (sortBy === "newest") list.sort((a, b) => date(b).localeCompare(date(a)) || byName(a, b));
+    else if (sortBy === "oldest") list.sort((a, b) => date(a).localeCompare(date(b)) || byName(a, b));
+    const free = list.findIndex((e) => e.id === "none");
+    if (free > 0) list.unshift(...list.splice(free, 1));
+    return list;
+  }
+  // "2026-11-07" -> "7 Nov 2026" / "7 nov 2026" (the page's language)
+  function releaseText(iso) {
+    const d = new Date(`${iso}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(Lynx.lang === "nl" ? "nl-NL" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
+  }
+
   function renderCatalog() {
     const grid = $("catalog");
     grid.replaceChildren();
-    Lynx.CATALOG.forEach((entry) => {
+    sortedCatalog().forEach((entry) => {
       const active = app.active === entry.id;
       const card = el("div", { className: "games-card" + (active ? " games-card-active" : "") + (editing === entry.id ? " games-card-editing" : "") });
       card.appendChild(el("div", { className: "games-card-icon", textContent: entry.icon }));
@@ -39,6 +67,7 @@
         entry.kind !== "none" ? el("span", { className: "games-tag", textContent: entry.kind === "app" ? "app" : "game" }) : null,
         entry.needsModel ? el("span", { className: "games-tag games-tag-ai", textContent: "YOLOv8" }) : null,
       ]));
+      if (entry.released) body.appendChild(el("div", { className: "games-card-date", textContent: `Released ${releaseText(entry.released)}` }));
       body.appendChild(el("div", { className: "games-card-blurb", textContent: entry.blurb }));
       const actions = el("div", { className: "games-card-actions" });
       const selectBtn = el("button", { type: "button", className: "games-btn" + (active ? " games-btn-on" : ""), textContent: active ? "✓ Active" : "Use this" });
@@ -238,6 +267,16 @@
     renderModelStatus();
   });
   $("benchBtn").addEventListener("click", benchmark);
+  $("catalogSort").value = ["default", "name", "newest", "oldest"].includes(sortBy) ? sortBy : "default";
+  $("catalogSort").addEventListener("change", (e) => {
+    sortBy = e.target.value;
+    try {
+      localStorage.setItem(SORT_KEY, sortBy);
+    } catch (err) {
+      // (only for this visit)
+    }
+    if (app) renderCatalog();
+  });
 
   Lynx.loadAppSettings().then((settings) => {
     app = settings;

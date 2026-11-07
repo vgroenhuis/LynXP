@@ -1267,5 +1267,11 @@ Lynx.NL = {
 "Tap a level · tap it again (or ▶): start": "Tik een level aan · nog een keer (of ▶): start",
 "The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-5: choose · Fire: start": "Het level verschijnt voor de robot · klik een level, nog een keer om te starten · LB / RB, Tab, 1-5: kiezen · Vuur: start",
 "Knight: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V": "Ridder: stick / WASD · Springen: spatie / A · Robot: rechterstick / pijltjes · Hint: H · Levels: L · Centreren: V",
-"Level scale: one map cell (the cubes fit in one)": "Schaal van het level: één vakje van de kaart (een blokje past erin)"
+"Level scale: one map cell (the cubes fit in one)": "Schaal van het level: één vakje van de kaart (een blokje past erin)",
+"Sort by": "Sorteren op",
+"Standard order": "Standaardvolgorde",
+"Name (A–Z)": "Naam (A–Z)",
+"Release date (newest first)": "Releasedatum (nieuwste eerst)",
+"Release date (oldest first)": "Releasedatum (oudste eerst)",
+"Released {}": "Uitgebracht op {}"
 };

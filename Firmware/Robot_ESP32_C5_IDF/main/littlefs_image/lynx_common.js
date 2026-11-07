@@ -11,6 +11,8 @@ window.Lynx = window.Lynx || {};
   // Each entry's `settings` drives both the settings form on games.html and
   // the defaults the game itself falls back to. `boards` are its high-score
   // tables: `better` says which way is a better score, `format` how to show it.
+  // `released` (YYYY-MM-DD): when it first appeared, shown and sortable on
+  // games.html -- give every new entry one.
   const COCO_HOME_CLASSES = [
     "person", "bottle", "cup", "chair", "couch", "potted plant", "bed", "dining table", "tv",
     "laptop", "mouse", "remote", "keyboard", "cell phone", "book", "clock", "vase", "scissors",
@@ -29,6 +31,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "demons",
+      released: "2026-09-27",
       kind: "game",
       name: "Doom",
       icon: "\u{1F479}",
@@ -51,6 +54,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "david",
+      released: "2026-09-27",
       kind: "game",
       name: "David",
       icon: "\u{1F4E6}",
@@ -73,6 +77,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "poop",
+      released: "2026-10-04",
       kind: "game",
       name: "Poop Shooter",
       icon: "\u{1F4A9}",
@@ -97,6 +102,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "coins",
+      released: "2026-09-27",
       kind: "game",
       name: "Pacman",
       icon: "\u{1FA99}",
@@ -116,6 +122,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "sonar",
+      released: "2026-10-10",
       kind: "game",
       name: "Sonar",
       icon: "\u{1F4E1}",
@@ -134,6 +141,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "echo",
+      released: "2026-10-10",
       kind: "game",
       name: "Echo",
       icon: "\u{1F3B5}",
@@ -150,6 +158,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "lightwall",
+      released: "2026-10-24",
       kind: "game",
       name: "Lightwall",
       icon: "\u{1F6E4}\u{FE0F}",
@@ -169,6 +178,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "inkblot",
+      released: "2026-10-31",
       kind: "game",
       name: "Inkblot",
       icon: "\u{1F58B}\u{FE0F}",
@@ -186,6 +196,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "shepherd",
+      released: "2026-10-17",
       kind: "game",
       name: "Shepherd",
       icon: "\u{1F411}",
@@ -201,6 +212,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "prisma",
+      released: "2026-09-28",
       kind: "game",
       name: "Prisma",
       icon: "\u{1F52E}",
@@ -218,6 +230,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "temple",
+      released: "2026-09-28",
       kind: "game",
       name: "Temple of LynXP",
       icon: "\u{1F3DB}\u{FE0F}",
@@ -248,6 +261,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "knight",
+      released: "2026-10-01",
       kind: "game",
       name: "Pocket Knight",
       icon: "⚔️",
@@ -270,6 +284,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "knightblocks",
+      released: "2026-10-01",
       kind: "game",
       name: "Knight on Blocks",
       icon: "\u{1F9F1}",
@@ -298,6 +313,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "blockquest",
+      released: "2026-10-14",
       kind: "game",
       name: "Block Quest",
       icon: "\u{1F3F0}",
@@ -337,6 +353,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "runes",
+      released: "2026-11-07",
       kind: "game",
       name: "Rune Stones",
       icon: "\u{1F5DD}\u{FE0F}",
@@ -366,6 +383,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "race",
+      released: "2026-09-27",
       kind: "game",
       name: "Time Trial",
       icon: "\u{1F3C1}",
@@ -390,6 +408,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "scavenger",
+      released: "2026-09-27",
       kind: "game",
       name: "Scavenger Hunt",
       icon: "\u{1F50E}",
@@ -408,6 +427,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "monster_hunt",
+      released: "2026-09-27",
       kind: "game",
       name: "Monster Hunt",
       icon: "\u{1F7E2}",
@@ -422,6 +442,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "focus",
+      released: "2026-10-07",
       kind: "app",
       name: "Focus check",
       icon: "\u{1F52C}",
@@ -433,6 +454,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "camcal",
+      released: "2026-10-07",
       kind: "app",
       name: "Camera calibration",
       icon: "\u{1F4D0}",
@@ -458,6 +480,7 @@ window.Lynx = window.Lynx || {};
     },
     {
       id: "detect",
+      released: "2026-09-27",
       kind: "app",
       name: "Object detection",
       icon: "\u{1F9E0}",
