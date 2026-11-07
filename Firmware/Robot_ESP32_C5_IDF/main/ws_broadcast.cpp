@@ -112,10 +112,10 @@ bool tiltServoIdle = true;
 BacklashState g_panBacklash = {};
 BacklashState g_tiltBacklash = {};
 void writePanServoPulse() {
-    servo_set_pulse_us(computeServoPulseUs(servo_backlash_adjust(&g_panBacklash, currentServoAngleDeg, g_panBacklashDeg)));
+    servo_set_pulse_us(computeServoPulseUs(servo_backlash_adjust(&g_panBacklash, currentServoAngleDeg, g_panBacklashDeg, g_panKickDeg, millis_now())));
 }
 void writeTiltServoPulse() {
-    tilt_servo_set_pulse_us(computeTiltServoPulseUs(servo_backlash_adjust(&g_tiltBacklash, currentTiltAngleDeg, g_tiltBacklashDeg)));
+    tilt_servo_set_pulse_us(computeTiltServoPulseUs(servo_backlash_adjust(&g_tiltBacklash, currentTiltAngleDeg, g_tiltBacklashDeg, g_tiltKickDeg, millis_now())));
 }
 
 // Opt-in CPU/memory diagnostics broadcast, mirroring gotoDiagnosticsEnabled's
@@ -732,6 +732,10 @@ void ws_poll_task(void *arg) {
             }
         }
 
+        // a kick (servo_table.hpp) lasts one frame: back to the command itself
+        if (servo_kick_ended(&g_panBacklash, nowMs) && !panServoIdle) writePanServoPulse();
+        if (servo_kick_ended(&g_tiltBacklash, nowMs) && !tiltServoIdle) writeTiltServoPulse();
+
         servo_history_record(nowMs);
         if (server != nullptr) flush_all_backlogs(server);
         int wsCount = count_ws_clients(server);
@@ -854,7 +858,11 @@ portMUX_TYPE servoHistoryMux = portMUX_INITIALIZER_UNLOCKED;
 
 void servo_history_record(unsigned long nowMs) {
     taskENTER_CRITICAL(&servoHistoryMux);
-    servoHistory[servoHistoryHead] = {nowMs, currentServoAngleDeg, currentTiltAngleDeg};
+    // (where the servos point by the backlash model: a small turn back is
+    // ignored by the servo, servo_table.hpp -- the angle it last moved to)
+    float pan = g_panBacklash.started ? g_panBacklash.out : currentServoAngleDeg;
+    float tilt = g_tiltBacklash.started ? g_tiltBacklash.out : currentTiltAngleDeg;
+    servoHistory[servoHistoryHead] = {nowMs, pan, tilt};
     servoHistoryHead = (servoHistoryHead + 1) % SERVO_HISTORY;
     if (servoHistoryCount < SERVO_HISTORY) servoHistoryCount++;
     taskEXIT_CRITICAL(&servoHistoryMux);
@@ -871,8 +879,8 @@ unsigned long ws_broadcast_ms_since_drive_command() {
 }
 
 void ws_broadcast_servo_actual(float *panDeg, float *tiltDeg) {
-    *panDeg = currentServoAngleDeg;
-    *tiltDeg = currentTiltAngleDeg;
+    *panDeg = g_panBacklash.started ? g_panBacklash.out : currentServoAngleDeg;
+    *tiltDeg = g_tiltBacklash.started ? g_tiltBacklash.out : currentTiltAngleDeg;
     unsigned long target = millis_now() - (unsigned long) g_panLeadMs;
     taskENTER_CRITICAL(&servoHistoryMux);
     // newest to oldest: the first sample at or before `target` is the command

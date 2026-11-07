@@ -676,6 +676,14 @@ esp_err_t handle_set(httpd_req_t *req) {
             g_tiltBacklashDeg = std::clamp(b, -5.0f, 5.0f);
             tablesChanged = true;
         }
+        if (get_query_float(req, "panKickDeg", &b)) {
+            g_panKickDeg = std::clamp(b, 0.0f, 6.0f);
+            tablesChanged = true;
+        }
+        if (get_query_float(req, "tiltKickDeg", &b)) {
+            g_tiltKickDeg = std::clamp(b, 0.0f, 6.0f);
+            tablesChanged = true;
+        }
         if (tablesChanged) servo_tables_save();
     }
     // Game/app settings no longer live here -- see app_data.hpp (/appdata/*).
@@ -748,8 +756,9 @@ esp_err_t handle_params(httpd_req_t *req) {
         static EXT_RAM_BSS_ATTR char panT[400], tiltT[400];
         servo_table_json(g_panTable, panT, sizeof(panT));
         servo_table_json(g_tiltTable, tiltT, sizeof(tiltT));
-        n = n - 1 + snprintf(json + n - 1, sizeof(json) - (n - 1), ",\"panTableUs\":%s,\"tiltTableUs\":%s,\"panBacklashDeg\":%.2f,\"tiltBacklashDeg\":%.2f}",
-                             panT, tiltT, g_panBacklashDeg, g_tiltBacklashDeg);
+        n = n - 1 + snprintf(json + n - 1, sizeof(json) - (n - 1), ",\"panTableUs\":%s,\"tiltTableUs\":%s,\"panBacklashDeg\":%.2f,\"tiltBacklashDeg\":%.2f,"
+                             "\"panKickDeg\":%.2f,\"tiltKickDeg\":%.2f}",
+                             panT, tiltT, g_panBacklashDeg, g_tiltBacklashDeg, g_panKickDeg, g_tiltKickDeg);
     }
     if (n < 0 || (size_t) n >= sizeof(json)) {
         ESP_LOGE(TAG, "/params JSON truncated (%d bytes)", n);
