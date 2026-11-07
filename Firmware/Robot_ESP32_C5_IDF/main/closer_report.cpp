@@ -21,6 +21,7 @@
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
+#include "esp_memory_utils.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -277,6 +278,101 @@ size_t fetch_cam_blob(uint8_t **out) {
     return got;
 }
 
+// What holds the internal RAM, for the trace's "ram": the heap's totals, each
+// task's stack (size: its heap block; where; the least it ever had left), and
+// the other allocated blocks -- the big ones one by one, the rest summed.
+// (heap_caps_walk holds the heap lock: the callback only copies, into PSRAM.)
+struct RamBlock {
+    uintptr_t ptr;
+    uint32_t size;
+};
+struct RamWalk {
+    RamBlock *big;
+    int nBig, maxBig;
+    uint32_t smallCount, smallBytes, freeBytes, freeCount;
+};
+bool ram_walk_cb(walker_heap_into_t, walker_block_info_t b, void *u) {
+    auto *w = (RamWalk *) u;
+    if (!b.used) {
+        w->freeBytes += b.size;
+        w->freeCount++;
+    } else if (b.size >= 512 && w->nBig < w->maxBig) {
+        w->big[w->nBig++] = {(uintptr_t) b.ptr, (uint32_t) b.size};
+    } else {
+        w->smallCount++;
+        w->smallBytes += b.size;
+    }
+    return true;
+}
+void add_ram(cJSON *j) {
+    cJSON *ram = cJSON_AddObjectToObject(j, "ram");
+    multi_heap_info_t info;
+    heap_caps_get_info(&info, MALLOC_CAP_INTERNAL);
+    cJSON_AddNumberToObject(ram, "heap_total", heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    cJSON_AddNumberToObject(ram, "allocated", info.total_allocated_bytes);
+    cJSON_AddNumberToObject(ram, "free", info.total_free_bytes);
+    cJSON_AddNumberToObject(ram, "largest_free", info.largest_free_block);
+    cJSON_AddNumberToObject(ram, "min_free", info.minimum_free_bytes);
+    cJSON_AddNumberToObject(ram, "blocks", info.allocated_blocks);
+    cJSON_AddNumberToObject(ram, "dma_free", heap_caps_get_free_size(MALLOC_CAP_DMA));
+    RamWalk w = {};
+    w.maxBig = 300;
+    w.big = (RamBlock *) heap_caps_malloc(sizeof(RamBlock) * w.maxBig, MALLOC_CAP_SPIRAM);
+    UBaseType_t nTasks = uxTaskGetNumberOfTasks() + 4;
+    auto *ts = (TaskStatus_t *) heap_caps_malloc(sizeof(TaskStatus_t) * nTasks, MALLOC_CAP_SPIRAM);
+    if (w.big == nullptr || ts == nullptr) {
+        heap_caps_free(w.big);
+        heap_caps_free(ts);
+        return;
+    }
+    nTasks = uxTaskGetSystemState(ts, nTasks, nullptr);
+    heap_caps_walk(MALLOC_CAP_INTERNAL, ram_walk_cb, &w);
+    // (as text, not hundreds of cJSON items: those would take internal RAM)
+    constexpr size_t TXT = 6000;
+    char *txt = (char *) heap_caps_malloc(TXT, MALLOC_CAP_SPIRAM);
+    if (txt == nullptr) {
+        heap_caps_free(w.big);
+        heap_caps_free(ts);
+        return;
+    }
+    size_t at = 0;
+    txt[0] = '\0';
+    // "name prio stack-bytes unused-min-words I|P; ..."
+    for (UBaseType_t i = 0; i < nTasks; i++) {
+        uintptr_t base = (uintptr_t) ts[i].pxStackBase;
+        uint32_t size = 0;
+        for (int k = 0; k < w.nBig; k++) {
+            if (base >= w.big[k].ptr && base < w.big[k].ptr + (w.big[k].size & 0x7FFFFFFFu)) {
+                size = w.big[k].size & 0x7FFFFFFFu;
+                w.big[k].size |= 0x80000000u; // (counted as a stack)
+                break;
+            }
+        }
+        if (at < TXT - 64) at += snprintf(txt + at, TXT - at, "%s%s %u %lu %u %c", i ? "; " : "", ts[i].pcTaskName,
+                                          (unsigned) ts[i].uxCurrentPriority, (unsigned long) size,
+                                          (unsigned) ts[i].usStackHighWaterMark, esp_ptr_internal(ts[i].pxStackBase) ? 'I' : 'P');
+    }
+    cJSON_AddStringToObject(ram, "tasks", txt);
+    std::sort(w.big, w.big + w.nBig, [](const RamBlock &x, const RamBlock &y) { return (x.size & 0x7FFFFFFFu) > (y.size & 0x7FFFFFFFu); });
+    uint32_t stacks = 0;
+    at = 0;
+    txt[0] = '\0';
+    for (int k = 0; k < w.nBig; k++) {
+        if (w.big[k].size & 0x80000000u) stacks += w.big[k].size & 0x7FFFFFFFu;
+        else if (at < TXT - 16) at += snprintf(txt + at, TXT - at, "%s%lu", at ? " " : "", (unsigned long) w.big[k].size);
+    }
+    cJSON_AddStringToObject(ram, "other_blocks", txt); // (sizes, the biggest first; the stacks left out)
+    heap_caps_free(txt);
+    cJSON_AddNumberToObject(ram, "stacks", stacks);
+    cJSON_AddNumberToObject(ram, "small_blocks", w.smallCount);
+    cJSON_AddNumberToObject(ram, "small_bytes", w.smallBytes);
+    cJSON_AddNumberToObject(ram, "walk_free", w.freeBytes);
+    cJSON_AddNumberToObject(ram, "free_pieces", w.freeCount);
+    cJSON_AddBoolToObject(ram, "truncated", w.nBig == w.maxBig);
+    heap_caps_free(w.big);
+    heap_caps_free(ts);
+}
+
 // What was going on during the recording, for the page: Wi-Fi, the camera
 // link, video, the control loop.
 char *build_trace_meta(bool camAsked) {
@@ -309,6 +405,7 @@ char *build_trace_meta(bool camAsked) {
     cJSON_AddNumberToObject(ctl, "max_us", d.core1TickMaxUs);
     cJSON_AddNumberToObject(j, "heap_free", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     cJSON_AddNumberToObject(j, "psram_free", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    add_ram(j);
     char *out = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     return out;
