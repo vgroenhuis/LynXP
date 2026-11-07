@@ -130,6 +130,17 @@ void hex(const uint8_t *in, int n, char *out) {
     for (int i = 0; i < n; i++) sprintf(out + 2 * i, "%02x", in[i]);
 }
 
+// A long transfer that never has to wait (fast Wi-Fi: the next bytes are
+// always there) keeps every priority-0 task -- IDLE among them -- off the
+// CPU, and after 3 s the task watchdog restarts the robot (1.5.8 -> 1.5.9 at
+// home: "task wdt: IDLE (CPU 0)"). So: a 1 ms sleep every 50 ms.
+void breathe(int64_t &last) {
+    int64_t now = esp_timer_get_time();
+    if (now - last < 50000) return;
+    vTaskDelay(1);
+    last = esp_timer_get_time();
+}
+
 // Downloads BASE_URL + path into sink(data, n) (false = stop), checking its
 // length and SHA-256. A connection that breaks off is resumed where it was
 // (HTTP Range), as long as each try gets somewhere: 5 tries in a row without
@@ -161,6 +172,7 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
     int lastStatus = 0, lastRead = 0;
     int64_t lastLen = 0;
     bool broken = false;
+    int64_t breath = esp_timer_get_time();
     for (int attempt = 0; attempt < 60 && stuck < 5 && !broken && got < size; attempt++) {
         if (attempt) vTaskDelay(pdMS_TO_TICKS(1000));
         int before = got;
@@ -199,6 +211,7 @@ bool download(const char *path, int size, const char *wantSha, char *buf, Sink s
                 } else {
                     got += n;
                 }
+                breathe(breath);
             }
             lastRead = n;
         }
@@ -335,10 +348,12 @@ const char *update_camera(const Offer *o, char *buf, bool *permanent) {
         esp_http_client_set_header(c, "Content-Type", "application/octet-stream");
         if (esp_http_client_open(c, o->camSize) == ESP_OK) {
             int sent = 0;
+            int64_t breath = esp_timer_get_time();
             while (sent < o->camSize) {
                 int n = esp_http_client_write(c, (const char *) img + sent, std::min(o->camSize - sent, 4096));
                 if (n <= 0) break;
                 sent += n;
+                breathe(breath);
             }
             if (sent == o->camSize && esp_http_client_fetch_headers(c) >= 0) status = esp_http_client_get_status_code(c);
         }

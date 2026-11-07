@@ -184,6 +184,7 @@ esp_err_t handle_update_post(httpd_req_t *req) {
 
     char buf[RECV_CHUNK];
     int remaining = (int) req->content_len;
+    int64_t lastBreathUs = esp_timer_get_time();
     while (remaining > 0) {
         int recvLen = web_server_recv(req, buf, (size_t) std::min((int) sizeof(buf), remaining));
         if (recvLen <= 0) {
@@ -205,6 +206,12 @@ esp_err_t handle_update_post(httpd_req_t *req) {
             return ESP_OK;
         }
         remaining -= recvLen;
+        // (fast Wi-Fi never makes this wait: without a sleep now and then the
+        // idle task doesn't run for 3 s, and the task watchdog restarts us)
+        if (esp_timer_get_time() - lastBreathUs > 50000) {
+            vTaskDelay(1);
+            lastBreathUs = esp_timer_get_time();
+        }
     }
 
     err = esp_ota_end(otaHandle);
