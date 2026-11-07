@@ -1,3 +1,4 @@
+#include "esp_attr.h"
 #include "web_server.hpp"
 #include "ws_broadcast.hpp"
 #include "servo_table.hpp"
@@ -650,7 +651,7 @@ esp_err_t handle_set(httpd_req_t *req) {
     if (hasUser || hasPass) cam_link_credentials_changed(); // the camera guards its /update with the same ones
     // The servos' calibration tables ("p0,...,p36" for -90..90 every 5 deg -- or the old 13, every 15 -- or "none"): own NVS key.
     {
-        static char tbuf[420]; // (37 pulses)
+        static EXT_RAM_BSS_ATTR char tbuf[420]; // (37 pulses)
         bool tablesChanged = false;
         if (get_query_str(req, "panTable", tbuf, sizeof(tbuf))) {
             if (!servo_table_parse(tbuf, &g_panTable)) {
@@ -696,7 +697,7 @@ esp_err_t handle_params(httpd_req_t *req) {
     json_escape(breadcrumb_core0_checkpoint_name(bc.core0Checkpoint), core0Esc, sizeof(core0Esc));
     json_escape(breadcrumb_core1_checkpoint_name(bc.core1Checkpoint), core1Esc, sizeof(core1Esc));
     json_escape(bc.lastWsMessageType, wsMsgEsc, sizeof(wsMsgEsc));
-    static char json[3200]; // (static: the HTTP server's one task builds one at a time; off its stack)
+    static EXT_RAM_BSS_ATTR char json[3200]; // (static: the HTTP server's one task builds one at a time; off its stack)
     int n = snprintf(json, sizeof(json),
         "{\"loggingEnabled\":%s,\"debugWeb\":%s,\"dataLogRate\":%.1f,\"mode\":%d,"
         "\"logType\":%d,\"logUnit\":%d,\"kp\":%.4f,\"ki\":%.4f,\"kd\":%.4f,"
@@ -744,7 +745,7 @@ esp_err_t handle_params(httpd_req_t *req) {
         userEsc, settings.otaPassword[0] != '\0' ? "true" : "false");
     if (n > 0 && (size_t) n < sizeof(json) && json[n - 1] == '}') {
         // the servos' calibration tables (servo_table.hpp), before the closing brace
-        static char panT[400], tiltT[400];
+        static EXT_RAM_BSS_ATTR char panT[400], tiltT[400];
         servo_table_json(g_panTable, panT, sizeof(panT));
         servo_table_json(g_tiltTable, tiltT, sizeof(tiltT));
         n = n - 1 + snprintf(json + n - 1, sizeof(json) - (n - 1), ",\"panTableUs\":%s,\"tiltTableUs\":%s,\"panBacklashDeg\":%.2f,\"tiltBacklashDeg\":%.2f}",
@@ -938,9 +939,9 @@ bool parse_bssid(const char *s, uint8_t out[6]) {
 esp_err_t handle_wifi_status(httpd_req_t *req) {
     WifiStatus st;
     wifi_get_status(&st);
-    static WifiScanEntry scan[32]; // httpd is a single task -- static keeps ~1.3 KB off its stack
+    static EXT_RAM_BSS_ATTR WifiScanEntry scan[32]; // httpd is a single task -- static keeps ~1.3 KB off its stack
     size_t scanCount = wifi_get_scan_results(scan, 32);
-    static WifiApEntry aps[48];
+    static EXT_RAM_BSS_ATTR WifiApEntry aps[48];
     size_t apCount = wifi_get_scan_aps(aps, 48);
     char bssid[18];
 
@@ -1188,7 +1189,7 @@ esp_err_t handle_pose_reset_post(httpd_req_t *req) {
 // The JSON body is opaque to the firmware; app.js/cam.js own the
 // array-of-{name,x,y,heading} schema.
 esp_err_t handle_waypoints_get(httpd_req_t *req) {
-    static char json[WAYPOINTS_JSON_MAX_LEN];
+    static EXT_RAM_BSS_ATTR char json[WAYPOINTS_JSON_MAX_LEN];
     loadWaypointsJson(json, sizeof(json));
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json);
@@ -1196,7 +1197,7 @@ esp_err_t handle_waypoints_get(httpd_req_t *req) {
 }
 
 esp_err_t handle_waypoints_post(httpd_req_t *req) {
-    static char body[WAYPOINTS_JSON_MAX_LEN];
+    static EXT_RAM_BSS_ATTR char body[WAYPOINTS_JSON_MAX_LEN];
     int len = read_post_body(req, body, sizeof(body));
     if (len < 0 || !saveWaypointsJson(body, (size_t) len)) {
         httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "Waypoints payload too large or failed to save");
@@ -1210,7 +1211,7 @@ esp_err_t handle_waypoints_post(httpd_req_t *req) {
 // GET/POST /appdata/settings and /appdata/scores: the Games & apps page's
 // documents (see app_data.hpp). user_ctx carries the document name.
 esp_err_t handle_app_data_get(httpd_req_t *req) {
-    static char json[APP_DATA_JSON_MAX_LEN];
+    static EXT_RAM_BSS_ATTR char json[APP_DATA_JSON_MAX_LEN];
     app_data_load((const char *) req->user_ctx, json, sizeof(json));
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -1219,7 +1220,7 @@ esp_err_t handle_app_data_get(httpd_req_t *req) {
 }
 
 esp_err_t handle_app_data_post(httpd_req_t *req) {
-    static char body[APP_DATA_JSON_MAX_LEN];
+    static EXT_RAM_BSS_ATTR char body[APP_DATA_JSON_MAX_LEN];
     int len = read_post_body(req, body, sizeof(body));
     // Parse just to reject garbage -- the schema itself is the JS's business.
     cJSON *parsed = len > 0 ? cJSON_Parse(body) : nullptr;
@@ -1269,7 +1270,7 @@ static void close_session(httpd_handle_t hd, int sockfd) {
 void web_server_init() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.stack_size = 8192;
+    config.stack_size = 6144; // (1.5.12: was 8192; 1.5.11's trace: 7444 bytes never used)
     config.max_open_sockets = 12; // the UI opens ~6 conns per page navigation
     config.max_uri_handlers = 48; // ~24 here + /ws (ws_broadcast.cpp) + OTA (ota.cpp) + /debug/* (debug_pan.cpp); registrations past this fail silently
     config.lru_purge_enable = true; // reconnect-storm resilience

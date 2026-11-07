@@ -149,7 +149,7 @@ void watchdog_health_start(TaskHandle_t ctrlTask) {
     g_ctrlTask = ctrlTask;
     // Above the web server and WiFi tasks, so it still runs when they're the
     // ones hogging the CPU; below the 1 kHz control task.
-    xTaskCreate(health_task, "health", 3072, nullptr, 15, nullptr);
+    xTaskCreate(health_task, "health", 2048, nullptr, 15, nullptr);
 }
 
 const char *watchdog_twdt_culprits() {

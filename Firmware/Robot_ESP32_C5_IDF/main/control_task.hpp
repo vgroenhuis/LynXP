@@ -38,7 +38,7 @@ TaskHandle_t control_task_get_handle();
 
 // The stack size (bytes) control_task_start() actually created the task
 // with -- diagnostics_register_tasks() needs this alongside the handle.
-constexpr uint32_t CONTROL_TASK_STACK_BYTES = 8192;
+constexpr uint32_t CONTROL_TASK_STACK_BYTES = 4096; // (1.5.12: was 8192; 1.5.11's trace: 7412 bytes never used)
 
 // Ticks actually executed since boot. Written only by the control task;
 // read from any task (diagnostics, the watchdog liveness check).

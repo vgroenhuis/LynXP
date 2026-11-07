@@ -1,3 +1,4 @@
+#include "esp_attr.h"
 #include "cam_link.hpp"
 #include "board_pins.hpp"
 #include "wifi_connect.hpp"
@@ -107,7 +108,7 @@ void hex_decode(const char *in, char *out, size_t outLen) {
     out[j] = '\0';
 }
 
-WifiScanEntry s_camScan[32]; // being collected from "AP" lines until "APEND"
+EXT_RAM_BSS_ATTR WifiScanEntry s_camScan[32]; // being collected from "AP" lines until "APEND"
 size_t s_camScanCount = 0;
 volatile bool s_camScanPending = false;
 volatile TickType_t s_camScanRequestedAt = 0;
@@ -539,7 +540,7 @@ void cam_link_start() {
     ESP_ERROR_CHECK(gpio_config(&cs));
     gpio_set_level(CAM_SPI_CS_PIN, 1);
 
-    xTaskCreate(cam_link_task, "cam_link", 4096, nullptr, tskIDLE_PRIORITY + 2, nullptr);
+    xTaskCreate(cam_link_task, "cam_link", 3072, nullptr, tskIDLE_PRIORITY + 2, nullptr);
 }
 
 const CamDiagnostics &cam_link_get_diagnostics() {

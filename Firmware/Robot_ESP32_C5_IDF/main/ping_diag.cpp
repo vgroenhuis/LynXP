@@ -127,7 +127,7 @@ void ping_diag_task(void *arg) {
 } // namespace
 
 void ping_diag_start() {
-    xTaskCreate(ping_diag_task, "ping_diag", 3072, nullptr, tskIDLE_PRIORITY + 1, nullptr);
+    xTaskCreate(ping_diag_task, "ping_diag", 2048, nullptr, tskIDLE_PRIORITY + 1, nullptr);
 }
 
 PingStats ping_diag_get_stats() {

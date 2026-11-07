@@ -1,3 +1,4 @@
+#include "esp_attr.h"
 #include "wifi_connect.hpp"
 #include "ws_broadcast.hpp"
 #include "wifi_networks.hpp"
@@ -110,14 +111,14 @@ char g_attemptSsid[33] = "";
 bool g_connecting = false;
 char g_preferredSsid[33] = "";       // one-shot, from wifi_request_connect()
 char g_apSsid[33] = "";              // fixed after wifi_connect_start()
-WifiScanEntry g_scan[SCAN_MAX];      // what the robot itself heard in its last scan
+EXT_RAM_BSS_ATTR WifiScanEntry g_scan[SCAN_MAX];      // what the robot itself heard in its last scan
 size_t g_scanCount = 0;
-WifiScanEntry g_camScan[SCAN_MAX];   // what the camera (2.4 GHz only, its own antenna) last reported
+EXT_RAM_BSS_ATTR WifiScanEntry g_camScan[SCAN_MAX];   // what the camera (2.4 GHz only, its own antenna) last reported
 size_t g_camScanCount = 0;
 int64_t g_camScanAtUs = 0;
 bool g_scanning = false;
 uint32_t g_scanSeq = 0;
-WifiApEntry g_aps[SCAN_APS_MAX];     // every access point of the last scan, strongest first
+EXT_RAM_BSS_ATTR WifiApEntry g_aps[SCAN_APS_MAX];     // every access point of the last scan, strongest first
 size_t g_apCount = 0;
 // The pinned access point (see wifi_pin_ap()); g_pinSsid "" = none.
 char g_pinSsid[33] = "";
@@ -370,7 +371,7 @@ bool scan_network(const char *ssid, LastAp *best, int8_t *bestRssi) {
     int64_t t0 = esp_timer_get_time();
     esp_err_t err = esp_wifi_scan_start(&cfg, true);
     bool found = false;
-    static WifiApEntry aps[SCAN_APS_MAX];
+    static EXT_RAM_BSS_ATTR WifiApEntry aps[SCAN_APS_MAX];
     size_t apCount = 0;
     if (err == ESP_OK) {
         uint16_t n = SCAN_RECORDS_MAX;
@@ -437,7 +438,7 @@ void do_scan() {
 
     WifiScanEntry merged[SCAN_MAX];
     size_t mergedCount = 0;
-    static WifiApEntry aps[SCAN_APS_MAX]; // only this task scans; static keeps ~1.2 KB off its stack
+    static EXT_RAM_BSS_ATTR WifiApEntry aps[SCAN_APS_MAX]; // only this task scans; static keeps ~1.2 KB off its stack
     size_t apCount = 0;
 
     // Mode 3: scan with the radio in 2.4 GHz-only band mode (drops a 5 GHz
@@ -894,7 +895,7 @@ void wifi_connect_start() {
     // moved. Costs some battery; the camera board runs this way too.
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
-    xTaskCreate(manager_task, "wifi_mgr", 4096, nullptr, tskIDLE_PRIORITY + 1, nullptr);
+    xTaskCreate(manager_task, "wifi_mgr", 3072, nullptr, tskIDLE_PRIORITY + 1, nullptr);
 
     ESP_ERROR_CHECK(mdns_init());
     ESP_ERROR_CHECK(mdns_hostname_set(HOSTNAME));

@@ -1,3 +1,4 @@
+#include "esp_attr.h"
 #include "serial_console.hpp"
 #include "board_pins.hpp"
 #include "control_task.hpp"
@@ -128,7 +129,7 @@ void handle_line(const char *line) {
         printf(cam_link_set_clock(hz) ? "camera link clock -> %d Hz\n" : "out of range (100000..40000000): %d\n", hz);
 
     } else if (std::strcmp(line, "camraw") == 0) {
-        static char json[768];
+        static EXT_RAM_BSS_ATTR char json[768];
         cam_link_raw_json(json, sizeof(json));
         printf("%s\n", json);
 
@@ -251,7 +252,7 @@ void handle_line(const char *line) {
         printf("saveWaypointsJson() -> %s\n", ok ? "OK" : "FAILED");
 
     } else if (std::strcmp(line, "wp load") == 0) {
-        static char buf[WAYPOINTS_JSON_MAX_LEN];
+        static EXT_RAM_BSS_ATTR char buf[WAYPOINTS_JSON_MAX_LEN];
         loadWaypointsJson(buf, sizeof(buf));
         printf("waypoints=%s\n", buf);
 

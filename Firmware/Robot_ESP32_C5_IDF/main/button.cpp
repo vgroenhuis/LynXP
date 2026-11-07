@@ -95,7 +95,7 @@ void button_task(void *arg) {
 
 void button_start() {
     configure_as_button_input();
-    xTaskCreate(button_task, "button", 4096, nullptr, tskIDLE_PRIORITY + 1, nullptr);
+    xTaskCreate(button_task, "button", 3072, nullptr, tskIDLE_PRIORITY + 1, nullptr);
 }
 
 bool button_is_pressed() {

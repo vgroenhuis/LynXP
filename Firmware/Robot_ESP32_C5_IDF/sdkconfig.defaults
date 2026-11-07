@@ -28,17 +28,18 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # ~190 KB of internal SRAM, which ran down to ~2 KB free (web server slow,
 # QR code failing, crashes). With it, malloc() spills over into PSRAM, and
 # the WiFi/lwIP buffers live there, leaving internal RAM for what must be
-# internal (DMA, ISRs, task stacks). IGNORE_NOTFOUND: still boot (internal
-# RAM only) if the PSRAM can't be brought up, rather than boot-looping.
+# internal (DMA, ISRs, task stacks). (No IGNORE_NOTFOUND since 1.5.12: the
+# static buffers in PSRAM below need it, and the robot can't do without it.)
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_BOOT_INIT=y
-CONFIG_SPIRAM_IGNORE_NOTFOUND=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# The app's big static buffers (EXT_RAM_BSS_ATTR) in PSRAM: internal RAM was down to ~18 KB free
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 # TLS (the CloSer report, closer_report.cpp) allocates its ~32 KB of buffers
 # in PSRAM too: in internal RAM mbedtls_ssl_setup failed with -0x008D (out of
 # memory) once the SPI camera link and the USB console were in. Slower, but it
@@ -124,3 +125,7 @@ CONFIG_ESP_PANIC_HANDLER_IRAM=y
 
 # cpu_trace.c names the tasks it saw with uxTaskGetSystemState().
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
+# --- Task stacks (1.5.12): 1.5.11's RAM trace showed these barely used ---
+CONFIG_MDNS_TASK_STACK_SIZE=3072
+CONFIG_ESP_TIMER_TASK_STACK_SIZE=2560

@@ -31,7 +31,7 @@ void log_task_body(void *arg) {
 
 void log_task_start() {
     g_queue = xQueueCreate(LOG_QUEUE_DEPTH, sizeof(LogLine));
-    xTaskCreate(log_task_body, "logtask", 3072, nullptr, 2, nullptr);
+    xTaskCreate(log_task_body, "logtask", 2560, nullptr, 2, nullptr);
 }
 
 void log_task_submit(const char *line) {

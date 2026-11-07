@@ -1,3 +1,4 @@
+#include "esp_attr.h"
 #include "ws_broadcast.hpp"
 #include "servo_table.hpp"
 #include "debug_pan.hpp"
@@ -394,7 +395,7 @@ struct WsBacklog {
     int64_t sinceUs = 0;
     uint8_t buf[WS_FRAME_MAX];
 };
-WsBacklog wsBacklogs[MAX_WS_FDS];
+EXT_RAM_BSS_ATTR WsBacklog wsBacklogs[MAX_WS_FDS];
 portMUX_TYPE wsBacklogMux = portMUX_INITIALIZER_UNLOCKED; // guards slot ownership against the close callback
 
 WsBacklog *backlog_for(int fd) {

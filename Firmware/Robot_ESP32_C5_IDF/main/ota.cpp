@@ -1,3 +1,4 @@
+#include "esp_attr.h"
 #include "ota.hpp"
 #include "web_server.hpp"
 #include "wifi_connect.hpp"
@@ -541,7 +542,7 @@ esp_err_t handle_update_fs_post(httpd_req_t *req) {
     // two blocks of the superblock pair; either may hold the newer copy).
     constexpr size_t FS_BLOCK_SIZE = 4096;
     constexpr size_t MAGIC_OFFSET = 8;
-    static char head[FS_BLOCK_SIZE + 16];
+    static EXT_RAM_BSS_ATTR char head[FS_BLOCK_SIZE + 16];
     size_t headLen = std::min(sizeof(head), (size_t) req->content_len);
     size_t got = 0;
     while (got < headLen) {

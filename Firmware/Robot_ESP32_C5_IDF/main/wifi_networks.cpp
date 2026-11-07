@@ -1,3 +1,4 @@
+#include "esp_attr.h"
 #include "wifi_networks.hpp"
 #include "settings.hpp"
 
@@ -24,7 +25,7 @@ const char *TAG = "wifi_networks";
 constexpr const char *NVS_NAMESPACE = "wifinets";
 
 SemaphoreHandle_t s_mutex = nullptr;
-WifiCredential s_nets[WIFI_NETWORKS_MAX];
+EXT_RAM_BSS_ATTR WifiCredential s_nets[WIFI_NETWORKS_MAX];
 size_t s_count = 0;
 
 struct Lock {
