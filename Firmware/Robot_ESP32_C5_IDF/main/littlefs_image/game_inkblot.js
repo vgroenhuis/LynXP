@@ -20,8 +20,9 @@ Lynx.games = Lynx.games || {};
   const LOSE_FRACTION = 0.5;
   const K = 28; // a blot's edge: its distance from the well in this many directions
   const START_R = 0.06;
-  const GROW = 0.012; // m/s at level 1, on average (each direction its own pace)
-  const GROW_LEVEL = 0.003; // ... plus this much per level
+  const GROW = 0.021; // m/s at level 1, on average (each direction its own pace)
+  const GROW_LEVEL = 0.005; // ... plus this much per level
+  const DIFFICULTY = { easy: 0.6, normal: 1, hard: 1.5 }; // times the spread
 
   const clamp01 = (t) => Math.min(1, Math.max(0, t));
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -159,7 +160,7 @@ Lynx.games = Lynx.games || {};
 
       // Wells leak: their blots spread, each direction at its own pace (which
       // wanders), smoothed with its neighbours so the edge stays a soft curve.
-      const grow = GROW + GROW_LEVEL * (level - 1);
+      const grow = (GROW + GROW_LEVEL * (level - 1)) * (DIFFICULTY[cfg.difficulty] || 1);
       let area = 0;
       for (const w of wells) {
         if (w.alive) {

@@ -282,8 +282,8 @@ window.Lynx = window.Lynx || {};
     const tout = lead + (j * LW + zone - c.u) / CROSS_MPS + 0.1;
     let room = 1e9;
     for (let tt = tin; tt <= tout; tt += 0.05) {
-      const moved = ln.dir * ln.speed * Math.max(0, tt - fr) + off;
       for (const car of ln.cars) {
+        const moved = ln.dir * (car.v === undefined ? ln.speed : car.v) * Math.max(0, tt - fr) + off; // (each at its own speed now)
         let ds = Math.abs(c.s - (car.s + moved)) % ln.P;
         ds = Math.min(ds, ln.P - ds);
         room = Math.min(room, ds - car.len / 2 - 0.09);
@@ -374,7 +374,7 @@ window.Lynx = window.Lynx || {};
         d: 9,
       },
       {
-        say: ["Cars and trucks each keep their own speed, and every lane goes the other way.", "Auto's en vrachtwagens hebben elk hun eigen snelheid, en elke rijstrook rijdt de andere kant op."],
+        say: ["Every car, truck and motorcycle drives at its own speed and keeps its distance. The yellow lines split the two directions.", "Elke auto, vrachtwagen en motor rijdt zijn eigen snelheid en houdt afstand. De gele lijnen scheiden de twee rijrichtingen."],
         cam: "player",
         drive: crossDrive,
         d: 7,

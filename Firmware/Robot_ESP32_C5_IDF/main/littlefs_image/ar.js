@@ -489,21 +489,39 @@ window.Lynx = window.Lynx || {};
       return { x: bottom.x - wPx / 2, y: top.y, w: wPx, h: hPx, depth: bottom.depth, cx: bottom.x, bottomY: bottom.y };
     };
 
+    // (a tint is laid over the sprite's own pixels on a scratch canvas: done
+    // on the game canvas, "source-atop" also lit up whatever was drawn
+    // behind the sprite inside its rectangle)
+    let tintCanvas = null;
+    function tinted(spr, tint) {
+      if (!tintCanvas) tintCanvas = document.createElement("canvas");
+      const w = spr.width;
+      const h = spr.height;
+      if (tintCanvas.width !== w || tintCanvas.height !== h) {
+        tintCanvas.width = w;
+        tintCanvas.height = h;
+      }
+      const t = tintCanvas.getContext("2d");
+      t.globalCompositeOperation = "source-over";
+      t.clearRect(0, 0, w, h);
+      t.drawImage(spr, 0, 0);
+      t.globalCompositeOperation = "source-atop";
+      t.fillStyle = tint;
+      t.fillRect(0, 0, w, h);
+      t.globalCompositeOperation = "source-over";
+      return tintCanvas;
+    }
     ar.drawSprite = (spr, rect, opts = {}) => {
       ctx.save();
       ctx.imageSmoothingEnabled = false;
       if (opts.alpha !== undefined) ctx.globalAlpha = opts.alpha;
+      const img = opts.tint ? tinted(spr, opts.tint) : spr;
       if (opts.flip) {
         ctx.translate(rect.x + rect.w, rect.y);
         ctx.scale(-1, 1);
-        ctx.drawImage(spr, 0, 0, rect.w, rect.h);
+        ctx.drawImage(img, 0, 0, rect.w, rect.h);
       } else {
-        ctx.drawImage(spr, rect.x, rect.y, rect.w, rect.h);
-      }
-      if (opts.tint) {
-        ctx.globalCompositeOperation = "source-atop";
-        ctx.fillStyle = opts.tint;
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.drawImage(img, rect.x, rect.y, rect.w, rect.h);
       }
       ctx.restore();
     };
@@ -960,6 +978,89 @@ window.Lynx = window.Lynx || {};
   // Touch-friendly on-screen buttons for games (bottom-right, above the
   // action button). Returns the container; games add buttons with add().
   // A small screen (a phone): as style.css's media query for the touch buttons
+  // A level list on a game's title screen, like Block Quest's menu: click or
+  // tap a level to choose it, again to start it; the number keys, Tab / LB /
+  // RB (the "weapon" action) choose too, and the game's own Fire starts
+  // menu.sel. The choice is remembered on this browser.
+  //   const menu = Lynx.levelMenu(ar, {key, levels: [{name, note, blurb}], sel, active: () => bool, onStart(i), color})
+  //   menu.draw(top, bottom)   (screen y range for the rows; the hint goes under them)
+  Lynx.levelMenu = (ar, o) => {
+    const n = o.levels.length;
+    const storeKey = `levelMenu.${o.key}`;
+    let sel = Math.max(0, Math.min(n - 1, o.sel || 0));
+    try {
+      // (remembered with the default it was picked over: a new "Start at level" setting wins)
+      const [def, v] = String(localStorage.getItem(storeKey) || "").split(":").map((q) => parseInt(q, 10));
+      if (def === (o.sel || 0) && v >= 0 && v < n) sel = v;
+    } catch (e) {
+      // (not remembered)
+    }
+    let rows = [];
+    const set = (i) => {
+      sel = (i + n) % n;
+      try {
+        localStorage.setItem(storeKey, `${o.sel || 0}:${sel}`);
+      } catch (e) {
+        // (not remembered)
+      }
+      Lynx.sfx.play("click");
+    };
+    Lynx.onAction("weapon", (w) => {
+      if (!o.active()) return;
+      if (w === "next") set(sel + 1);
+      else if (w === "prev") set(sel - 1);
+      else if (typeof w === "number" && w >= 1 && w <= n) set(w - 1);
+    });
+    // a click / tap on a row: caught before the page's own handlers (a click on the picture is Fire)
+    const onDown = (e) => {
+      if (!o.active() || !rows.length) return;
+      const pt = e.touches ? e.touches[0] : e;
+      if (!pt) return;
+      const r = ar.ctx.canvas.getBoundingClientRect();
+      const x = pt.clientX - r.left;
+      const y = pt.clientY - r.top;
+      const m = rows.find((q) => x >= q.x0 && x <= q.x1 && y >= q.y0 && y <= q.y1);
+      if (!m) return;
+      e.stopPropagation();
+      if (e.type !== "pointerdown") return;
+      e.preventDefault();
+      if (m.i === sel) o.onStart(sel);
+      else set(m.i);
+    };
+    const types = ["pointerdown", "mousedown", "touchstart"];
+    types.forEach((t) => window.addEventListener(t, onDown, { capture: true, passive: false }));
+    ar.onDestroy(() => types.forEach((t) => window.removeEventListener(t, onDown, { capture: true })));
+    const color = o.color || "#ffd84a";
+    return {
+      get sel() {
+        return sel;
+      },
+      draw(top, bottom) {
+        const v = ar.view;
+        const small = Lynx.smallScreen();
+        const rw = Math.min(520, v.w - 40);
+        const rowH = Math.max(14, Math.min(28, (bottom - top - 30) / n));
+        const size = Math.max(10, Math.min(16, rowH * 0.6));
+        rows = [];
+        o.levels.forEach((lv, i) => {
+          const y0 = top + i * rowH;
+          const ry = y0 + rowH * 0.5 + size * 0.35;
+          rows.push({ i, x0: v.cx - rw / 2, x1: v.cx + rw / 2, y0, y1: y0 + rowH });
+          if (i === sel) {
+            ar.ctx.fillStyle = "rgba(255,216,74,0.18)";
+            ar.ctx.fillRect(v.cx - rw / 2, y0, rw, rowH - 1);
+          }
+          ar.text(`${i + 1}. ${lv.name}`, v.cx - rw / 2 + 14, ry, { size, color: i === sel ? color : "#c8c0a8" });
+          if (lv.note && rw > 380) ar.text(lv.note, v.cx + rw / 2 - 14, ry, { size: size - 2, align: "right", color: i === sel ? "#a0e0ff" : "#8aa0b0" });
+        });
+        const hint = small ? "Tap a level · tap it again or Fire: start" : "Click a level, again to start · LB / RB, Tab, 1-9: choose · Fire: start";
+        const lv = o.levels[sel];
+        if (lv && lv.blurb) ar.text(lv.blurb, v.cx, top + n * rowH + 18, { size: small ? 11 : 13, align: "center", color: "#e8dcc0" });
+        ar.text(hint, v.cx, top + n * rowH + (lv && lv.blurb ? 40 : 20), { size: small ? 12 : 13, align: "center", color });
+      },
+    };
+  };
+
   Lynx.smallScreen = () => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px), (max-height: 480px)").matches;
   // A button's label as its icon (the first word) and the rest -- on a small
   // screen only the icon shows (style.css), so the buttons fit beside the video.

@@ -161,7 +161,8 @@ Lynx.games = Lynx.games || {};
     const d = DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal;
     const maxHearts = cfg.hearts || 5;
     const aimAssist = cfg.aimAssist !== false;
-    const firstLevel = Math.min(LAST_LEVEL, Math.max(1, Math.round(+cfg.startLevel) || 1));
+    const cfgFirst = Math.min(LAST_LEVEL, Math.max(1, Math.round(+cfg.startLevel) || 1));
+    let firstLevel = cfgFirst; // (the title screen's level menu picks it)
     const img = {
       guardian1: Lynx.sprite(GUARDIAN, GUARDIAN_PAL),
       guardian2: Lynx.sprite(GUARDIAN, OBSIDIAN_PAL),
@@ -376,6 +377,19 @@ Lynx.games = Lynx.games || {};
     };
     let level = firstLevel;
     let lv = LEVELS[level];
+    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+    const tr = Lynx.tr || ((t) => t);
+    const levelMenu = Lynx.levelMenu(ar, {
+      key: "temple",
+      // (translated first: the names and intros are in nl.js whole)
+      levels: Array.from({ length: LAST_LEVEL }, (_, i) => ({ name: cap(tr(LEVELS[i + 1].name)), blurb: cap(tr(LEVELS[i + 1].intro || "").replace(/^[^:]*: ?/, "")) })),
+      sel: cfgFirst - 1,
+      active: () => state === "title" && !(Lynx.intro && Lynx.intro.active),
+      onStart: (i) => {
+        firstLevel = i + 1;
+        newGame();
+      },
+    });
     let platforms = lv.platforms;
     let pits = lv.pits;
     let grid = lv.grid;
@@ -1031,7 +1045,11 @@ Lynx.games = Lynx.games || {};
     // -- input -----------------------------------------------------------------------
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
-      if (state === "title" || (state === "won" && stateTime > 2)) newGame();
+      if (state === "title") {
+        // the level chosen on the title screen (an introduction's demo: the configured one)
+        firstLevel = Lynx.intro && Lynx.intro.active ? cfgFirst : levelMenu.sel + 1;
+        newGame();
+      } else if (state === "won" && stateTime > 2) newGame();
       else if (state === "levelDone" && stateTime > 2) startLevel(level + 1);
       else if (state === "dead" && stateTime > 1.5) carryOn();
       else firePressed = true;
@@ -1986,11 +2004,13 @@ Lynx.games = Lynx.games || {};
 
       if (state === "title") {
         ar.flash("#000", 0.45);
-        ar.banner("TEMPLE OF LYNXP", "Press FIRE to enter", { color: "#ffd84a" });
-        ar.text("Jump pits (Space / gamepad A / ⤒), climb for treasure, solve the glyph floor, defeat the guardian.", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
-        const where = firstLevel < LAST_LEVEL ? `${LAST_LEVEL - firstLevel + 1} levels, each` : `Level ${firstLevel} is`;
-        ar.text(`${where} laid out in front of the robot: about 2 m wide and 3 m deep.`, v.cx, v.cy + v.h * 0.26, { size: 13, align: "center" });
-        if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.cy + v.h * 0.32, { size: 14, align: "center", color: "#ffd84a" });
+        const small = Lynx.smallScreen();
+        ar.text("TEMPLE OF LYNXP", v.cx, v.y + (small ? 40 : 64), { size: small ? 28 : 44, align: "center", color: "#ffd84a", font: "Impact, 'Arial Black', sans-serif", weight: "normal" });
+        if (!small) ar.text("Jump pits (Space / gamepad A / ⤒), climb for treasure, solve the glyph floor, defeat the guardian.", v.cx, v.y + 92, { size: 13, align: "center" });
+        ar.text("Each level is laid out in front of the robot: about 2 m wide and 3 m deep.", v.cx, v.y + (small ? 62 : 112), { size: small ? 11 : 13, align: "center" });
+        if (Lynx.intro && Lynx.intro.active) ar.text("Press FIRE to enter", v.cx, v.cy, { size: 18, align: "center", color: "#ffd84a" });
+        else levelMenu.draw(v.y + (small ? 76 : 132), v.y + v.h - (small ? 110 : 120));
+        if (best !== null) ar.text(`Best score on this robot: ${best}`, v.cx, v.y + v.h - (small ? 40 : 44), { size: 14, align: "center", color: "#ffd84a" });
       } else if (state === "dead") {
         ar.flash("#000", 0.5);
         ar.banner("YOU DIED", `Score ${score}`);

@@ -163,7 +163,7 @@ window.Lynx = window.Lynx || {};
       name: "Crossing",
       icon: "\u{1F6A6}",
       blurb:
-        "Frogger on your floor. Lanes of traffic -- cars, trucks and motorcycles in 3D, at their own speeds, alternating direction -- run across the way ahead. " +
+        "Frogger on your floor. A street runs across the way ahead: lanes of traffic -- cars, vans, trucks and motorcycles in 3D, each at its own speed, both ways on every road. " +
         "Drive across them without being run over; the raised sidewalks between them are safe. Reach the far side and the course flips: " +
         "cross back, with faster and denser traffic. FIRE honks and freezes the traffic for a moment (slow to recharge). " +
         "Needs a clear floor of roughly 1.5 m wide and 2.5 m long.",
@@ -208,6 +208,8 @@ window.Lynx = window.Lynx || {};
         "If the ink swamps nearly half the arena it's over. FIRE throws a soap bubble that wipes a wide patch (slow to recharge). " +
         "Each level has more wells and faster ink.",
       settings: [
+        { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
+          options: [["easy", "Easy (slow ink)"], ["normal", "Normal"], ["hard", "Hard (fast ink)"]] },
         { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
       ],

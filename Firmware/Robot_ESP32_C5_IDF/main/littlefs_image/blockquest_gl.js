@@ -14,8 +14,10 @@
 //   const R = Lynx.bqGL(ar, w, cfg);   R.ok: false when WebGL2 is missing (the game keeps its flat sprites)
 //   R.setEnv({sky, ground, lights: [{f, r, h, col, rad}]})   once a frame (floor-frame lights)
 //   const F = R.figure({f, r, z, yaw, scale, height});       // null when out of sight
+//     (also far: the far clip in m (3), full: draw over the whole canvas -- for
+//     parts reaching behind the camera, like a road -- aoH: the floor-occlusion height)
 //   F.ell(c, rx, ry, rz, col, mat, o) F.seg(a, b, r0, r1, col, mat, o) F.cap(...)
-//   F.box(c, hx, hy, hz, col, mat, o) F.shield(kind, c, nrm, up, size, col, mat, o) F.cloth(pts, nu, nv, size, col, mat, o)
+//   F.box(c, hx, hy, hz, col, mat, o: {sharp}) F.shield(kind, c, nrm, up, size, col, mat, o) F.cloth(pts, nu, nv, size, col, mat, o)
 //   F.draw({alpha, flash, shadow})                            // onto ar.ctx
 // Parts are in the body frame (x forward, y right, z up, meters at the pocket
 // knight's size); o: {rust, frame: {x, y, z}, seed, taper, two}.
@@ -23,7 +25,9 @@
 window.Lynx = window.Lynx || {};
 
 (function (Lynx) {
-  const MAT = { bone: 0, steel: 1, cloth: 2, leather: 3, wood: 4, glow: 5, void: 6, gold: 7, bronze: 8, enamel: 10, flame: 11 };
+  const MAT = { bone: 0, steel: 1, cloth: 2, leather: 3, wood: 4, glow: 5, void: 6, gold: 7, bronze: 8, enamel: 10, flame: 11,
+    // street scenes (Crossing), at real scale (scale 1, meters)
+    paint: 12, glass: 13, rubber: 14, asphalt: 15, marking: 16, paving: 17, chrome: 18, lamp: 19, concrete: 20 };
 
   const VS = `#version 300 es
 precision highp float;
@@ -198,6 +202,42 @@ void main() {
   } else if (mt == 11) { // flame / hot metal: pure glow, hot core
     float fl = 0.7 + 0.3 * vn(vec3(u_time * 4.0, v_prm.x, L.z * 300.0));
     emi = alb * 2.6 * fl; alb *= 0.0;
+  } else if (mt == 12) { // car paint: a glossy clear coat, a faint metallic flake
+    float fk = vn(L * 2600.0);
+    alb *= 0.9 + 0.14 * fk;
+    rough = 0.16; metal = 0.12; hgt = 0.5; bumpK = 0.05;
+  } else if (mt == 13) { // tinted glass
+    alb = mix(vec3(0.012, 0.016, 0.024), alb * 0.06, 0.5);
+    rough = 0.05; metal = 0.3; hgt = 0.5; bumpK = 0.0;
+  } else if (mt == 14) { // tyre rubber, a tread round the cylinder (o.rust 1: none)
+    float tr = extra > 0.5 ? 0.5 : 0.5 + 0.5 * sin(v_uv.x * 6.2832 * 28.0); // (extra: a sidewall, smooth)
+    alb = vec3(0.018) * (0.8 + 0.4 * vn(L * 900.0));
+    rough = 0.86; hgt = tr; bumpK = 2.0;
+  } else if (mt == 15) { // asphalt: grit, light stones, darker tar patches
+    float g1 = fbm(L * 260.0), g2 = vn(L * 1700.0);
+    alb *= 0.72 + 0.4 * g1;
+    alb += vec3(0.05) * step(0.86, vn(L * 2300.0 + 7.0));
+    alb *= mix(1.0, 0.72, smoothstep(0.58, 0.72, fbm(L * 9.0 + 3.0)));
+    rough = 0.93; hgt = g2 * 0.7 + g1 * 0.3; bumpK = 2.5;
+  } else if (mt == 16) { // road marking: paint worn into the asphalt
+    float wear = smoothstep(0.55, 0.85, fbm(L * 140.0 + 5.0));
+    alb = mix(alb * (0.9 + 0.1 * vn(L * 900.0)), vec3(0.03), wear * 0.55);
+    rough = 0.62; hgt = vn(L * 1500.0); bumpK = 1.2;
+  } else if (mt == 17) { // paving: square slabs, joints, each slab its own shade
+    vec2 q = L.xy / 0.1;
+    vec2 f = fract(q);
+    float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
+    float jt = smoothstep(0.012, 0.05, e);
+    float hs = h31(vec3(floor(q), 4.0));
+    alb *= (0.82 + 0.28 * hs) * mix(0.42, 1.0, jt) * (0.86 + 0.24 * fbm(L * 380.0));
+    rough = 0.86; hgt = jt * 0.6 + 0.4 * vn(L * 1400.0); bumpK = 2.0;
+  } else if (mt == 18) { // chrome
+    alb = alb * 0.4 + 0.6; metal = 1.0; rough = 0.12; hgt = 0.5; bumpK = 0.0;
+  } else if (mt == 19) { // a lamp: steady light
+    emi = alb * 2.2; alb *= 0.1; rough = 0.2;
+  } else if (mt == 20) { // concrete (curbs)
+    float g = fbm(L * 300.0);
+    alb *= 0.8 + 0.3 * g; rough = 0.9; hgt = g; bumpK = 1.5;
   }
   // fine bump on everything but the plain-lit
   if (u_q > 0.5 && mt != 5 && mt != 6 && mt != 11) N = bumpN(N, v_p, hgt, u_bump * bumpK);
@@ -491,6 +531,7 @@ void main() {
     shapes.sphere = makeShape(sphereMesh());
     shapes.cyl = makeShape(cylMesh());
     shapes.box = makeShape(boxMesh());
+    shapes.sbox = makeShape(boxMesh(3, 0.06)); // a box with nearly sharp edges
     shapes.kite = makeShape(plateMesh(KITE, 5));
     shapes.round = makeShape(plateMesh(ROUND, 5));
     gl.bindVertexArray(null);
@@ -563,7 +604,7 @@ void main() {
       const proj = [fpx, m.x - (fpx * pc[0]) / pc[2], m.y - (fpx * pc[1]) / pc[2]];
       const up = dirCam(F, [0, 0, 1]);
       const keyC = dirCam(F, KEY_W);
-      const items = { sphere: [], cyl: [], box: [], kite: [], round: [] };
+      const items = { sphere: [], cyl: [], box: [], sbox: [], kite: [], round: [] };
       const cloths = [];
       const col4 = (c, mat) => {
         const k = rgb(c);
@@ -590,7 +631,7 @@ void main() {
         // a rounded box, half sizes along the frame's axes
         box(c, hx, hy, hz, col, mat, op = {}) {
           const [X, Y, Z] = axes(op.frame || IDF, hx, hy, hz);
-          push("box", pt(c), X, Y, Z, col, mat, op);
+          push(op.sharp ? "sbox" : "box", pt(c), X, Y, Z, col, mat, op);
         },
         // a tapered cylinder from a (radius r0) to b (radius r1)
         seg(a, b, r0, r1, col, mat, op = {}) {
@@ -695,6 +736,13 @@ void main() {
           y0 = Math.max(0, Math.floor(y0));
           x1 = Math.min(W, Math.ceil(x1));
           y1 = Math.min(Hh, Math.ceil(y1));
+          if (o.full) {
+            // (parts reaching behind the camera: their screen box means nothing)
+            x0 = 0;
+            y0 = 0;
+            x1 = W;
+            y1 = Hh;
+          }
           if (x1 - x0 < 2 || y1 - y0 < 2) return;
           gl.viewport(0, 0, W, Hh);
           gl.enable(gl.SCISSOR_TEST);
@@ -707,7 +755,7 @@ void main() {
           gl.useProgram(prog);
           gl.uniform4f(U.u_proj, proj[0], proj[1], proj[2], 0);
           gl.uniform2f(U.u_size, W, Hh);
-          gl.uniform2f(U.u_zr, 0.02, 3);
+          gl.uniform2f(U.u_zr, 0.02, o.far || 3);
           gl.uniform1f(U.u_inv, 1 / K);
           gl.uniform3fv(U.u_org, O);
           gl.uniform3fv(U.u_up, up);
@@ -721,7 +769,7 @@ void main() {
           gl.uniform1f(U.u_time, time);
           gl.uniform1f(U.u_q, quality);
           gl.uniform1f(U.u_bump, 0.0003 * K);
-          gl.uniform1f(U.u_aoH, 0.012 * K);
+          gl.uniform1f(U.u_aoH, o.aoH !== undefined ? o.aoH : 0.012 * K);
           // the four strongest lights
           const pl = new Float32Array(16);
           const plc = new Float32Array(12);
