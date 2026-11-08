@@ -497,9 +497,13 @@ window.addEventListener("DOMContentLoaded", () => {
     return scriptLoads[src];
   }
   const loadGameScripts = (id) => Promise.all((GAME_SCRIPTS[id] || []).map(loadScript));
+  // the introductions (intro.js): a game starts without one if they don't load
+  const loadIntro = () => Promise.all(["intro.js", "intro_scripts.js"].map(loadScript)).catch((e) => console.warn(e));
+  const wantIntro = (id, app, opts) => !opts.noIntro && (opts.forceIntro || app.general.intros !== false) && Lynx.intro && Lynx.intro.has(id);
   let startSeq = 0; // a game picked while another one's scripts load wins
 
   function stopActive() {
+    if (Lynx.intro && Lynx.intro.active) Lynx.intro.abort();
     Lynx.clearActions();
     Lynx.input.fireHeld = false;
     if (currentAr) currentAr.destroy();
@@ -517,8 +521,18 @@ window.addEventListener("DOMContentLoaded", () => {
   // Starts app.active. Also used to switch games in-page (no reload), which
   // keeps the browser in fullscreen -- a reloaded page can't re-enter it
   // without another tap.
-  function startActive(calib, app) {
+  // opts: {noIntro, forceIntro} (the game's introduction: see intro.js)
+  function startActive(calib, app, opts = {}) {
     stopActive();
+    const introBtn = document.getElementById("camIntroBtn");
+    if (introBtn) {
+      const e = Lynx.findEntry(app.active);
+      introBtn.style.display = app.active !== "none" && e && e.kind === "game" ? "" : "none";
+      introBtn.onclick = () => {
+        document.querySelectorAll(".cam-menu-panel").forEach((panel) => (panel.open = false));
+        startActive(calib, app, { forceIntro: true });
+      };
+    }
     const seq = ++startSeq;
     // the robot drive mode and the cube detection are Free-drive things (games drive and aim themselves)
     Lynx.control.setRobotModeAllowed(app.active === "none");
@@ -542,13 +556,18 @@ window.addEventListener("DOMContentLoaded", () => {
       // Monsters are ambient -- they wander whether or not anyone's fired
       // yet -- so this starts right away, not on the first button press.
       ensureFireballOverlayInitialized(calib);
+      // (its introduction plays over the live view: nothing to restart after)
+      const seqM = startSeq;
+      loadIntro().then(() => {
+        if (seqM === startSeq && gameMode === "monster_hunt" && wantIntro("monster_hunt", app, opts)) Lynx.intro.play({ id: "monster_hunt", ar: null, app });
+      });
       return;
     }
 
     const id = app.active;
     const entry = Lynx.findEntry(id);
     const slow = setTimeout(() => showToast(`${entry ? entry.icon + " " + entry.name : id}: loading…`), 300);
-    loadGameScripts(id).then(
+    Promise.all([loadGameScripts(id), opts.noIntro ? null : loadIntro()]).then(
       () => {
         clearTimeout(slow);
         if (seq !== startSeq) return; // (another game was picked meanwhile)
@@ -561,6 +580,16 @@ window.addEventListener("DOMContentLoaded", () => {
         if (game.actionLabel) {
           actionBtn.textContent = game.actionLabel;
           actionBtn.style.display = "block";
+        }
+        // The introduction: played with the game itself; when it's over the
+        // game starts again from scratch (the demo's moves, kills, damage gone)
+        if (wantIntro(id, app, opts)) {
+          Lynx.intro.play({
+            id, ar: currentAr, game, app,
+            onDone: () => {
+              if (seq === startSeq && gameMode === id) startActive(calib, app, { noIntro: true });
+            },
+          });
         }
       },
       (e) => {

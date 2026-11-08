@@ -480,6 +480,6 @@ Lynx.games = Lynx.games || {};
       update(dt);
       draw();
     });
-    return { actionLabel: "▶ Start" };
+    return { actionLabel: "▶ Start", debug: { sheep: () => sheep, foxes: () => foxes, pen: () => pen, state: () => state } };
   };
 })(window.Lynx);

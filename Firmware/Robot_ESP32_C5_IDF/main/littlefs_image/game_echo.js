@@ -243,6 +243,7 @@ Lynx.games = Lynx.games || {};
       update(dt);
       draw();
     });
-    return { actionLabel: "▶ Start" };
+    // (debug: read-only, e.g. for its introduction, intro_scripts.js)
+    return { actionLabel: "▶ Start", debug: { pads: () => pads, seq: () => seq, step: () => step, state: () => state } };
   };
 })(window.Lynx);

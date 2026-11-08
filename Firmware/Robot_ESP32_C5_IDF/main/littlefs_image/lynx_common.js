@@ -524,6 +524,9 @@ window.Lynx = window.Lynx || {};
 
   Lynx.GENERAL_SETTINGS = [
     { key: "volume", label: "Sound volume", type: "number", def: 0.6, min: 0, max: 1, step: 0.1 },
+    // a game's introduction (intro.js, intro_scripts.js) when it starts
+    { key: "intros", label: "Play a game's introduction when it starts", type: "checkbox", def: true },
+    { key: "introVoice", label: "Introductions: voice-over (the browser's own voice)", type: "checkbox", def: true },
     // on: the camera page's overlays and games turn/tilt with your controls,
     // delayed to match the video (smooth, steady aim); off: they follow the
     // camera servos' measured angles, which arrive only 10x a second
@@ -592,7 +595,9 @@ window.Lynx = window.Lynx || {};
 
   // Resolves to the 1-based rank achieved, or 0 if it didn't make the board.
   Lynx.submitScore = (boardKey, score) =>
-    Lynx.loadScores().then((all) => {
+    Lynx.intro && Lynx.intro.active
+      ? Promise.resolve(0) // (an introduction's demo play doesn't count)
+      : Lynx.loadScores().then((all) => {
       const board = Lynx.findBoard(boardKey);
       const list = Array.isArray(all[boardKey]) ? all[boardKey] : [];
       const entry = { n: Lynx.playerName(), s: Math.round(score), d: new Date().toISOString().slice(0, 10) };

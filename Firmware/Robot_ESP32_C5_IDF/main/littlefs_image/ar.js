@@ -302,6 +302,13 @@ window.Lynx = window.Lynx || {};
       frame: Lynx.cameraFrame(calib, { x: 0, y: 0, theta: 0, servoAngleDeg: 0, tiltAngleDeg: 0 }), // (Lynx.cameraFrame)
       view: null, // {cw, ch, imgW, imgH, scale, offX, offY, f, x, y, w, h, cx, cy}
       hasVideo: false,
+      // A game's introduction (intro.js) flying a virtual camera: null, or
+      // {apply(ar, now, dt): sets ar.pose (the player, as the game sees it),
+      // ar.eye / camTheta / tilt / frame (the view); backdrop(ar): drawn
+      // before the game each frame; overlay(ar): after it}. eye: where the
+      // view is (toCamera), when it isn't the player's camera.
+      virtual: null,
+      eye: null,
       // Virtual elevation of the camera above its real height (m): the ground
       // under the player (a platform a game put there, see setGround) plus
       // the current jump. Everything virtual is drawn from that height.
@@ -346,8 +353,9 @@ window.Lynx = window.Lynx || {};
 
     // World point -> camera frame: right, forward (on the floor plane).
     ar.toCamera = (wx, wy) => {
-      const dx = wx - ar.pose.x;
-      const dy = wy - ar.pose.y;
+      const e = ar.eye || ar.pose;
+      const dx = wx - e.x;
+      const dy = wy - e.y;
       const t = ar.camTheta;
       return { right: dx * Math.sin(t) - dy * Math.cos(t), forward: dx * Math.cos(t) + dy * Math.sin(t) };
     };
@@ -915,8 +923,13 @@ window.Lynx = window.Lynx || {};
       }
       ar.z = Math.min(arcZ, Math.max(ar.ground, ar.ceiling));
       shownZ = ar.z;
+      const V = ar.virtual;
+      ar.eye = null;
+      if (V && V.apply) V.apply(ar, now, dt);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (V && V.backdrop) V.backdrop(ar);
       frameCallbacks.forEach((cb) => cb(now, dt));
+      if (V && V.overlay) V.overlay(ar);
     });
 
     // Tear-down for switching games in-page (see cam.js setupModeSelect):

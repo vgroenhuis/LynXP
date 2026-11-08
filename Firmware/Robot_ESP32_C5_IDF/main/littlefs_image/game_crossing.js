@@ -277,6 +277,6 @@ Lynx.games = Lynx.games || {};
       update(dt);
       draw();
     });
-    return { actionLabel: "📯 Honk" };
+    return { actionLabel: "📯 Honk", debug: { lanes: () => lanes, toCourse, LW, W, state: () => state, freeze: () => freeze, lives: () => lives } };
   };
 })(window.Lynx);

@@ -1593,3 +1593,143 @@ button {
   background: #b3261e;
   color: #fff;
 }
+
+/* A game's introduction (intro.js): over everything on the camera page */
+.intro-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  touch-action: none;
+  transition: opacity 0.5s;
+  font-family: system-ui, sans-serif;
+}
+.intro-layer.intro-gone {
+  opacity: 0;
+  pointer-events: none;
+}
+.intro-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 16%;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.intro-icon {
+  font-size: clamp(36px, 9vmin, 84px);
+  line-height: 1.1;
+}
+.intro-name {
+  font: normal clamp(30px, 8vmin, 72px) / 1.1 Impact, "Arial Black", sans-serif;
+  letter-spacing: 0.04em;
+}
+.intro-kicker {
+  margin-top: 4px;
+  font-size: clamp(13px, 2.4vmin, 18px);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #ffe9a8;
+}
+.intro-sub {
+  position: absolute;
+  left: 50%;
+  bottom: 9%;
+  transform: translateX(-50%);
+  width: min(92%, 860px);
+  text-align: center;
+  pointer-events: none;
+}
+.intro-sub span {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: clamp(15px, 2.9vmin, 24px);
+  line-height: 1.35;
+}
+.intro-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+.intro-bar div {
+  height: 100%;
+  width: 0;
+  background: #ffcf5a;
+}
+.intro-ctrl {
+  position: absolute;
+  right: 12px;
+  bottom: 18px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.intro-btn,
+.intro-check {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.intro-skip {
+  background: rgba(255, 190, 60, 0.9);
+  color: #1a1206;
+  font-weight: 600;
+}
+.intro-check input {
+  vertical-align: middle;
+}
+.intro-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 18px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  pointer-events: none;
+}
+.intro-fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  transition: opacity 0.45s;
+  pointer-events: none;
+}
+@media (max-width: 760px), (max-height: 480px) {
+  .intro-hint {
+    display: none;
+  }
+  .intro-sub {
+    bottom: 64px;
+  }
+  .intro-ctrl {
+    bottom: 10px;
+    right: 8px;
+  }
+  .intro-btn,
+  .intro-check {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+}
+/* (the page's own buttons are hidden while an introduction plays) */
+body.intro-playing .cam-menu-panel,
+body.intro-playing .game-touch-ui,
+body.intro-playing .cam-fireball-btn {
+  visibility: hidden;
+}

@@ -259,8 +259,37 @@ window.Lynx = window.Lynx || {};
     },
   ]);
 
+  // A game's introduction (intro.js) holds the robot: nothing is sent while
+  // it plays (the stick, the game's own goto / aim), and the game reads the
+  // intro's scripted stick from driveInput() instead of yours.
+  let holdOn = false;
+  let scripted = null; // {j1, j2} while an intro moves a third-person hero
+  let onHeldPress = null; // a gamepad button pressed while held (the intro: skip)
+
   Lynx.control = {
+    hold(on, onPress = null) {
+      on = !!on;
+      onHeldPress = on ? onPress : null;
+      if (on === holdOn) return;
+      if (on && ws && ws.readyState === WebSocket.OPEN) {
+        // (whatever was running stops first)
+        ws.send(JSON.stringify({ type: "joystick", j1: 0, j2: 0 }));
+        ws.send(JSON.stringify({ type: "control_frame_rotate", value: 0 }));
+        ws.send(JSON.stringify({ type: "tilt_rate", value: 0 }));
+      }
+      holdOn = on;
+      if (!on) scripted = null;
+      rawDrive = { j1: 0, j2: 0, at: -1e9 };
+    },
+    held: () => holdOn,
+    setScriptedDrive(d) {
+      scripted = d ? { j1: +d.j1 || 0, j2: +d.j2 || 0 } : null;
+    },
+    // The game's drive filter on a stick input (j1 right, j2 forward):
+    // what it would let through, or null (it keeps the input itself)
+    filterDrive: (j1, j2) => filterDriveOrNull(j1, j2),
     send(obj) {
+      if (holdOn) return;
       ensureStarted();
       if (lookCaptured && (obj.type === "control_frame_rotate" || obj.type === "tilt_rate")) {
         const v = Math.max(-1, Math.min(1, Number(obj.value) || 0));
@@ -336,6 +365,7 @@ window.Lynx = window.Lynx || {};
     // filter): j1 right, j2 forward. Zero once it hasn't been resent for a
     // second (held input is resent every ~150 ms, release sends zero).
     driveInput() {
+      if (holdOn) return scripted ? { ...scripted } : { j1: 0, j2: 0 };
       if (performance.now() - rawDrive.at > 1000) return { j1: 0, j2: 0 };
       return { j1: rawDrive.j1, j2: rawDrive.j2 };
     },
@@ -403,6 +433,8 @@ window.Lynx = window.Lynx || {};
     if (Lynx.input) Lynx.input.shieldHeld = false;
   };
   Lynx.fireAction = () => listeners.fire.forEach((cb) => cb());
+  // A weapon slot (1-9) or "next" / "prev", as the keys and shoulder buttons pick them
+  Lynx.weaponAction = (w) => listeners.weapon.forEach((cb) => cb(w));
   // Virtual jump (Space / J, gamepad A/B, or a game's touch button) -- only games
   // that support it listen. A listener returns whether jumping applies right
   // now (e.g. playing, not on a title screen); jumpAction() returns whether
@@ -654,6 +686,12 @@ window.Lynx = window.Lynx || {};
     }
 
     const pressed = g.buttons.map((b) => b.pressed || b.value > 0.5);
+    if (holdOn) {
+      // (an intro plays: the pad drives nothing; a press goes to the intro)
+      if (pressed.some((p, i) => p && !prevPressed[i]) && onHeldPress) onHeldPress();
+      prevPressed = pressed;
+      return;
+    }
     const down = (i) => !!pressed[i];
     const justDown = (i) => down(i) && !prevPressed[i];
     if (pressed.some((p, i) => p && !prevPressed[i])) Lynx.sfx.unlock();

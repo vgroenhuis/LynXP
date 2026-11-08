@@ -1260,7 +1260,10 @@ Lynx.games = Lynx.games || {};
       if (!mid) return;
       ar.queue(mid.depth, () => {
         const g = ar.ctx;
-        if (pts.every(Boolean)) {
+        if (ar.virtual) {
+          // (a game's introduction: no video behind to show -- a wooden cube with its tags)
+          drawIntroCube(b, cs);
+        } else if (pts.every(Boolean)) {
           const hp = hull(pts);
           g.save();
           g.globalCompositeOperation = "destination-out";
@@ -1276,6 +1279,27 @@ Lynx.games = Lynx.games || {};
           cubes.drawOutline(w, b.world);
         }
       }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), b.h0, b.h1, cs)); // (cs: the cube as turned, see ar.js boxOrder)
+    }
+    function drawIntroCube(b, cs) {
+      const c = w.camLocal();
+      const face = (q, fill) => {
+        const p = w.polyScreen(q, 1);
+        if (!p) return;
+        w.fillPoly(p, fill, "rgba(60,38,16,0.9)", 1);
+      };
+      // the sides facing the camera, each with its tag (a dark square), then the top
+      for (let k = 0; k < 4; k++) {
+        const a = cs[k];
+        const e = cs[(k + 1) % 4];
+        const mf = (a[0] + e[0]) / 2;
+        const mr = (a[1] + e[1]) / 2;
+        if ((c.f - mf) * (mf - b.cf) + (c.r - mr) * (mr - b.cr) <= 0) continue;
+        face([[a[0], a[1], b.h0], [e[0], e[1], b.h0], [e[0], e[1], b.h1], [a[0], a[1], b.h1]], k % 2 ? "rgba(196,150,92,0.98)" : "rgba(170,126,74,0.98)");
+        const s = 0.18; // (the tag: 64% of the face)
+        const at = (u, v) => [a[0] + (e[0] - a[0]) * u, a[1] + (e[1] - a[1]) * u, b.h0 + (b.h1 - b.h0) * v];
+        face([at(s, s), at(1 - s, s), at(1 - s, 1 - s), at(s, 1 - s)], "rgba(25,22,20,0.9)");
+      }
+      if (c.h > b.h1) face(cs.map(([f, r]) => [f, r, b.h1]), "rgba(222,184,128,0.98)");
     }
     function queueShadow() {
       const h = hero;
