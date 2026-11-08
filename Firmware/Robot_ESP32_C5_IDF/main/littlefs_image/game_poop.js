@@ -9,12 +9,14 @@
 // (roll along the floor until they hit something, fire again to set one off -- or it
 // goes off by itself; walls stop the blast). The toilet lid is a shield
 // (hold X / gamepad B / the button): poops that run into it bounce off.
+// New poops always appear in front of the camera, never behind the robot.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
 
 (function (Lynx) {
   const TOUCH_M = 0.2; // a poop this close = it splatted on you
+  const SPAWN_HALF_ANGLE = 0.8; // rad: new poops come from within this much of where the camera looks
   const INVULNERABLE_S = 1.5;
   const MAX_HEARTS = 9;
   const WALL_R = 0.05; // walls are solid this far to each side of their line
@@ -242,11 +244,18 @@ Lynx.games = Lynx.games || {};
     function spawnPoop(type) {
       const k = KIND[type];
       let p = null;
-      for (let tries = 0; tries < 20 && !p; tries++) {
-        const c = Lynx.randomAround(ar.pose.x, ar.pose.y, Math.max(1.4, areaM - 0.2), areaM + 0.6);
+      // Only in front of the camera (its view, a bit wider): a poop appearing
+      // behind you, in a hallway you just cleared, isn't fair.
+      const inView = () => {
+        const a = ar.camTheta + (Math.random() * 2 - 1) * SPAWN_HALF_ANGLE;
+        const d = Math.max(1.4, areaM - 0.2) + Math.random() * 0.8;
+        return { x: ar.pose.x + d * Math.cos(a), y: ar.pose.y + d * Math.sin(a) };
+      };
+      for (let tries = 0; tries < 30 && !p; tries++) {
+        const c = inView();
         if (walls.every((w) => nearestOnWall(w, c.x, c.y).d > 0.2)) p = c; // not inside a wall
       }
-      if (!p) p = Lynx.randomAround(ar.pose.x, ar.pose.y, Math.max(1.4, areaM - 0.2), areaM + 0.6);
+      if (!p) p = inView();
       const hp = Math.max(1, Math.round(k.hp * diff.hp * (type === "boss" ? 1 : 1 + 0.1 * (level - 1))));
       poops.push({ type, x: p.x, y: p.y, hp, maxHp: hp, hit: 0, phase: Math.random() * 6, wobble: Math.random() * 6, side: Math.random() < 0.5 ? 1 : -1, alive: true, rect: null });
       if (type === "boss") say("THE GIANT POOP!", "Shoot it a lot!", "#d060ff");

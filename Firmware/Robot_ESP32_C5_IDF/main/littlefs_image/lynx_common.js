@@ -39,7 +39,8 @@ window.Lynx = window.Lynx || {};
         "Doom-style shooter in your own room. Imps, pinkies and cacodemons close in from all sides; " +
         "fight them with Doom's arsenal -- fist and chainsaw up close, pistol, shotgun and super shotgun, chaingun, rocket launcher, " +
         "plasma rifle and the BFG 9000 (new weapons lie on the floor in later waves) -- and physically drive over health and ammo to pick them up. " +
-        "Dodge fireballs by actually driving out of the way.",
+        "Dodge fireballs by actually driving out of the way. Everything stays within about a meter of where you start, " +
+        "and from wave 3 low stone walls give you cover from fireballs and bullets.",
       settings: [
         { key: "difficulty", label: "Difficulty", type: "select", def: "hmp",
           options: [["itytd", "I'm too young to die"], ["hmp", "Hurt me plenty"], ["uv", "Ultra-Violence"], ["nm", "Nightmare!"]] },
@@ -146,12 +147,11 @@ window.Lynx = window.Lynx || {};
       name: "Echo",
       icon: "\u{1F3B5}",
       blurb:
-        "Simon on your floor. Four coloured pads light up in a sequence, each with its own note; repeat it by driving " +
+        "Simon on your floor. Four coloured pads light up in a sequence, each with its own sound; repeat it by driving " +
         "onto the pads in the same order and pausing on each. Every round adds a step and the playback gets faster. " +
-        "Touch the wrong pad, or take too long, and it's over.",
+        "No time limit, and FIRE plays the sequence again (the camera can't see every pad at once). Touch the wrong pad and it's over.",
       settings: [
         { key: "padDistM", label: "Distance from start to each pad", type: "number", unit: "m", def: 0.8, min: 0.4, max: 3, step: 0.1 },
-        { key: "stepTimeS", label: "Time allowed per step", type: "number", unit: "s", def: 8, min: 3, max: 30, step: 1 },
         { key: "startLen", label: "Starting sequence length", type: "number", def: 1, min: 1, max: 8, step: 1 },
       ],
       boards: [{ key: "echo", title: "Echo", better: "higher", format: "points" }],
@@ -163,8 +163,8 @@ window.Lynx = window.Lynx || {};
       name: "Crossing",
       icon: "\u{1F6A6}",
       blurb:
-        "Frogger on your floor. Lanes of traffic -- cars and trucks at their own speeds, alternating direction -- run across the way ahead. " +
-        "Drive across them without being run over; green median strips are safe. Reach the far side and the course flips: " +
+        "Frogger on your floor. Lanes of traffic -- cars, trucks and motorcycles in 3D, at their own speeds, alternating direction -- run across the way ahead. " +
+        "Drive across them without being run over; the raised sidewalks between them are safe. Reach the far side and the course flips: " +
         "cross back, with faster and denser traffic. FIRE honks and freezes the traffic for a moment (slow to recharge). " +
         "Needs a clear floor of roughly 1.5 m wide and 2.5 m long.",
       settings: [
@@ -183,15 +183,15 @@ window.Lynx = window.Lynx || {};
       name: "Lightwall",
       icon: "\u{1F6E4}\u{FE0F}",
       blurb:
-        "Tron on your floor. The robot lays a wall of light behind it as it drives, and so do the rival light-cycles racing round the arena. " +
-        "Whatever touches a wall -- or the arena's edge -- is derezzed. Your own wall is harmless to you but deadly to them: " +
+        "Tron on your floor, in the third person. You ride a light-cycle that never stops -- the stick says which way -- and the robot follows it round with its camera. " +
+        "Your cycle lays a wall of light behind it, and so do the rivals. Whatever touches a wall -- or the arena's edge -- is derezzed. Your own wall is harmless to you but deadly to them: " +
         "cut them off and box them in, and keep clear of their trails. FIRE sends a pulse that wipes nearby rival walls when you are trapped. " +
-        "Every level adds a rival and speeds them up.",
+        "Derezzed rivals come back along the edge, and every half minute or so another one joins in.",
       settings: [
         { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
         { key: "lives", label: "Lives", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "trailS", label: "How long walls last", type: "number", unit: "s", def: 10, min: 3, max: 30, step: 1 },
-        { key: "enemySpeedMps", label: "Rival speed", type: "number", unit: "m/s", def: 0.2, min: 0.05, max: 0.6, step: 0.025 },
+        { key: "enemySpeedMps", label: "Cycle speed", type: "number", unit: "m/s", def: 0.15, min: 0.05, max: 0.4, step: 0.025 },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
       ],
       boards: [{ key: "lightwall", title: "Lightwall", better: "higher", format: "points" }],
@@ -203,13 +203,12 @@ window.Lynx = window.Lynx || {};
       name: "Inkblot",
       icon: "\u{1F58B}\u{FE0F}",
       blurb:
-        "A clean-up game. Ink seeps up through the floor from leaky wells and creeps from tile to tile. " +
+        "A clean-up game. Ink seeps up through the floor from leaky wells and slowly spreads out in blots. " +
         "Drive over ink to scrub it away, and sit on a pink well for a moment to cap it for good. " +
         "If the ink swamps nearly half the arena it's over. FIRE throws a soap bubble that wipes a wide patch (slow to recharge). " +
         "Each level has more wells and faster ink.",
       settings: [
         { key: "areaRadiusM", label: "Play area radius", type: "number", unit: "m", def: 1.5, min: 0.8, max: 5, step: 0.25 },
-        { key: "cellM", label: "Tile size", type: "number", unit: "m", def: 0.2, min: 0.1, max: 0.5, step: 0.05 },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
       ],
       boards: [{ key: "inkblot", title: "Inkblot", better: "higher", format: "points" }],
@@ -738,10 +737,11 @@ window.Lynx = window.Lynx || {};
     alarm: (t) => { for (let i = 0; i < 4; i++) tone(t + i * 0.16, "square", i % 2 ? 660 : 880, null, 0.14, 0.28); },
     jump: (t) => tone(t, "square", 300, 900, 0.16, 0.2),
     honk: (t) => { tone(t, "square", 380, null, 0.28, 0.25); tone(t, "square", 480, null, 0.28, 0.2); },
-    echo0: (t) => tone(t, "triangle", 262, null, 0.5, 0.4),
-    echo1: (t) => tone(t, "triangle", 330, null, 0.5, 0.4),
-    echo2: (t) => tone(t, "triangle", 392, null, 0.5, 0.4),
-    echo3: (t) => tone(t, "triangle", 523, null, 0.5, 0.4),
+    // Echo's four pads: each its own instrument as well as its own pitch, so they're told apart by ear
+    echo0: (t) => { tone(t, "square", 196, null, 0.45, 0.22); tone(t, "square", 98, null, 0.45, 0.12); }, // red: a low buzz
+    echo1: (t) => { tone(t, "triangle", 330, null, 0.5, 0.4); tone(t + 0.12, "triangle", 440, null, 0.38, 0.3); }, // green: two rising notes
+    echo2: (t) => { tone(t, "sine", 523, null, 0.6, 0.45); tone(t, "sine", 1046, null, 0.35, 0.15); }, // blue: a bell
+    echo3: (t) => { for (let i = 0; i < 3; i++) tone(t + i * 0.09, "sawtooth", 784 + i * 196, null, 0.12, 0.16); }, // yellow: a quick high trill
     levelup: (t) => { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(t + i * 0.1, "square", f, null, 0.1, 0.22)); },
     // Short, original chugging riff for a new wave.
     wave: (t) => {

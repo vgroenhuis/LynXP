@@ -13,6 +13,12 @@
 // weapons_kit.js) -- rockets blow up where they land, you too if you're close;
 // the BFG takes a moment to charge. New weapons lie on the floor in later
 // waves, rockets and cells come with them.
+//
+// The robot stays in a small space: every pickup lies within about half a
+// metre of where the game started (dropped by a demon too -- it lands there,
+// not out where the demon fell). From wave 3 on, low stone walls stand round
+// that space: cover -- they stop the demons' fireballs and your shots, and
+// the demons walk round them.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -159,6 +165,58 @@ Lynx.games = Lynx.games || {};
   const CHAINGUN_PICK_PAL = { k: "#101010", g: "#808080", l: "#c0c0c0" };
   const CHAINGUN_PICK = ["kkkkkkkkkkkk", "kggglgggglgk", "kllllllllllk", "kggglgggglgk", "kkkkkggkkkkk", ".....kgk....", ".....kkk...."];
 
+  // a cover wall: a row of these stone pillars (as in Poop Shooter)
+  const PILLAR = [
+    ".kkkkkkkk.",
+    "kaaaaaaaak",
+    "kabbbbbbck",
+    "kabbbbbbck",
+    "kkkkkkkkkk",
+    "kabbbbbbck",
+    "kabbbbbbck",
+    "kabbbbbbck",
+    "kkkkkkkkkk",
+    "kabbbbbbck",
+    "kabbbbbbck",
+    "kabbbbbbck",
+    "kkkkkkkkkk",
+    "kaaaaaaaak",
+    "kkkkkkkkkk",
+  ];
+  const STONE = { k: "#2a2a30", a: "#c0c0c8", b: "#8c8c96", c: "#62626c" };
+  // A first-person weapon (seen from behind, held in the hand) as a pickup on
+  // the floor: the hand's pixels (s, d) and the outline that only bordered
+  // them gone, turned on its side so it lies with the barrel pointing right.
+  function pickupArt(rows) {
+    const H = rows.length;
+    const W = Math.max(...rows.map((r) => r.length));
+    const g = rows.map((r) => [...r.padEnd(W, ".")].map((c) => (c === "s" || c === "d" ? "." : c)));
+    const keep = g.map((r, y) =>
+      r.map((c, x) => {
+        if (c !== "k") return c;
+        for (const [dy, dx] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+          const n = (g[y + dy] || [])[x + dx];
+          if (n && n !== "." && n !== "k") return "k";
+        }
+        return ".";
+      }),
+    );
+    // rotate a quarter turn clockwise: the barrel (up) now points right
+    const out = [];
+    for (let x = 0; x < W; x++) {
+      let line = "";
+      for (let y = H - 1; y >= 0; y--) line += keep[y][x];
+      out.push(line);
+    }
+    // trim empty rows and columns
+    const used = (row) => /[^.]/.test(row);
+    let rowsOut = out.filter(used);
+    const cols = [...rowsOut[0]].map((_, x) => rowsOut.some((r) => r[x] !== "."));
+    const x0 = cols.indexOf(true);
+    const x1 = cols.lastIndexOf(true);
+    rowsOut = rowsOut.map((r) => r.slice(x0, x1 + 1));
+    return rowsOut;
+  }
   const GUN_PAL = { k: "#141414", g: "#6a6a6a", l: "#a8a8a8", s: "#c88a5a", d: "#8a5a34", w: "#7a4a1e", r: "#c02818", c: "#40c0ff", n: "#30e040" };
   const FIST = [
     "....kkkkkk....",
@@ -366,9 +424,16 @@ Lynx.games = Lynx.games || {};
   const ORDER = ["fist", "chainsaw", "pistol", "shotgun", "ssg", "chaingun", "rocket", "plasma", "bfg"];
   // weapons lying on the floor at the start of a wave, and the ammo they come with
   const WEAPON_DROPS = { 2: "chainsaw", 3: "chaingun", 4: "ssg", 5: "rocket", 6: "plasma", 8: "bfg" };
-  const WEAPON_AMMO = { chaingun: ["bullets", 20], ssg: ["shells", 8], rocket: ["rockets", 5], plasma: ["cells", 40], bfg: ["cells", 40] };
+  const WEAPON_AMMO = { chaingun: ["bullets", 50], ssg: ["shells", 16], rocket: ["rockets", 10], plasma: ["cells", 100], bfg: ["cells", 100] };
   const MAX_AMMO = { bullets: 200, shells: 50, rockets: 50, cells: 300 };
   const PICKUP_RADIUS_M = 0.2;
+  const PICKUP_MIN_M = 0.15; // pickups lie this far from where the game started ...
+  const PICKUP_MAX_M = 0.5; // ... up to this far: the robot stays in a space of about a metre
+  const WALL_RING_M = 0.85; // cover walls stand round that space, this far out
+  const WALL_LEN_M = 0.5;
+  const WALL_PIECE_M = 0.08; // a pillar every this far
+  const WALL_H_M = 0.2;
+  const WALL_R_M = 0.04; // (solid this far each side of its line)
   const PLAYER_HIT_RADIUS_M = 0.1;
   const BITE_RANGE_M = 0.3;
 
@@ -407,10 +472,12 @@ Lynx.games = Lynx.games || {};
         ouch: Lynx.sprite(faceVariant("ouch"), FACE_PAL),
       },
     };
-    // (the new weapons lie on the floor as their own picture)
-    ["chainsaw", "ssg", "rocket", "plasma", "bfg"].forEach((k) => (sprites["w_" + k] = sprites.guns[k]));
+    // (the new weapons lie on the floor as their own picture, without the hand)
+    const GUN_ART = { chainsaw: CHAINSAW, ssg: SUPER_SHOTGUN, rocket: ROCKET_LAUNCHER, plasma: PLASMA_RIFLE, bfg: BFG };
+    Object.keys(GUN_ART).forEach((k) => (sprites["w_" + k] = Lynx.sprite(pickupArt(GUN_ART[k]), GUN_PAL)));
+    sprites.pillar = Lynx.sprite(PILLAR, STONE);
     const PICKUP_HEIGHT = { medkit: 0.07, bullets: 0.06, shells: 0.06, armor: 0.08, chaingun: 0.06, rockets: 0.06, cells: 0.06,
-      w_chainsaw: 0.09, w_ssg: 0.09, w_rocket: 0.09, w_plasma: 0.09, w_bfg: 0.1 };
+      w_chainsaw: 0.05, w_ssg: 0.045, w_rocket: 0.05, w_plasma: 0.05, w_bfg: 0.06 };
 
     let state = "title"; // title | playing | intermission | dead
     let stateTime = 0;
@@ -430,10 +497,16 @@ Lynx.games = Lynx.games || {};
     let pickupMsg = null; // {text, t}
     let bob = 0;
     let lastPose = null;
+    let home = { x: 0, y: 0 }; // where the game started: the pickups lie round it
+    let walls = []; // cover: {x0, y0, x1, y1} (world m)
+    let pillars = []; // the stones drawn along them: {x, y}
 
     Lynx.bestScore("demons").then((b) => (best = b));
 
     function reset() {
+      home = { x: ar.pose.x, y: ar.pose.y };
+      walls = [];
+      pillars = [];
       p = { health: 100, armor: 0, bullets: 50, shells: 8, rockets: 0, cells: 0, weapon: "pistol", owned: { fist: true, pistol: true, shotgun: true } };
       bfgCharge = 0;
       enemies = [];
@@ -461,18 +534,73 @@ Lynx.games = Lynx.games || {};
       state = "playing";
       Lynx.sfx.play("wave");
       // Supplies each wave -- on the floor nearby, so you have to go get them.
-      dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.5, 1.2), p.health < 60 ? "medkit" : "bullets");
-      dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.6, 1.4), "shells");
+      dropPickup(near(), p.health < 60 ? "medkit" : "bullets");
+      dropPickup(near(), "shells");
       const w = WEAPON_DROPS[wave];
-      if (w && !p.owned[w]) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.5, 1.0), w === "chaingun" ? "chaingun" : "w_" + w);
-      if (p.owned.rocket) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.6, 1.4), "rockets");
-      if (p.owned.plasma || p.owned.bfg) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.6, 1.4), "cells");
-      if (wave >= 2 && wave % 2 === 0) dropPickup(Lynx.randomAround(ar.pose.x, ar.pose.y, 0.8, 1.6), "armor");
+      if (w && !p.owned[w]) dropPickup(near(), w === "chaingun" ? "chaingun" : "w_" + w);
+      if (p.owned.rocket) dropPickup(near(), "rockets");
+      if (p.owned.plasma || p.owned.bfg) dropPickup(near(), "cells");
+      if (wave >= 2 && wave % 2 === 0) dropPickup(near(), "armor");
+      buildWalls();
     }
 
+    // A free spot in the robot's space (round where the game started), not
+    // on another pickup.
+    function near() {
+      let best = null;
+      for (let i = 0; i < 20; i++) {
+        const c = Lynx.randomAround(home.x, home.y, PICKUP_MIN_M, PICKUP_MAX_M);
+        const gap = Math.min(Infinity, ...pickups.map((k) => Math.hypot(k.x - c.x, k.y - c.y)));
+        if (!best || gap > best.gap) best = { ...c, gap };
+        if (gap > 0.22) break;
+      }
+      return best;
+    }
     function dropPickup(pos, kind) {
       pickups.push({ x: pos.x, y: pos.y, kind, phase: Math.random() * 6 });
     }
+
+    // Cover from wave 3 on: a few short walls on a ring round the robot's
+    // space, at random angles (a new layout each wave).
+    function buildWalls() {
+      walls = [];
+      pillars = [];
+      if (wave < 3) return;
+      const n = wave < 6 ? 3 : 4;
+      const a0 = Math.random() * Math.PI * 2;
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (i * Math.PI * 2) / n + rand(-0.3, 0.3);
+        const cx = home.x + WALL_RING_M * Math.cos(a);
+        const cy = home.y + WALL_RING_M * Math.sin(a);
+        const tx = -Math.sin(a) * (WALL_LEN_M / 2);
+        const ty = Math.cos(a) * (WALL_LEN_M / 2);
+        walls.push({ x0: cx - tx, y0: cy - ty, x1: cx + tx, y1: cy + ty });
+      }
+      walls.forEach((w) => {
+        const k = Math.max(1, Math.round(WALL_LEN_M / WALL_PIECE_M));
+        for (let i = 0; i <= k; i++) pillars.push({ x: w.x0 + ((w.x1 - w.x0) * i) / k, y: w.y0 + ((w.y1 - w.y0) * i) / k });
+      });
+    }
+    function nearestOnWall(w, x, y) {
+      const dx = w.x1 - w.x0;
+      const dy = w.y1 - w.y0;
+      const t = Math.max(0, Math.min(1, ((x - w.x0) * dx + (y - w.y0) * dy) / (dx * dx + dy * dy || 1)));
+      const qx = w.x0 + dx * t;
+      const qy = w.y0 + dy * t;
+      return { qx, qy, d: Math.hypot(x - qx, y - qy) };
+    }
+    // Does the floor segment (x0, y0)-(x1, y1) cross a wall?
+    function crossesWall(x0, y0, x1, y1) {
+      const cr = (ax, ay, bx, by, cx, cy) => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      return walls.some((w) => {
+        const d1 = cr(w.x0, w.y0, w.x1, w.y1, x0, y0);
+        const d2 = cr(w.x0, w.y0, w.x1, w.y1, x1, y1);
+        const d3 = cr(x0, y0, x1, y1, w.x0, w.y0);
+        const d4 = cr(x0, y0, x1, y1, w.x1, w.y1);
+        return d1 * d2 < 0 && d3 * d4 < 0;
+      });
+    }
+    const wallAt = (x, y, h) => h < WALL_H_M && walls.some((w) => nearestOnWall(w, x, y).d < WALL_R_M);
 
     function spawnEnemy(type) {
       const pos = Lynx.randomAround(ar.pose.x, ar.pose.y, spawnR - 0.3, spawnR + 0.5);
@@ -518,6 +646,8 @@ Lynx.games = Lynx.games || {};
       }),
       hit: (e, dmg) => e.state === "alive" && hurtEnemy(e, dmg),
       hurtPlayer: (f) => damagePlayer(45 * f), // (your own rocket)
+      wallAt: (x, y, h) => wallAt(x, y, h),
+      blocked: (x0, y0, x1, y1) => crossesWall(x0, y0, x1, y1),
     });
 
     function tryFire() {
@@ -566,6 +696,8 @@ Lynx.games = Lynx.games || {};
           }
         });
         if (!target) continue;
+        // a wall between: the wall takes it (unless the demon floats above it)
+        if ((ENEMY[target.type].floatM || 0) < WALL_H_M && crossesWall(ar.pose.x, ar.pose.y, target.x, target.y)) continue;
         // Damage falls off with distance, shotgun most of all.
         const dist = Math.hypot(target.x - ar.pose.x, target.y - ar.pose.y);
         const falloff = w.pellets > 1 ? Math.max(0.35, 1 - (dist - 0.8) / 3) : 1;
@@ -587,7 +719,7 @@ Lynx.games = Lynx.games || {};
           const kinds = ["medkit", "medkit", "bullets", "bullets", "shells"];
           if (p.owned.rocket) kinds.push("rockets");
           if (p.owned.plasma || p.owned.bfg) kinds.push("cells");
-          dropPickup({ x: e.x, y: e.y }, kinds[Math.floor(Math.random() * kinds.length)]);
+          dropPickup(near(), kinds[Math.floor(Math.random() * kinds.length)]); // (in the robot's space, not out where it fell)
         }
       } else {
         Lynx.sfx.play("pain");
@@ -738,11 +870,35 @@ Lynx.games = Lynx.games || {};
             my += (sy / d) * (0.3 - d) * 3;
           }
         });
+        // walk round the walls: close to one and heading into it, slide along it
+        if (!def.floatM) {
+          walls.forEach((w) => {
+            const n = nearestOnWall(w, e.x, e.y);
+            if (n.d > 0.3 || n.d < 1e-6) return;
+            const nx = (n.qx - e.x) / n.d;
+            const ny = (n.qy - e.y) / n.d;
+            if (mx * nx + my * ny <= 0) return;
+            const k2 = 1 - Math.max(0, n.d - 0.06) / 0.24;
+            mx += e.strafeDir * -ny * 2.5 * k2;
+            my += e.strafeDir * nx * 2.5 * k2;
+          });
+        }
         const mlen = Math.hypot(mx, my);
         const speed = def.speed * speedMult * (e.pain > 0 ? 0.3 : 1) * (e.attackAnim > 0 ? 0.2 : 1);
         if (mlen > 0) {
           e.x += (mx / mlen) * speed * dt;
           e.y += (my / mlen) * speed * dt;
+        }
+        if (!def.floatM) {
+          walls.forEach((w) => {
+            const n = nearestOnWall(w, e.x, e.y);
+            const min = WALL_R_M + 0.06;
+            if (n.d < min) {
+              const nd = n.d || 1e-6;
+              e.x = n.qx + ((e.x - n.qx) / nd) * min;
+              e.y = n.qy + ((e.y - n.qy) / nd) * min;
+            }
+          });
         }
 
         if (state !== "playing" && state !== "intermission") return;
@@ -776,7 +932,7 @@ Lynx.games = Lynx.games || {};
           damagePlayer(s.dmg);
           effects.push({ x: s.x, y: s.y, h: s.h, t: 0, big: s.r > 0.05 });
           Lynx.sfx.play("explode");
-        } else if (s.h < 0 || s.age > 12) {
+        } else if (s.h < 0 || s.age > 12 || wallAt(s.x, s.y, s.h)) {
           s.dead = true;
           effects.push({ x: s.x, y: s.y, h: Math.max(s.h, 0.02), t: 0, big: false });
         }
@@ -793,10 +949,10 @@ Lynx.games = Lynx.games || {};
         if (k.kind === "medkit") {
           if (p.health >= 100) return true; // leave it for later
           p.health = Math.min(100, p.health + 25);
-        } else if (k.kind === "bullets") p.bullets = Math.min(MAX_AMMO.bullets, p.bullets + 20);
-        else if (k.kind === "shells") p.shells = Math.min(MAX_AMMO.shells, p.shells + 4);
-        else if (k.kind === "rockets") p.rockets = Math.min(MAX_AMMO.rockets, p.rockets + 5);
-        else if (k.kind === "cells") p.cells = Math.min(MAX_AMMO.cells, p.cells + 40);
+        } else if (k.kind === "bullets") p.bullets = Math.min(MAX_AMMO.bullets, p.bullets + 50);
+        else if (k.kind === "shells") p.shells = Math.min(MAX_AMMO.shells, p.shells + 12);
+        else if (k.kind === "rockets") p.rockets = Math.min(MAX_AMMO.rockets, p.rockets + 10);
+        else if (k.kind === "cells") p.cells = Math.min(MAX_AMMO.cells, p.cells + 100);
         else if (k.kind === "armor") p.armor = Math.min(200, p.armor + 50);
         else if (k.kind === "chaingun" || k.kind.startsWith("w_")) {
           const id = k.kind === "chaingun" ? "chaingun" : k.kind.slice(2);
@@ -883,6 +1039,10 @@ Lynx.games = Lynx.games || {};
       });
 
       kit.drawWorld();
+      pillars.forEach((pl) => {
+        const rect = ar.spriteRect(sprites.pillar, pl.x, pl.y, 0, WALL_H_M);
+        if (rect) ar.queue(rect.depth, () => ar.drawSprite(sprites.pillar, rect));
+      });
       pickups.forEach((k) => {
         const spr = sprites[k.kind];
         const hover = 0.02 + Math.sin(k.phase) * 0.01;
@@ -1031,7 +1191,9 @@ Lynx.games = Lynx.games || {};
       // Read-only snapshot for debugging from the browser console.
       snapshot: () => ({ state, wave, score, kills, health: p.health, weapon: p.weapon, bullets: p.bullets, shells: p.shells, rockets: p.rockets, cells: p.cells,
         owned: Object.keys(p.owned), kit: kit.snapshot(),
-        enemies: enemies.map((e) => ({ type: e.type, x: +e.x.toFixed(2), y: +e.y.toFixed(2), hp: Math.round(e.hp), state: e.state })) }),
+        enemies: enemies.map((e) => ({ type: e.type, x: +e.x.toFixed(2), y: +e.y.toFixed(2), hp: Math.round(e.hp), state: e.state })),
+        walls: walls.length, pickups: pickups.map((k) => `${k.kind}@${Math.hypot(k.x - home.x, k.y - home.y).toFixed(2)}`) }),
+      debug: { startWave, killAll: () => enemies.forEach((e) => e.state === "alive" && hurtEnemy(e, 1e6)), crossesWall },
     };
   };
 })(window.Lynx);

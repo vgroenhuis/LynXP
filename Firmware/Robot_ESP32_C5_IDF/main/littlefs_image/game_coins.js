@@ -1,7 +1,7 @@
 // Pacman -- Pac-Man on the living-room floor. Coins are laid out on the
 // floor around where you start; drive the robot over them. Ghosts glide
 // after you (each with its own personality, like the arcade original); a
-// power coin turns them blue for a few seconds so you can drive into them.
+// power coin turns them blue for half a minute so you can drive into them.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -13,7 +13,7 @@ Lynx.games = Lynx.games || {};
   const GHOST_HEIGHT_M = 0.16;
   const GHOST_WIDTH_M = 0.14;
   const GHOST_TOUCH_M = 0.16;
-  const FRIGHT_S = 7;
+  const FRIGHT_S = 30; // long: the robot needs time to turn and drive to a ghost
   const INVULNERABLE_S = 2.5;
   const GHOST_COLORS = ["#ff2020", "#ffb0e0", "#20e0ff", "#ffa030", "#a0ff40", "#c080ff"];
 
@@ -225,7 +225,7 @@ Lynx.games = Lynx.games || {};
       ar.queue(rect.depth, () => {
         ar.floorCircle(g.x, g.y, 0.06, "rgba(0,0,0,0.3)");
         const { x, y, w, h } = rect;
-        const flashing = fright > 0 && fright < 2 && Math.floor(fright * 4) % 2 === 0;
+        const flashing = fright > 0 && fright < 4 && Math.floor(fright * 4) % 2 === 0;
         if (!g.eaten) {
           ctx.fillStyle = fright > 0 ? (flashing ? "#f0f0ff" : "#2040ff") : g.color;
           ctx.beginPath();
