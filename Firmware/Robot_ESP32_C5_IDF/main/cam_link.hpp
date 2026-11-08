@@ -96,6 +96,11 @@ bool cam_link_set_clock(int hz);
 // (0..30), out of PSRAM, or the link isn't running.
 bool cam_link_set_video(int fps);
 
+// Video over the SPI link (the :81 relay, /camvideo, /camframe.jpg): off since
+// 1.5.28. The pages show the camera's own stream over its Wi-Fi, which is
+// smoother; with this off the link only carries status and commands.
+constexpr bool CAM_LINK_VIDEO = false;
+
 // True while video is asked of the camera (fps > 0).
 bool cam_link_video_running();
 

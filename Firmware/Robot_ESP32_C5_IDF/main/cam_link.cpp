@@ -1,5 +1,12 @@
 #include "esp_attr.h"
 #include "cam_link.hpp"
+#include "sdkconfig.h"
+
+// The 40 MHz flash / PSRAM test (1.5.28, see sdkconfig.defaults). sdkconfig isn't
+// in git: an older one keeps 80 MHz. Delete it (or set both to 40 MHz) and rebuild.
+#if !CONFIG_ESPTOOLPY_FLASHFREQ_40M || !CONFIG_SPIRAM_SPEED_40M
+#error "sdkconfig: flash and PSRAM should run at 40 MHz (see sdkconfig.defaults); delete sdkconfig and rebuild"
+#endif
 #include "board_pins.hpp"
 #include "wifi_connect.hpp"
 #include "wifi_networks.hpp"
@@ -629,6 +636,7 @@ bool cam_link_request_cam_trace(int ms) {
 
 bool cam_link_set_video(int fps) {
     if (fps < 0 || fps > 30 || s_linkMutex == nullptr) return false;
+    if (fps > 0 && !CAM_LINK_VIDEO) return false;
     if (fps > 0 && !video_alloc()) return false;
     s_videoFps = fps;
     video_send_request();

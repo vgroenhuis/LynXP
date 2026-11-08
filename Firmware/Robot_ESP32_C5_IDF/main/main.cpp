@@ -94,7 +94,7 @@ extern "C" void app_main(void) {
     ws_broadcast_start();
     ota_register_routes();
     closer_update_register_routes(); // GET /api/update, POST /api/update/check
-    cam_stream_start(); // MJPEG of the camera's frames over this board's Wi-Fi, port 81 (cam_stream.hpp)
+    if (CAM_LINK_VIDEO) cam_stream_start(); // MJPEG of the camera's frames over this board's Wi-Fi, port 81 (cam_stream.hpp)
     debug_pan_register_routes();
     reset_log_register_routes(); // GET /resets
     closer_report_start(); // heartbeats to the CloSer lab demos page, once a device key is stored
