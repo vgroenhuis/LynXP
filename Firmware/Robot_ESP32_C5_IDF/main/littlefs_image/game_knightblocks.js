@@ -42,7 +42,8 @@
 // onFire(state) / onJump(state) / onWeapon(w, state) (true: handled), heroJoints(J), drawHero(J, alpha) (true: drew the knight itself), heroPrims(J, prims, P),
 // blockOver(b) (after a real block's silhouette is cut out: a skin, light),
 // heroAlpha(), snapshot(), camTarget() ([f, r, z]: what the camera keeps in
-// view instead of the knight, or null), hideHero() (true: no knight, shadow
+// view instead of the knight, or null), hideBlock(b) (true: a real block not
+// shown -- no cut-out, no outline: something virtual covers it), hideHero() (true: no knight, shadow
 // or jump hint), forceTracks() (true: the wheel tracks shown whatever the
 // switch says), forceTags() (the same for the tags found); unarmed: true (no
 // sword in the hand -- with drawHero, another character). See `api` below for what it gets.
@@ -1354,7 +1355,7 @@ Lynx.games = Lynx.games || {};
         // (its body as the game keeps it clear of the blocks)
         if (showTracks || (X && X.forceTracks && X.forceTracks())) Lynx.drawWheelTracks(ar, w, { blocks: cubes.blocks, halfWidthM: robotHalf, frontM: robotFront, rearM: robotRear });
         if (X && X.drawFloor) X.drawFloor();
-        realSolids.forEach(queueBlock);
+        realSolids.forEach((b) => !(X && X.hideBlock && X.hideBlock(b)) && queueBlock(b)); // (hideBlock: drawn over by the game, e.g. under water)
         if (X && X.draw) X.draw();
         const heroShown = state === "playing" && !(X && X.hideHero && X.hideHero());
         if (heroShown) queueHero();

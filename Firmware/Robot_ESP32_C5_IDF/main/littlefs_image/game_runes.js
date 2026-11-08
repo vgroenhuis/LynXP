@@ -35,7 +35,8 @@
 // The River (the last level) is different: two shores 4 cm up, a river
 // between them (its water 4 cm up as well, level with a cube's top) and a
 // ship. One stone, the Helm (cube 4 there), steers it: set down in the river,
-// the ship sails to it (to the cube's top, on the water); on the shore or out
+// the ship sails to it (to the cube's top, on the water -- the cube itself is
+// under the water, not shown); on the shore or out
 // of sight, the ship stays where it is. At a harbour the explorer boards
 // (Fire / A) and goes ashore again at the other harbour; on board she can't
 // walk, the ship carries her.
@@ -1505,27 +1506,6 @@ Lynx.games = Lynx.games || {};
       });
     }
 
-    // A real cube standing in the river: its sides are under water (the water
-    // is a cube's height deep), so they are painted over with the river; its
-    // top, at the water's level, stays the real cube.
-    function submerged(b) {
-      const top = Math.min(b.h1, RISE);
-      if (top <= b.h0) return;
-      const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => api.fromB(b, u * b.half, v * b.half));
-      const faces = [];
-      for (let k = 0; k < 4; k++) {
-        const a = c[k];
-        const d = c[(k + 1) % 4];
-        addQuad(faces, [[a[0], a[1], b.h0], [d[0], d[1], b.h0], [d[0], d[1], top], [a[0], a[1], top]]);
-      }
-      // one by one: as one path, a face and the one behind it (wound the other way) would cancel out
-      const g = ar.ctx;
-      g.save();
-      g.globalAlpha = 0.92;
-      faces.forEach((q) => fillPath([q], "rgb(40,120,200)", null));
-      g.restore();
-    }
-
     // the River's ship: a wooden hull sitting in the water, a deck, a mast with a sail
     const HULL = [[1, 0], [0.72, 0.62], [0.2, 1], [-0.75, 1], [-1, 0.72], [-1, -0.72], [-0.75, -1], [0.2, -1], [0.72, -0.62]];
     function queueShip() {
@@ -1996,10 +1976,11 @@ Lynx.games = Lynx.games || {};
         return true;
       },
       unarmed: true,
+      // a real cube in the river is under the water (a cube's height deep): not shown at all
+      hideBlock: (b) => !!G.O && G.phase !== "menu" && waterAt(b.cf, b.cr),
       drawHero: drawExplorer,
       blockOver(b) {
         if (b.tag === 1 && G.phase !== "menu") weightOver(b);
-        if (G.O && G.phase !== "menu" && waterAt(b.cf, b.cr)) submerged(b);
       },
       onWeapon(wpn) {
         if (G.phase !== "menu") return false;
