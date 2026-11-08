@@ -1464,6 +1464,12 @@ function subscribeToPose(callback) {
     const now = performance.now();
     stepAim(now, aimParams);
     if (!aimView) return pose;
+    // The robot drive mode: the odometry and the robot's estimate of where
+    // the servos actually are, both at the video's moment (wsPoseAt) -- not
+    // the commanded pan (it ran ahead of the servo, the outlines with it)
+    // on top of the newest chassis heading delayed once more (that trailed
+    // the video in a turn).
+    if (Lynx.control.robotCamPanRad() !== null && !aimOverride) return pose;
     if (now - aim.activeAt > AIM_VIEW_AFTER_MS && Lynx.control.robotCamPanRad() === null) {
       // (and the aim takes the robot's at once: right when this page aims again)
       aim.yaw += aim.errYaw;

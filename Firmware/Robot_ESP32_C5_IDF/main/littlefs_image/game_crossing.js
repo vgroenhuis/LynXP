@@ -1,7 +1,8 @@
 // Crossing -- Frogger on your floor. Strips of "road" lie ahead of the robot,
-// each with its own traffic (cars and trucks driving sideways at their own
-// speed, alternating direction). Drive across them to the far side without
-// being run over; safe median strips every three lanes give a breather.
+// each with its own traffic (cars, trucks and motorcycles, in 3D, driving
+// sideways at their own speed, alternating direction). Drive across them to
+// the far side without being run over; a raised sidewalk every three lanes
+// gives a breather.
 // Reaching the goal flips the course: now cross back, with faster, denser
 // traffic. FIRE honks and freezes the traffic for a moment (slow recharge).
 
@@ -69,9 +70,12 @@ Lynx.games = Lynx.games || {};
         const slot = P / Math.max(1, want);
         const off = rnd(0, slot);
         for (let i = 0; i < want; i++) {
+          const moto = Math.random() < 0.2;
+          const l = moto ? 0.14 : i && Math.random() < 0.7 ? len : len + rnd(-0.05, 0.1);
           ln.cars.push({
             s: -P / 2 + off + i * slot + rnd(-slot * 0.12, slot * 0.12),
-            len: i && Math.random() < 0.7 ? len : len + rnd(-0.05, 0.1),
+            len: l,
+            kind: moto ? "moto" : l > 0.5 ? "truck" : "car",
             color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)],
           });
         }
@@ -187,11 +191,20 @@ Lynx.games = Lynx.games || {};
     }
 
     function quad(u0, s0, u1, s1, h, fill, stroke) {
-      const pts = [toWorld(u0, s0), toWorld(u0, s1), toWorld(u1, s1), toWorld(u1, s0)].map((w) => ar.project(w.x, w.y, h));
-      if (pts.some((q) => !q)) return;
+      poly([[u0, s0, h], [u0, s1, h], [u1, s1, h], [u1, s0, h]], fill, stroke);
+    }
+    // a polygon of course points [u, s, h] (all or nothing)
+    function poly(pts, fill, stroke, width = 1) {
+      const sp = [];
+      for (const [u, s1, h] of pts) {
+        const w = toWorld(u, s1);
+        const q = ar.project(w.x, w.y, h);
+        if (!q) return;
+        sp.push(q);
+      }
       const ctx = ar.ctx;
       ctx.beginPath();
-      pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      sp.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
       ctx.closePath();
       if (fill) {
         ctx.fillStyle = fill;
@@ -199,50 +212,131 @@ Lynx.games = Lynx.games || {};
       }
       if (stroke) {
         ctx.strokeStyle = stroke;
+        ctx.lineWidth = width;
         ctx.stroke();
       }
+    }
+    // a long strip across the course, in pieces (a piece near or behind the camera drops out alone)
+    function strip(u0, u1, h, fill, stroke, piece = 0.25) {
+      for (let a = -W; a < W - 1e-6; a += piece) quad(u0, a, u1, Math.min(W, a + piece), h, fill, stroke);
+    }
+
+    // -- 3D vehicles: boxes (only the faces the camera sees), shaded ---------------------------------------
+    let cam = { u: 0, s: 0, h: 0.1 };
+    const shade = (hex, k) => {
+      const n = parseInt(hex.slice(1), 16);
+      const c = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
+      return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`;
+    };
+    // a box: u0..u1 (across the lane), s0..s1 (along it), h0..h1; colour, and the top's own colour
+    function box(u0, u1, s0, s1, h0, h1, color, topColor, line = "rgba(0,0,0,0.55)") {
+      if (cam.s < s0) poly([[u0, s0, h0], [u1, s0, h0], [u1, s0, h1], [u0, s0, h1]], shade(color, 0.72), line);
+      if (cam.s > s1) poly([[u0, s1, h0], [u1, s1, h0], [u1, s1, h1], [u0, s1, h1]], shade(color, 0.72), line);
+      if (cam.u < u0) poly([[u0, s0, h0], [u0, s1, h0], [u0, s1, h1], [u0, s0, h1]], shade(color, 0.88), line);
+      if (cam.u > u1) poly([[u1, s0, h0], [u1, s1, h0], [u1, s1, h1], [u1, s0, h1]], shade(color, 0.88), line);
+      if (cam.h > h1) poly([[u0, s0, h1], [u0, s1, h1], [u1, s1, h1], [u1, s0, h1]], topColor || color, line);
+    }
+    const TIRE = "#1b1b1f";
+    function wheels(uc, halfU, sList, r) {
+      for (const s1 of sList) for (const side of [-1, 1]) box(uc + side * halfU - r * 0.35, uc + side * halfU + r * 0.35, s1 - r, s1 + r, 0, r * 2, TIRE, "#2a2a30", null);
+    }
+    // the front's lights: headlights toward where it drives, tail lights behind
+    function lights(uc, halfU, front, back, h) {
+      const f = front > back ? -0.004 : 0.004;
+      for (const side of [-0.65, 0.65]) {
+        const u = uc + side * halfU;
+        if ((cam.s - front) * (front - back) > 0) poly([[u - 0.008, front, h - 0.006], [u + 0.008, front, h - 0.006], [u + 0.008, front, h + 0.004], [u - 0.008, front, h + 0.004]], "#fff6c0", null);
+        if ((cam.s - back) * (back - front) > 0) poly([[u - 0.008, back + f, h - 0.006], [u + 0.008, back + f, h - 0.006], [u + 0.008, back + f, h + 0.002], [u - 0.008, back + f, h + 0.002]], "#ff3030", null);
+      }
+    }
+    function drawVehicle(k, c, dir) {
+      const uc = k * LW;
+      const a = c.s - c.len / 2;
+      const b = c.s + c.len / 2;
+      const front = dir > 0 ? b : a;
+      const back = dir > 0 ? a : b;
+      const at = (t) => back + (front - back) * t; // 0 at the back, 1 at the front
+      const lo = (x, y) => Math.min(x, y);
+      const hi = (x, y) => Math.max(x, y);
+      // its shadow
+      quad(uc - LW * 0.3, a, uc + LW * 0.3, b, 0.001, "rgba(0,0,0,0.3)", null);
+      if (c.kind === "moto") {
+        const half = LW * 0.06;
+        wheels(uc, 0, [at(0.18), at(0.82)], 0.016);
+        box(uc - half, uc + half, lo(at(0.15), at(0.85)), hi(at(0.15), at(0.85)), 0.016, 0.034, c.color, null);
+        // the rider: legs, torso leaning forward, a helmet
+        box(uc - half * 1.3, uc + half * 1.3, lo(at(0.3), at(0.55)), hi(at(0.3), at(0.55)), 0.03, 0.05, "#2b3550", null);
+        box(uc - half * 1.2, uc + half * 1.2, lo(at(0.38), at(0.62)), hi(at(0.38), at(0.62)), 0.05, 0.078, "#3a4a6a", null);
+        box(uc - half * 1.1, uc + half * 1.1, lo(at(0.46), at(0.68)), hi(at(0.46), at(0.68)), 0.078, 0.098, c.color, shade(c.color, 1.15));
+        poly([[uc - half, at(0.7), 0.083], [uc + half, at(0.7), 0.083], [uc + half, at(0.7), 0.093], [uc - half, at(0.7), 0.093]], "rgba(20,30,60,0.9)", null); // visor
+        return;
+      }
+      const half = LW * 0.27;
+      if (c.kind === "truck") {
+        const H = 0.13;
+        wheels(uc, half * 0.95, [at(0.12), at(0.3), at(0.82)], 0.018);
+        // the cargo box (white, with a coloured stripe) and the cab in front
+        box(uc - half, uc + half, lo(at(0.02), at(0.72)), hi(at(0.02), at(0.72)), 0.022, H, "#e8e8ea", "#f4f4f6");
+        poly(cam.u < uc - half
+          ? [[uc - half, at(0.06), H * 0.45], [uc - half, at(0.68), H * 0.45], [uc - half, at(0.68), H * 0.6], [uc - half, at(0.06), H * 0.6]]
+          : [[uc + half, at(0.06), H * 0.45], [uc + half, at(0.68), H * 0.45], [uc + half, at(0.68), H * 0.6], [uc + half, at(0.06), H * 0.6]], c.color, null);
+        box(uc - half, uc + half, lo(at(0.75), at(1)), hi(at(0.75), at(1)), 0.022, H * 0.78, c.color, shade(c.color, 1.1));
+        box(uc - half * 0.9, uc + half * 0.9, lo(at(0.9), at(1)), hi(at(0.9), at(1)), H * 0.5, H * 0.74, "#1c2a48", "#1c2a48", null); // windscreen
+        lights(uc, half, front, back, 0.04);
+        return;
+      }
+      // a car: body, then the cabin with its windows, set back a little
+      const H = Math.min(0.1, 0.3 * c.len);
+      wheels(uc, half * 0.92, [at(0.2), at(0.8)], 0.017);
+      box(uc - half, uc + half, a, b, 0.016, H * 0.55, c.color, shade(c.color, 1.08));
+      box(uc - half * 0.86, uc + half * 0.86, lo(at(0.25), at(0.7)), hi(at(0.25), at(0.7)), H * 0.55, H, "#22304e", shade(c.color, 1.12));
+      // the roof's pillars: the cabin's top edge in the body colour
+      poly([[uc - half * 0.86, at(0.25), H], [uc + half * 0.86, at(0.25), H], [uc + half * 0.86, at(0.7), H], [uc - half * 0.86, at(0.7), H]], shade(c.color, 1.12), "rgba(0,0,0,0.5)");
+      lights(uc, half, front, back, H * 0.4);
     }
 
     function draw() {
       const v = ar.view;
       const ctx = ar.ctx;
       if (state !== "title") {
+        const cw = ar.cameraWorld();
+        const cc = toCourse(cw.x, cw.y);
+        cam = { u: cc.u, s: cc.s, h: cw.h };
         const cars = [];
+        const CURB = 0.016;
         lanes.forEach((ln, k) => {
           const u0 = k * LW - LW / 2;
           const u1 = k * LW + LW / 2;
           const last = k === lanes.length - 1;
           if (ln.type === "road") {
-            quad(u0, -W, u1, W, 0, "rgba(40,40,50,0.55)", "rgba(255,255,255,0.25)");
-            ctx.save();
-            ctx.setLineDash([6, 8]);
-            quad(k * LW, -W, k * LW, W, 0, null, "rgba(255,230,120,0.45)");
-            ctx.restore();
+            // asphalt, white edge lines, a dashed middle line
+            strip(u0, u1, 0, "rgba(46,46,52,0.82)", null);
+            strip(u0 + 0.012, u0 + 0.02, 0.0005, "rgba(240,240,240,0.8)", null);
+            strip(u1 - 0.02, u1 - 0.012, 0.0005, "rgba(240,240,240,0.8)", null);
+            for (let a = -W; a < W; a += 0.16) quad(k * LW - 0.005, a, k * LW + 0.005, Math.min(W, a + 0.08), 0.0005, "rgba(255,220,90,0.85)", null);
             ln.cars.forEach((c) => cars.push({ ln, k, c }));
           } else {
-            quad(u0, -W, u1, W, 0, last ? "rgba(255,216,74,0.35)" : "rgba(60,200,100,0.28)", last ? "#ffd84a" : "rgba(120,255,160,0.6)");
+            // a sidewalk: a raised slab of paving stones, its curb edges facing the road
+            const top = last ? "rgba(214,206,170,0.95)" : "rgba(196,196,200,0.95)";
+            for (const face of [cam.u < u0 ? u0 : null, cam.u > u1 ? u1 : null]) {
+              if (face === null) continue;
+              for (let a = -W; a < W - 1e-6; a += 0.25) poly([[face, a, 0], [face, Math.min(W, a + 0.25), 0], [face, Math.min(W, a + 0.25), CURB], [face, a, CURB]], "rgba(140,140,146,0.95)", "rgba(60,60,66,0.6)");
+            }
+            strip(u0, u1, CURB, top, null);
+            // the slabs' joints
+            for (let a = -W; a <= W + 1e-6; a += 0.15) quad(u0, a - 0.002, u1, a + 0.002, CURB + 0.0005, "rgba(90,90,96,0.6)", null);
+            quad(k * LW - 0.002, -W, k * LW + 0.002, W, CURB + 0.0005, "rgba(90,90,96,0.6)", null);
+            if (last) strip(u1 - 0.03, u1 - 0.012, CURB + 0.0006, "rgba(255,216,74,0.95)", null); // the goal line
           }
         });
-        // far cars first
-        const depth = (o) => {
-          const w = toWorld(o.k * LW, o.c.s);
-          return Math.hypot(w.x - ar.pose.x, w.y - ar.pose.y);
-        };
+        // far vehicles first
+        const depth = (o) => Math.hypot(o.k * LW - cam.u, o.c.s - cam.s);
         cars.sort((a, b) => depth(b) - depth(a));
         cars.forEach(({ ln, k, c }) => {
-          const u0 = k * LW - LW * 0.3;
-          const u1 = k * LW + LW * 0.3;
-          const a = c.s - c.len / 2;
-          const b = c.s + c.len / 2;
-          const col = freeze > 0 && stateTime > 0 ? c.color : c.color;
-          ctx.lineWidth = 1.5;
-          quad(u0, a, u1, b, 0, "rgba(0,0,0,0.35)", null);
-          quad(u0 + 0.01, a + 0.01, u1 - 0.01, b - 0.01, 0.07, col, "rgba(0,0,0,0.6)");
-          // windscreen toward the driving direction
-          const f = ln.dir > 0 ? b : a;
-          const g = ln.dir > 0 ? b - 0.07 : a + 0.07;
-          quad(u0 + 0.04, Math.min(f, g), u1 - 0.04, Math.max(f, g), 0.075, "rgba(20,30,60,0.85)", null);
-          if (freeze > 0.01 && state === "playing") quad(u0, a, u1, b, 0.075, "rgba(120,200,255,0.25)", null);
+          if (Math.abs(c.s) > W + 0.25) return; // (off the road's ends: on its way round)
+          ctx.lineWidth = 1;
+          drawVehicle(k, c, ln.dir);
+          if (freeze > 0.01 && state === "playing") quad(k * LW - LW * 0.3, c.s - c.len / 2, k * LW + LW * 0.3, c.s + c.len / 2, 0.002, "rgba(120,200,255,0.35)", null);
         });
       }
       ar.flush();
@@ -263,7 +357,7 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("CROSSING", "Press FIRE to start", { color: "#a0ffb0" });
-        ar.text("Drive straight ahead across the traffic lanes · green strips are safe · FIRE honks and stops the cars", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text("Drive straight ahead across the traffic lanes · sidewalks are safe · FIRE honks and stops the cars", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#a0ffb0" });
       } else if (state === "over") {
         ar.flash("#000", 0.4);

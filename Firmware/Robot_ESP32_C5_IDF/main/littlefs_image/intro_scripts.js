@@ -368,7 +368,7 @@ window.Lynx = window.Lynx || {};
         cam: { orbit: [1.4, 0, 0], radius: 2.6, height: 2.0, from: -40, to: 10 },
       },
       {
-        say: ["Drive across to the far side without being run over. The green strips are safe: wait there for a gap.", "Rij naar de overkant zonder overreden te worden. Op de groene stroken ben je veilig: wacht daar op een gat."],
+        say: ["Drive across to the far side without being run over. The sidewalks are safe: wait there for a gap.", "Rij naar de overkant zonder overreden te worden. Op de stoepen ben je veilig: wacht daar op een gat."],
         cam: { behind: 0.6, height: 0.5, ahead: 0.8 },
         drive: crossDrive,
         d: 9,
@@ -392,33 +392,50 @@ window.Lynx = window.Lynx || {};
     ],
   };
 
+  // the light-cycle, for the chase camera
+  const cycle = (ctx) => (ctx.game.debug && ctx.game.debug.cycle ? ctx.game.debug.cycle() : null);
+  // its stick: head for a point of the intro's frame (camera-relative, as the game reads it)
+  function ride(f, r) {
+    return (t, ctx) => {
+      const c = cycle(ctx);
+      if (!c) return [0, 0];
+      const w = ctx.toWorld(f, r);
+      const a = wrap(Math.atan2(w.y - c.y, w.x - c.x) - ctx.ar.camTheta);
+      return [-Math.sin(a), Math.cos(a)];
+    };
+  }
   I.lightwall = {
+    thirdPerson: true,
+    start: (ctx) => {
+      Lynx.fireAction();
+      if (ctx.game.debug && ctx.game.debug.god) ctx.game.debug.god(true);
+    },
     steps: [
       {
-        say: ["Lightwall: Tron on your floor. The robot lays a wall of light behind it as it drives.", "Lichtmuur: Tron op je vloer. De robot trekt een muur van licht achter zich aan."],
-        cam: { orbit: [0, 0, 0], radius: 2.3, height: 1.6, from: -30, to: 10 },
-        drive: { j2: 0.7, rot: 30 },
+        say: ["Lightwall: Tron on your floor. You ride a light-cycle, and the robot follows it with its camera.", "Lichtmuur: Tron op je vloer. Jij rijdt op een lichtmotor, en de robot volgt hem met zijn camera."],
+        cam: { chase: cycle, dist: 0.45, height: 0.25, side: 20 },
+        stick: ride(0.9, 0.3),
       },
       {
-        say: ["The rival light-cycles do too. Whatever touches a wall, or the arena's edge, is derezzed.", "De andere lichtmotoren ook. Wat een muur raakt, of de rand van de arena, wordt gederezzed."],
-        cam: { behind: 0.6, height: 0.5, ahead: 0.5 },
-        drive: (t) => ({ j2: 0.8, rot: t < 2 ? -40 : 40 }),
+        say: ["It never stops: the stick says which way to ride, and it lays a wall of light behind it.", "Hij stopt nooit: de stick zegt welke kant je op rijdt, en hij laat een muur van licht achter zich."],
+        cam: { chase: cycle, dist: 0.4, height: 0.2, side: -30 },
+        stick: ride(0.6, -0.6),
       },
       {
-        say: ["Your own wall is harmless to you but deadly to them: cut them off and box them in.", "Je eigen muur doet jou niets, maar hen wel: snijd ze af en sluit ze in."],
-        cam: { orbit: "player", radius: 1.2, height: 1.0, from: -20, to: 40 },
-        drive: { j2: 0.8, rot: 35 },
+        say: ["The rivals do too. Whatever touches a wall, or the arena's edge, is derezzed.", "De tegenstanders ook. Wat een muur raakt, of de rand van de arena, is af."],
+        cam: { orbit: [0.4, 0, 0], radius: 2.3, height: 1.6, from: -30, to: 10 },
+        stick: ride(0.2, 0.4),
       },
       {
-        say: ["Trapped? Fire sends a pulse that wipes the rival walls nearby.", "Ingesloten? Vuur stuurt een puls die de muren van de anderen in de buurt wist."],
-        cam: "player",
-        drive: { j2: 0.6, rot: -20 },
-        at: [[1.5, "fire"]],
+        say: ["Your own wall is harmless to you but deadly to them: cut them off. Trapped? Fire sends a pulse that wipes their walls nearby.", "Je eigen muur doet jou niets, maar hen wel: snijd ze af. Ingesloten? Vuur stuurt een golf die hun muren in de buurt wist."],
+        cam: { chase: cycle, dist: 0.5, height: 0.3, side: 35 },
+        stick: ride(0.9, -0.3),
+        at: [[2.5, "fire"]],
       },
       {
-        say: ["Every level adds a rival, and a faster one. Press Fire to start!", "Elk level komt er een tegenstander bij, en een snellere. Druk op Vuur om te beginnen!"],
-        cam: { orbit: [0, 0, 0], radius: 2.2, height: 1.9, from: 30, to: 70 },
-        drive: { j2: 0.6, rot: 30 },
+        say: ["Derezzed rivals come back along the edge, and more join in as time goes on. Press Fire to start!", "Uitgeschakelde tegenstanders komen terug langs de rand, en er komen er steeds meer bij. Druk op Vuur om te beginnen!"],
+        cam: { orbit: [0.4, 0, 0], radius: 2.2, height: 1.9, from: 30, to: 70 },
+        stick: ride(0.4, 0.5),
       },
     ],
   };
@@ -430,7 +447,7 @@ window.Lynx = window.Lynx || {};
         cam: { orbit: [0, 0, 0], radius: 2.2, height: 1.6, from: -30, to: 20 },
       },
       {
-        say: ["It creeps from tile to tile. Drive over the ink to scrub it away.", "Hij kruipt van tegel naar tegel. Rij over de inkt om hem weg te schrobben."],
+        say: ["The blots slowly spread out. Drive over the ink to scrub it away.", "De vlekken breiden zich langzaam uit. Rij over de inkt om hem weg te schrobben."],
         cam: { behind: 0.55, height: 0.5, ahead: 0.5 },
         drive: (t) => ({ j2: 0.7, rot: Math.sin(t) * 50 }),
       },

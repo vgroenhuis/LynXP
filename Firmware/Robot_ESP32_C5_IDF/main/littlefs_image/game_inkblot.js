@@ -1,37 +1,39 @@
-// Inkblot -- a clean-up game, the opposite of painting. Ink seeps up through
-// the floor from a few leaky wells and creeps from tile to tile like a slow
-// cellular automaton. Driving over ink scrubs it away; to stop a well for good
-// you have to sit on it until it is capped. If the ink covers too much of the
-// arena it is over. FIRE throws a soap bubble that wipes a wide patch.
-// Nothing to aim, nothing to dodge: pure area management and route planning.
+// Inkblot -- a clean-up game, the opposite of painting. Ink wells out of a
+// few leaky spots in the floor, each one a single blot that spreads slowly and
+// unevenly -- a smooth, glossy blob bulging out further here than there.
+// Driving over a blot scrubs it back (its edge retreats where the robot
+// passes); to stop a well for good, sit on it until it is capped. If the ink
+// covers too much of the arena it is over. FIRE throws a soap bubble that
+// wipes a wide patch. Slow on purpose: the camera only sees part of the floor,
+// so there's time to look round and plan a route.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
 
 (function (Lynx) {
-  const SCRUB_R = 0.17; // robot's scrubbing radius
-  const WELL_R = 0.2;
-  const CAP_S = 1.4; // seconds on a well to cap it
-  const SOAP_R = 0.55;
-  const SOAP_COOLDOWN_S = 14;
-  const INK_COLOR = "#6a2cff";
+  const SCRUB_R = 0.17; // the robot's scrubbing radius
+  const WELL_R = 0.16;
+  const CAP_S = 1.2; // seconds on a well to cap it
+  const SOAP_R = 0.6;
+  const SOAP_COOLDOWN_S = 12;
   const WELL_COLOR = "#ff40c0";
-  const LOSE_FRACTION = 0.45;
+  const LOSE_FRACTION = 0.5;
+  const K = 28; // a blot's edge: its distance from the well in this many directions
+  const START_R = 0.06;
+  const GROW = 0.012; // m/s at level 1, on average (each direction its own pace)
+  const GROW_LEVEL = 0.003; // ... plus this much per level
 
   const clamp01 = (t) => Math.min(1, Math.max(0, t));
+  const rand = (a, b) => a + Math.random() * (b - a);
 
   Lynx.games.inkblot = (ar, cfg) => {
     const R = cfg.areaRadiusM;
-    const CELL = cfg.cellM;
     let state = "title"; // title | playing | clear | over
     let stateTime = 0;
     let center = { x: 0, y: 0 };
-    let N = 0;
-    let cells = []; // {x, y, ink, nb:[idx]}
-    let wells = [];
+    let wells = []; // {x, y, hp, alive, t, r: [K], pace: [K], drift: [K]}
     let level = 1;
     let score = 0;
-    let spreadClock = 0;
     let clock = 0;
     let soapCd = 0;
     let soaps = [];
@@ -45,58 +47,39 @@ Lynx.games = Lynx.games || {};
       toast = { text, color, t };
     }
 
-    function build() {
-      center = { x: ar.pose.x, y: ar.pose.y };
-      N = Math.ceil((2 * R) / CELL);
-      cells = [];
-      const idx = {};
-      for (let j = 0; j < N; j++) {
-        for (let i = 0; i < N; i++) {
-          const x = center.x - R + (i + 0.5) * CELL;
-          const y = center.y - R + (j + 0.5) * CELL;
-          if (Math.hypot(x - center.x, y - center.y) > R) continue;
-          idx[i + "," + j] = cells.length;
-          cells.push({ x, y, i, j, ink: 0, nb: [] });
-        }
-      }
-      cells.forEach((c) => {
-        [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].forEach(([di, dj]) => {
-          const k = idx[c.i + di + "," + (c.j + dj)];
-          if (k !== undefined) c.nb.push(k);
-        });
-      });
+    // how far a blot may reach in direction k before the arena's edge
+    function edgeLimit(w, k) {
+      const a = (k / K) * 2 * Math.PI;
+      const dx = w.x - center.x;
+      const dy = w.y - center.y;
+      const b = dx * Math.cos(a) + dy * Math.sin(a);
+      const c = dx * dx + dy * dy - R * R;
+      return Math.max(0, -b + Math.sqrt(Math.max(0, b * b - c)));
     }
 
     function startLevel() {
-      build();
+      center = level === 1 ? { x: ar.pose.x, y: ar.pose.y } : center;
       wells = [];
-      const n = Math.min(2 + level, 7);
+      const n = Math.min(2 + level, 6);
       let tries = 0;
       while (wells.length < n && tries++ < 3000) {
         const a = Math.random() * 2 * Math.PI;
-        const r = (0.35 + 0.6 * Math.sqrt(Math.random())) * R;
+        const r = (0.35 + 0.55 * Math.sqrt(Math.random())) * R;
         const w = { x: center.x + r * Math.cos(a), y: center.y + r * Math.sin(a), hp: 1, alive: true, t: Math.random() * 6 };
         if (Math.hypot(w.x - ar.pose.x, w.y - ar.pose.y) < 0.5) continue;
-        if (wells.some((o) => Math.hypot(o.x - w.x, o.y - w.y) < 0.6 * Math.min(1, R / 1.5) + 0.2)) continue;
+        if (wells.some((o) => Math.hypot(o.x - w.x, o.y - w.y) < 0.55 * Math.min(1, R / 1.5) + 0.2)) continue;
+        // the edge: a little lumpy from the start; each direction grows at its own (slowly changing) pace
+        w.r = Array.from({ length: K }, () => START_R * rand(0.7, 1.3));
+        w.pace = Array.from({ length: K }, () => rand(0.3, 1.7));
+        w.drift = Array.from({ length: K }, () => rand(-1, 1));
         wells.push(w);
       }
       soaps = [];
       soapCd = 0;
-      spreadClock = 0;
       state = "playing";
       stateTime = 0;
       say(`Level ${level}: cap ${wells.length} wells`, "#ffffff", 2);
       Lynx.sfx.play("go");
-    }
-
-    function nearestCell(x, y) {
-      let b = null;
-      let bd = Infinity;
-      for (const c of cells) {
-        const d = (c.x - x) ** 2 + (c.y - y) ** 2;
-        if (d < bd) { bd = d; b = c; }
-      }
-      return b;
     }
 
     function finish() {
@@ -108,6 +91,32 @@ Lynx.games = Lynx.games || {};
         rankMsg = rank ? `#${rank} on the robot's scoreboard!` : "";
         if (rank === 1) best = score;
       });
+    }
+
+    // Wipe a disc (radius rad round x, y) out of every blot: where it covers a
+    // blot's edge, the edge pulls back to the disc's near side. Returns the
+    // ink removed (m^2, roughly).
+    function wipe(x, y, rad) {
+      let removed = 0;
+      wells.forEach((w) => {
+        const dx = x - w.x;
+        const dy = y - w.y;
+        const d = Math.hypot(dx, dy);
+        const at = Math.atan2(dy, dx);
+        for (let k = 0; k < K; k++) {
+          const a = (k / K) * 2 * Math.PI;
+          // the disc's reach along direction a: where the ray enters it
+          const along = d * Math.cos(a - at);
+          const off = d * Math.abs(Math.sin(a - at));
+          if (along < -rad || off >= rad) continue;
+          const enter = Math.max(0, along - Math.sqrt(rad * rad - off * off));
+          if (w.r[k] > enter) {
+            removed += (w.r[k] * w.r[k] - enter * enter) * (Math.PI / K);
+            w.r[k] = enter;
+          }
+        }
+      });
+      return removed;
     }
 
     Lynx.onAction("fire", () => {
@@ -126,14 +135,7 @@ Lynx.games = Lynx.games || {};
       if (state !== "playing" || soapCd > 0) return;
       soapCd = SOAP_COOLDOWN_S;
       soaps.push({ x: ar.pose.x, y: ar.pose.y, t: 0 });
-      let n = 0;
-      cells.forEach((c) => {
-        if (c.ink > 0 && Math.hypot(c.x - ar.pose.x, c.y - ar.pose.y) < SOAP_R) {
-          n += c.ink;
-          c.ink = 0;
-        }
-      });
-      score += Math.round(n);
+      score += Math.round(wipe(ar.pose.x, ar.pose.y, SOAP_R) * 400);
       Lynx.sfx.play("rainbow");
     });
 
@@ -142,79 +144,67 @@ Lynx.games = Lynx.games || {};
       clock += dt;
       if (toast && (toast.t -= dt) <= 0) toast = null;
       soaps.forEach((s) => (s.t += dt));
-      soaps = soaps.filter((s) => s.t < 0.7);
+      soaps = soaps.filter((s) => s.t < 0.9);
       if (state !== "playing") return;
       soapCd = Math.max(0, soapCd - dt);
       const px = ar.pose.x;
       const py = ar.pose.y;
 
-      // Scrub the tiles under the robot.
-      let scrubbed = 0;
-      for (const c of cells) {
-        if (c.ink > 0 && Math.hypot(c.x - px, c.y - py) < SCRUB_R + CELL * 0.3) {
-          const d = Math.min(c.ink, dt * 3);
-          c.ink -= d;
-          scrubbed += d;
-        }
-      }
+      // Scrub where the robot drives.
+      const scrubbed = wipe(px, py, SCRUB_R);
       if (scrubbed > 0) {
-        score += scrubbed * 4;
+        score += scrubbed * 400;
         if (Math.random() < dt * 6) Lynx.sfx.play("crunch");
       }
 
-      // Wells: leak while uncapped; the robot sitting on one caps it.
+      // Wells leak: their blots spread, each direction at its own pace (which
+      // wanders), smoothed with its neighbours so the edge stays a soft curve.
+      const grow = GROW + GROW_LEVEL * (level - 1);
+      let area = 0;
       for (const w of wells) {
-        if (!w.alive) continue;
-        const wc = nearestCell(w.x, w.y);
-        const leak = (0.35 + 0.08 * level) * dt;
-        wc.ink = Math.min(1, wc.ink + leak * (w.hp < 1 ? 0.5 : 1));
-        if (Math.hypot(w.x - px, w.y - py) < WELL_R) {
-          w.hp -= dt / CAP_S;
-          if (w.hp <= 0) {
-            w.alive = false;
-            const pts = 100 + 25 * level;
-            score += pts;
-            say(`Well capped  +${pts}`, WELL_COLOR, 1.3);
-            Lynx.sfx.play("found");
+        if (w.alive) {
+          for (let k = 0; k < K; k++) {
+            w.drift[k] = Math.max(-1, Math.min(1, w.drift[k] + rand(-1, 1) * dt * 0.8));
+            w.pace[k] = Math.max(0.15, Math.min(2, w.pace[k] + w.drift[k] * dt * 0.3));
+            w.r[k] = Math.min(edgeLimit(w, k), w.r[k] + grow * w.pace[k] * dt * (w.hp < 1 ? 0.5 : 1));
           }
-        } else {
-          w.hp = Math.min(1, w.hp + dt * 0.25); // it works loose again
+          // a well keeps a little puddle round itself
+          for (let k = 0; k < K; k++) w.r[k] = Math.max(w.r[k], START_R * 0.6);
+          if (Math.hypot(w.x - px, w.y - py) < WELL_R) {
+            w.hp -= dt / CAP_S;
+            if (w.hp <= 0) {
+              w.alive = false;
+              const pts = 100 + 25 * level;
+              score += pts;
+              say(`Well capped  +${pts}`, WELL_COLOR, 1.3);
+              Lynx.sfx.play("found");
+            }
+          } else {
+            w.hp = Math.min(1, w.hp + dt * 0.25); // it works loose again
+          }
         }
-      }
-
-      // The ink creeps: every tick each saturated tile may seed a neighbour.
-      const period = Math.max(0.12, 0.55 - 0.045 * level);
-      spreadClock += dt;
-      while (spreadClock >= period) {
-        spreadClock -= period;
-        const add = [];
-        for (const c of cells) {
-          if (c.ink < 0.6) continue;
-          const k = c.nb[Math.floor(Math.random() * c.nb.length)];
-          if (Math.random() < 0.55) add.push(k);
+        // (smoothing: a dent or a spike evens out a little)
+        const sm = w.r.slice();
+        for (let k = 0; k < K; k++) {
+          const avg = (w.r[(k + K - 1) % K] + w.r[(k + 1) % K]) / 2;
+          if (w.r[k] > avg) sm[k] = w.r[k] + (avg - w.r[k]) * Math.min(1, dt * 0.6);
         }
-        add.forEach((k) => (cells[k].ink = Math.min(1, cells[k].ink + 0.45)));
+        w.r = sm;
+        for (let k = 0; k < K; k++) area += 0.5 * w.r[k] * w.r[k] * ((2 * Math.PI) / K);
       }
-
-      let covered = 0;
-      for (const c of cells) if (c.ink > 0.5) covered++;
-      coverage = covered / cells.length;
+      coverage = area / (Math.PI * R * R);
       if (coverage > LOSE_FRACTION) {
         say("Swamped!", "#ff6060", 2);
         finish();
         return;
       }
-      if (wells.every((w) => !w.alive)) {
-        let ink = 0;
-        for (const c of cells) ink += c.ink;
-        if (ink < 0.04 * cells.length) {
-          const bonus = Math.round(150 * (1 - coverage / LOSE_FRACTION)) + 50 * level;
-          score += bonus;
-          state = "clear";
-          stateTime = 0;
-          say(`Spotless!  +${bonus}`, "#ffd84a", 2);
-          Lynx.sfx.play("levelup");
-        }
+      if (wells.every((w) => !w.alive) && wells.every((w) => w.r.every((r) => r < 0.03))) {
+        const bonus = Math.round(150 * (1 - coverage / LOSE_FRACTION)) + 50 * level;
+        score += bonus;
+        state = "clear";
+        stateTime = 0;
+        say(`Spotless!  +${bonus}`, "#ffd84a", 2);
+        Lynx.sfx.play("levelup");
       }
     }
 
@@ -223,24 +213,87 @@ Lynx.games = Lynx.games || {};
       return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
     }
 
+    // A blot: a closed smooth curve (Catmull-Rom through its edge points, as
+    // Bezier pieces) on the floor, shrunk by `s` (for the inner shades).
+    function blotPath(ctx, w, s, wob) {
+      const pts = [];
+      for (let k = 0; k < K; k++) {
+        const a = (k / K) * 2 * Math.PI;
+        const r = w.r[k] * s * (1 + wob * Math.sin(clock * 1.3 + k * 1.7 + w.t));
+        const p = ar.project(w.x + r * Math.cos(a), w.y + r * Math.sin(a), 0.001);
+        if (p) pts.push(p);
+      }
+      const n = pts.length;
+      if (n < 4) return false;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 0; i < n; i++) {
+        const p0 = pts[(i + n - 1) % n];
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % n];
+        const p3 = pts[(i + 2) % n];
+        ctx.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6, p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
+      }
+      ctx.closePath();
+      return true;
+    }
+    function drawBlot(w) {
+      if (w.r.every((r) => r < 0.008)) return;
+      const ctx = ar.ctx;
+      ctx.save();
+      // a dark wet rim, the ink, a lighter sheen inside, and a glint
+      if (blotPath(ctx, w, 1.04, 0.012)) {
+        ctx.fillStyle = "rgba(20,6,50,0.55)";
+        ctx.fill();
+      }
+      if (blotPath(ctx, w, 1, 0.012)) {
+        const c = ar.project(w.x, w.y, 0);
+        const edge = ar.project(w.x + Math.max(...w.r), w.y, 0);
+        if (c && edge) {
+          const rr = Math.max(8, Math.hypot(edge.x - c.x, edge.y - c.y));
+          const g = ctx.createRadialGradient(c.x, c.y, rr * 0.1, c.x, c.y, rr);
+          g.addColorStop(0, "rgba(70,22,170,0.92)");
+          g.addColorStop(0.7, "rgba(92,36,220,0.86)");
+          g.addColorStop(1, "rgba(120,60,255,0.8)");
+          ctx.fillStyle = g;
+        } else ctx.fillStyle = "rgba(90,36,220,0.86)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(170,130,255,0.55)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      if (blotPath(ctx, w, 0.55, 0.03)) {
+        ctx.fillStyle = "rgba(150,110,255,0.18)";
+        ctx.fill();
+      }
+      const gl = ar.project(w.x - 0.25 * w.r[Math.round(K * 0.6) % K], w.y + 0.25 * w.r[Math.round(K * 0.6) % K], 0.001);
+      if (gl) {
+        ctx.fillStyle = "rgba(255,255,255,0.22)";
+        ctx.beginPath();
+        ctx.ellipse(gl.x, gl.y, Math.max(2, gl.ppm * 0.02), Math.max(1, gl.ppm * 0.008), -0.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     function draw() {
       const v = ar.view;
       const ctx = ar.ctx;
       if (state !== "title") {
         ar.floorCircle(center.x, center.y, R, null, "rgba(255,255,255,0.35)");
-        for (const c of cells) {
-          if (c.ink < 0.03) continue;
-          ar.floorCircle(c.x, c.y, CELL * 0.62, hexA(INK_COLOR, 0.2 + 0.6 * c.ink), null);
-        }
+        wells.forEach(drawBlot);
         for (const w of wells) {
-          if (!w.alive) continue;
-          const pulse = 0.5 + 0.5 * Math.sin(clock * 6 + w.t);
+          if (!w.alive) {
+            ar.floorCircle(w.x, w.y, WELL_R * 0.6, "rgba(120,120,130,0.6)", "rgba(220,220,230,0.8)"); // its cap
+            continue;
+          }
+          const pulse = 0.5 + 0.5 * Math.sin(clock * 4 + w.t);
           ar.floorCircle(w.x, w.y, WELL_R, hexA(WELL_COLOR, 0.15 + 0.25 * pulse), hexA(WELL_COLOR, 0.95));
           if (w.hp < 1) ar.floorCircle(w.x, w.y, WELL_R * clamp01(1 - w.hp), hexA("#ffffff", 0.7));
         }
         soaps.forEach((s) => {
-          const k = s.t / 0.7;
-          ar.floorCircle(s.x, s.y, SOAP_R * k, null, hexA("#80f0ff", 1 - k));
+          const k = s.t / 0.9;
+          ar.floorCircle(s.x, s.y, SOAP_R * k, hexA("#c0f8ff", 0.25 * (1 - k)), hexA("#80f0ff", 1 - k));
         });
         if (state === "playing") ar.floorCircle(ar.pose.x, ar.pose.y, SCRUB_R, null, "rgba(128,240,255,0.7)");
       }
@@ -258,7 +311,7 @@ Lynx.games = Lynx.games || {};
         const frac = clamp01(coverage / LOSE_FRACTION);
         ctx.fillStyle = "rgba(255,255,255,0.2)";
         ctx.fillRect(v.cx - 80, v.y + 20, 160, 6);
-        ctx.fillStyle = frac > 0.7 ? "#ff5050" : INK_COLOR;
+        ctx.fillStyle = frac > 0.7 ? "#ff5050" : "#6a2cff";
         ctx.fillRect(v.cx - 80, v.y + 20, 160 * frac, 6);
         ar.text("ink", v.cx, v.y + 40, { size: 11, align: "center", color: "#c0b0ff" });
         const sf = 1 - clamp01(soapCd / SOAP_COOLDOWN_S);
@@ -292,6 +345,9 @@ Lynx.games = Lynx.games || {};
       update(Math.min(dt, 0.1));
       draw();
     });
-    return { actionLabel: "▶ Start" };
+    return {
+      actionLabel: "▶ Start",
+      snapshot: () => ({ state, level, score: Math.round(score), coverage: +coverage.toFixed(3), wells: wells.map((w) => `${w.alive ? "open" : "capped"} r~${(w.r.reduce((a, b) => a + b, 0) / K).toFixed(3)}`) }),
+    };
   };
 })(window.Lynx);

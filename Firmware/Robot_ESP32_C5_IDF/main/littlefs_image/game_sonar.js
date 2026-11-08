@@ -42,8 +42,10 @@ Lynx.games = Lynx.games || {};
     let won = false;
     Lynx.bestScore("sonar").then((b) => (best = b));
 
+    // Every round buries its gems round the same spot: where the robot stood
+    // when the game started (not where it dug the last gem, which may be at
+    // the edge of the area -- the hunt would wander off round after round).
     function bury() {
-      center = { x: ar.pose.x, y: ar.pose.y };
       gems = [];
       holes = [];
       rings = [];
@@ -63,6 +65,7 @@ Lynx.games = Lynx.games || {};
     }
 
     function start() {
+      center = { x: ar.pose.x, y: ar.pose.y };
       round = 1;
       score = 0;
       bury();

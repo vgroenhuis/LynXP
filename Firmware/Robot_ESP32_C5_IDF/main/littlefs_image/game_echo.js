@@ -1,8 +1,10 @@
 // Echo -- Simon on your floor. Four coloured pads lie around where you
 // start. The robot lights them up in a sequence (with a note each); then you
 // repeat it by driving onto the pads in the same order and waiting a moment on
-// each. Every round adds one more step. Cut across the wrong pad, or dawdle too
-// long, and it is over. Pure memory and steering: nothing to shoot.
+// each. Every round adds one more step. Cut across the wrong pad and it is
+// over. No time limit, and FIRE plays the sequence again (the camera sees only
+// some of the pads at a time: look round while it plays). Each pad has a sound
+// of its own. Pure memory and steering: nothing to shoot.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -33,7 +35,7 @@ Lynx.games = Lynx.games || {};
     let showClock = 0;
     let dwell = 0;
     let armed = true;
-    let wait = 0; // input time left for this step
+    let resumeAt = -1; // a replay during input: where the player was (else -1)
     let score = 0;
     let toast = null;
     let best = null;
@@ -97,13 +99,23 @@ Lynx.games = Lynx.games || {};
       lit = -1;
       dwell = 0;
       armed = false; // leave whatever pad you're on first
-      wait = cfg.stepTimeS + 2;
-      toast = { text: "Your turn!", color: "#ffffff", t: 1.2 };
+      toast = { text: "Your turn!  (FIRE: hear it again)", color: "#ffffff", t: 1.6 };
+    }
+    // FIRE while repeating: the whole sequence again, then on from where you were
+    function replay() {
+      resumeAt = step;
+      state = "show";
+      stateTime = 0;
+      step = 0;
+      showClock = 0.6;
+      lit = -1;
+      dwell = 0;
     }
 
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title" || (state === "over" && stateTime > 1.5)) start();
+      else if (state === "input") replay();
     });
 
     function update(dt) {
@@ -123,7 +135,14 @@ Lynx.games = Lynx.games || {};
             showClock = SHOW_GAP_S * speed;
             step++;
           } else if (step >= seq.length) {
-            startInput();
+            if (resumeAt >= 0) {
+              // back to repeating, where the player was
+              state = "input";
+              stateTime = 0;
+              step = resumeAt;
+              resumeAt = -1;
+              armed = false;
+            } else startInput();
           } else {
             light(seq[step]);
             showClock = SHOW_ON_S * speed;
@@ -136,12 +155,6 @@ Lynx.games = Lynx.games || {};
       const px = ar.pose.x;
       const py = ar.pose.y;
       const on = pads.findIndex((p) => Math.hypot(p.x - px, p.y - py) < PAD_R);
-      wait -= dt;
-      if (wait <= 0) {
-        toast = { text: "Too slow!", color: "#ff6060", t: 2 };
-        fail(-1);
-        return;
-      }
       if (on < 0) {
         armed = true;
         dwell = 0;
@@ -162,7 +175,6 @@ Lynx.games = Lynx.games || {};
       step++;
       dwell = 0;
       armed = false;
-      wait = cfg.stepTimeS;
       if (step >= seq.length) {
         score += 20 * seq.length;
         toast = { text: `Round ${seq.length} clear!  +${20 * seq.length}`, color: "#ffd84a", t: 1.5 };
@@ -207,9 +219,7 @@ Lynx.games = Lynx.games || {};
           ctx.arc(x0 + i * gap, v.y + 24, 5, 0, 2 * Math.PI);
           ctx.fill();
         }
-        const frac = clamp01(wait / cfg.stepTimeS);
-        ctx.fillStyle = frac < 0.3 ? "#ff6060" : "rgba(255,255,255,0.6)";
-        ctx.fillRect(v.cx - 60, v.y + 38, 120 * frac, 4);
+        ar.text("FIRE: play the sequence again", v.cx, v.y + 52, { size: 12, align: "center", alpha: 0.75 });
       }
 
       const hudY = v.y + v.h - 16;
@@ -220,11 +230,11 @@ Lynx.games = Lynx.games || {};
       if (state === "title") {
         ar.flash("#000", 0.45);
         ar.banner("ECHO", "Press FIRE to lay out the pads", { color: "#a0c0ff" });
-        ar.text("Watch the pads light up · drive onto them in the same order · pause on each", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
+        ar.text("Watch the pads light up · drive onto them in the same order · pause on each · FIRE: hear it again", v.cx, v.cy + v.h * 0.2, { size: 13, align: "center" });
         if (best !== null) ar.text(`Best on this robot: ${best}`, v.cx, v.cy + v.h * 0.27, { size: 14, align: "center", color: "#a0c0ff" });
       } else if (state === "over") {
         ar.flash("#000", 0.4);
-        ar.banner(wrong >= 0 ? "WRONG PAD" : "TOO SLOW", `Score ${score} · ${seq.length - 1} rounds cleared`);
+        ar.banner("WRONG PAD", `Score ${score} · ${seq.length - 1} rounds cleared`);
         if (rankMsg) ar.text(rankMsg, v.cx, v.cy + v.h * 0.18, { size: 16, align: "center", color: "#a0c0ff" });
         if (stateTime > 1.5) ar.text("Press FIRE to play again", v.cx, v.cy + v.h * 0.25, { size: 14, align: "center" });
       }
