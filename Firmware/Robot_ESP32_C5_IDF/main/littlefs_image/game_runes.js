@@ -14,7 +14,7 @@
 // the knight can climb, like every real cube) -- and keeps working while it
 // stands there: one Rain stone for two fires means putting it out at one,
 // then carrying it on to the other while the knight waits. Every level needs
-// all six. Moving a stone the knight is relying on (an island it stands on,
+// all six (but the River). Moving a stone the knight is relying on (an island it stands on,
 // the light of a bridge) drops it -- careful.
 //
 // Raised ground (as in Temple of LynXP), in 4 cm steps -- a cube's height:
@@ -32,6 +32,14 @@
 // the chasms (dark, in runs per row), a few outlines, small flames and spikes,
 // bars for the gates -- no textures, no WebGL.
 //
+// The River (the last level) is different: two shores 4 cm up, a river
+// between them (its water 4 cm up as well, level with a cube's top) and a
+// ship. One stone, the Helm (cube 4 there), steers it: set down in the river,
+// the ship sails to it (to the cube's top, on the water); on the shore or out
+// of sight, the ship stays where it is. At a harbour the explorer boards
+// (Fire / A) and goes ashore again at the other harbour; on board she can't
+// walk, the ship carries her.
+//
 // Keys (on top of Knight on Blocks's): L the level menu, H the level's hint.
 
 window.Lynx = window.Lynx || {};
@@ -47,12 +55,16 @@ Lynx.games = Lynx.games || {};
   //   F  fire            f  fire, on and off (cross between bursts)
   //   ^  spikes          v  spikes, up and down
   //   a b  pressure plates   A B  their gates (plate a opens every A)
+  //   w  water           h  water, a ship's berth   H  a harbour's pier (ground)
   // and optionally `rise`, the same shape: how high each cell is raised, in
   // 4 cm steps -- the height of a tag cube (. or 0 the floor, 1 4 cm, 2 8 cm,
   // 3 12 cm). Raised ground is a column from the floor up; a raised ghost
   // bridge (~) hangs in the air, held only while lit. The explorer (3 cm)
   // climbs 4 cm, not 8: a cube is a step, and a stepping stone over a gap
   // between two ledges (she jumps about 6 cm). Stones only work on the floor.
+  // `riseAll`: every cell but the chasm that many steps up (water included:
+  // its surface). `stones`: the only tags that count in the level, `helm`: the
+  // tag that steers the ship. A level without a socket (K) has its portal open.
   const LEVELS = [
     {
       id: "first",
@@ -239,6 +251,31 @@ Lynx.games = Lynx.games || {};
         ".........",
       ],
     },
+    {
+      id: "river",
+      name: "The River",
+      intro: "Two shores and a river, 4 cm up: steer the ship across with the Helm stone (cube 4)",
+      hint: "Board at the harbour (Fire / A), then set cube 4 down in the river, a bit at a time, round the rocks to the far harbour; go ashore with Fire / A",
+      stones: [4],
+      helm: 4,
+      riseAll: 1,
+      map: [
+        "......E..",
+        ".....###.",
+        "....####.",
+        "....#H##.",
+        "wwwwwhwww",
+        "wwwwwwwww",
+        "www###www",
+        "www###www",
+        "wwwwwwwww",
+        "wwwwwwwww",
+        "whwwwwwww",
+        "#H#######",
+        "#########",
+        "..##S##..",
+      ],
+    },
   ];
 
   const STONES = [
@@ -268,6 +305,14 @@ Lynx.games = Lynx.games || {};
   const FALL_S = 0.8;
   const MAP_AHEAD_M = 0.12; // the map's near edge, ahead of the robot's drive axle at the start
   const STORE = "runesDone";
+  // the ship (m, m/s): the hull's half length and half beam, its deck above the water
+  const SHIP_L = 0.042;
+  const SHIP_B = 0.018;
+  const SHIP_DECK = 0.009;
+  const SHIP_V = 0.05;
+  const SHIP_TURN = 1.6; // rad/s
+  const DOCK = 0.8; // cells: this close to a berth's center, the ship is in harbour
+  const HELM = { name: "Helm", icon: "\u{2638}", color: [110, 210, 255], tip: "steers the ship (in the river)" };
 
   Lynx.runeStones = (api) => {
     const { ar, w, C, hero, cfg } = api;
@@ -302,6 +347,7 @@ Lynx.games = Lynx.games || {};
       stones: [], // per tag 0-5: {b, u, v} (the cube, its place in cells) or null
       gates: {}, // letter -> {open, lift}
       portalOpen: false,
+      ship: null, // the river's ship: {f, r, yaw, tf, tr, aboard, berth: [i, j] or null}
     };
     const say = (text, color) => api.say(T(text), color);
     const sfx = (n) => api.sfx(n);
@@ -332,10 +378,19 @@ Lynx.games = Lynx.games || {};
     // a cell's raised height (m; 0 on the floor, and for a chasm)
     const baseAt = (i, j) => (i < 0 || j < 0 || i >= G.O.H || j >= G.O.W || G.O.rows[i][j] === "." ? 0 : G.O.base[i][j]);
     const cellCenterFR = (i, j) => toFR(...cellUV(i, j));
+    const isWater = (ch) => ch === "w" || ch === "h";
+    const waterAt = (f, r) => {
+      const [ci, cj] = cellAt(f, r);
+      return isWater(tileAt(Math.round(ci), Math.round(cj)));
+    };
+    // what a stone is in this level: the River's Helm, or its own
+    const stoneInfo = (tag) => (G.lv && G.lv.helm === tag ? { tag, ...HELM } : STONES[tag]);
+    const levelStones = () => (G.lv && G.lv.stones ? STONES.filter((st) => G.lv.stones.includes(st.tag)) : STONES);
 
     // -- the stones ------------------------------------------------------------------------------------------
     function findStones() {
       G.stones = STONES.map((st) => {
+        if (G.lv && G.lv.stones && !G.lv.stones.includes(st.tag)) return null;
         const list = api.realSolids.filter((b) => b.tag === st.tag);
         const b = list.find((x) => !x.inferred) || list[0];
         if (!b) return null;
@@ -372,7 +427,7 @@ Lynx.games = Lynx.games || {};
       const i = Math.round(ci);
       const j = Math.round(cj);
       const ch = tileAt(i, j);
-      if (ch === ".") return null;
+      if (ch === "." || isWater(ch)) return null;
       if (ch === "~") return lit(i, j) && !baseAt(i, j) ? "bridge" : null; // (under a raised bridge: the chasm)
       return ch;
     }
@@ -408,7 +463,7 @@ Lynx.games = Lynx.games || {};
         if (g.open !== was) sfx(g.open ? "gate" : "clang");
         g.lift = clamp(g.lift + (g.open ? dt * 1.6 : -dt * 2.4), 0, 1);
       });
-      let open = false;
+      let open = !o.hasKey; // (no socket in the level: open from the start)
       for (let i = 0; i < o.H; i++) for (let j = 0; j < o.W; j++) if (o.rows[i][j] === "K" && onSpot(4, i, j)) open = true;
       if (open !== G.portalOpen) {
         sfx(open ? "power" : "beep");
@@ -442,7 +497,7 @@ Lynx.games = Lynx.games || {};
       for (let i = 0; i < o.H; i++) {
         for (let j = 0; j < o.W; j++) {
           const h = baseAt(i, j);
-          if (!h) continue;
+          if (!h || isWater(o.rows[i][j])) continue;
           const bridge = o.rows[i][j] === "~";
           if (bridge && !lit(i, j)) continue;
           const [cf, cr] = cellCenterFR(i, j);
@@ -475,6 +530,7 @@ Lynx.games = Lynx.games || {};
     }
     function startFall() {
       G.fallT = 0.001;
+      G.fellInWater = waterAt(hero.f, hero.r);
       hero.vf *= 0.3;
       hero.vr *= 0.3;
       sfx("die");
@@ -497,10 +553,10 @@ Lynx.games = Lynx.games || {};
           G.hearts = Math.max(0, G.hearts - 1);
           if (G.hearts <= 0) {
             respawn();
-            return lose("The explorer fell into the chasm");
+            return lose(G.fellInWater ? "The explorer fell into the river" : "The explorer fell into the chasm");
           }
           respawn();
-          say("Into the chasm! Back to firm ground", "#ff9080");
+          say(G.fellInWater ? "Splash! Into the river -- back to the shore" : "Into the chasm! Back to firm ground", "#ff9080");
         }
         return;
       }
@@ -516,6 +572,126 @@ Lynx.games = Lynx.games || {};
       else if ((ch === "^" || ch === "v") && spikesUp(ch, i, j)) hurt("Spikes! The Earth stone sinks them");
       else if (ch === "E" && G.portalOpen) win();
       else if (ch !== "F" && ch !== "f" && ch !== "^" && ch !== "v" && ch !== "A" && ch !== "B") G.safe = { f: hero.f, r: hero.r };
+    }
+
+    // -- the River's ship -----------------------------------------------------------------------------------------------
+    // It sails toward the Helm stone while the stone stands in the water (its
+    // top is the water's level), and stays put when the stone is on the shore
+    // or out of sight. Its hull keeps to the water.
+    const berths = () => {
+      const out = [];
+      G.O.rows.forEach((row, i) => [...row].forEach((ch, j) => ch === "h" && out.push([i, j])));
+      return out;
+    };
+    function resetShip() {
+      G.ship = null;
+      if (G.lv.helm === undefined) return;
+      // at the berth nearest the start
+      let best = null;
+      berths().forEach(([i, j]) => {
+        const [f, r] = cellCenterFR(i, j);
+        const d = Math.hypot(f - G.start.f, r - G.start.r);
+        if (!best || d < best.d) best = { d, f, r };
+      });
+      if (!best) return;
+      G.ship = { f: best.f, r: best.r, yaw: G.O.th + Math.PI / 2, tf: best.f, tr: best.r, aboard: false, berth: null, target: false };
+      shipBerth();
+    }
+    // the hull's points that must all be over water
+    function hullFits(f, r, yaw) {
+      const c = Math.cos(yaw);
+      const sn = Math.sin(yaw);
+      for (const [x, y] of [[0, 0], [SHIP_L * 0.75, 0], [-SHIP_L * 0.75, 0], [0, SHIP_B * 0.8], [0, -SHIP_B * 0.8]]) {
+        if (!waterAt(f + x * c - y * sn, r + x * sn + y * c)) return false;
+      }
+      return true;
+    }
+    function shipBerth() {
+      const sh = G.ship;
+      sh.berth = null;
+      const [ci, cj] = cellAt(sh.f, sh.r);
+      berths().forEach(([i, j]) => {
+        if (Math.hypot(ci - i, cj - j) <= DOCK) sh.berth = [i, j];
+      });
+    }
+    // the pier next to a berth (where the explorer goes ashore)
+    function pierOf([i, j]) {
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (tileAt(i + di, j + dj) === "H") return [i + di, j + dj];
+      return null;
+    }
+    function updateShip(dt) {
+      const sh = G.ship;
+      if (!sh) return;
+      const helm = stone(G.lv.helm);
+      sh.target = false;
+      if (helm && isWater(tileAt(Math.round(helm.i), Math.round(helm.j)))) {
+        sh.tf = helm.b.cf;
+        sh.tr = helm.b.cr;
+        sh.target = true;
+      } else {
+        sh.tf = sh.f; // (on the shore or out of sight: it stays)
+        sh.tr = sh.r;
+      }
+      const df = sh.tf - sh.f;
+      const dr = sh.tr - sh.r;
+      const d = Math.hypot(df, dr);
+      if (d > 0.003) {
+        const v = Math.min(SHIP_V, d / 0.4);
+        const want = Math.atan2(dr, df);
+        // a ship has two ends: turn whichever is nearer toward the way it goes
+        let turn = wrap(want - sh.yaw);
+        if (Math.abs(turn) > Math.PI / 2) turn = wrap(turn + Math.PI);
+        const yaw = sh.yaw + clamp(turn, -SHIP_TURN * dt, SHIP_TURN * dt);
+        if (hullFits(sh.f, sh.r, yaw)) sh.yaw = yaw;
+        const sf = (df / d) * v * dt;
+        const sr = (dr / d) * v * dt;
+        // straight on, or sliding along the shore
+        for (const [mf, mr] of [[sf, sr], [sf, 0], [0, sr]]) {
+          if ((mf || mr) && hullFits(sh.f + mf, sh.r + mr, sh.yaw)) {
+            sh.f += mf;
+            sh.r += mr;
+            break;
+          }
+        }
+      }
+      shipBerth();
+      if (sh.aboard) {
+        // the explorer stands on the deck, a little aft, facing the bow
+        const c = Math.cos(sh.yaw);
+        const sn = Math.sin(sh.yaw);
+        Object.assign(hero, { f: sh.f - 0.01 * c, r: sh.r - 0.01 * sn, z: RISE + SHIP_DECK, yaw: sh.yaw, vf: 0, vr: 0, vz: 0, onGround: true, standOn: null, mode: "move" });
+        G.safe = null;
+      }
+    }
+    // Fire / A on the River: board, or go ashore
+    function canBoard() {
+      const sh = G.ship;
+      if (!sh || sh.aboard || !sh.berth || G.fallT > 0 || !groundCell()) return false;
+      const [bf, br] = cellCenterFR(...sh.berth);
+      return Math.hypot(hero.f - bf, hero.r - br) <= 1.7 * CELL;
+    }
+    function boardOrLeave() {
+      const sh = G.ship;
+      if (!sh || G.phase !== "play") return false;
+      if (sh.aboard) {
+        const pier = sh.berth && pierOf(sh.berth);
+        if (!pier) {
+          say("Steer to a harbour to go ashore", "#9fe3ff");
+          sfx("beep");
+          return true;
+        }
+        sh.aboard = false;
+        const [pf, pr] = cellCenterFR(...pier);
+        api.placeHero(pf, pr, sh.yaw);
+        G.safe = { f: pf, r: pr };
+        sfx("click");
+        return true;
+      }
+      if (!canBoard()) return false;
+      sh.aboard = true;
+      say("On board! Set the Helm stone (cube 4) down in the river to steer", "#9fe3ff");
+      sfx("click");
+      return true;
     }
 
     // -- levels ------------------------------------------------------------------------------------------------------------
@@ -536,7 +712,9 @@ Lynx.games = Lynx.games || {};
       const ch = api.chassis();
       G.O = { f: ch.f, r: ch.r, th: ch.th, rows: lv.map, H: lv.map.length, W: Math.max(...lv.map.map((s) => s.length)) };
       G.O.rows = lv.map.map((s) => s.padEnd(G.O.W, "."));
-      G.O.base = G.O.rows.map((row, i) => [...row].map((c, j) => clamp(+((lv.rise && lv.rise[i] && lv.rise[i][j]) || 0) || 0, 0, 9) * RISE));
+      G.O.base = G.O.rows.map((row, i) => [...row].map((c, j) => clamp(+((lv.rise && lv.rise[i] && lv.rise[i][j]) || (lv.riseAll && c !== "." ? lv.riseAll : 0)) || 0, 0, 9) * RISE));
+      G.O.hasKey = G.O.rows.some((row) => row.includes("K"));
+      G.portalOpen = !G.O.hasKey;
       G.gates = {};
       lv.map.join("").replace(/[AB]/g, (c) => (G.gates[c] = { open: false, lift: 0 }));
       let si = G.O.H - 1;
@@ -550,6 +728,7 @@ Lynx.games = Lynx.games || {};
       G.safe = null;
       api.placeHero(sf, sr, G.O.th);
       api.recenter();
+      resetShip();
       findStones();
       say(`Level ${k + 1}: ${lv.name}`, "#ffe080");
       sfx("go");
@@ -575,6 +754,7 @@ Lynx.games = Lynx.games || {};
       G.safe = null;
       api.placeHero(G.start.f, G.start.r, G.O.th);
       api.recenter();
+      resetShip();
       sfx("go");
     }
     function nextLevel() {
@@ -734,7 +914,50 @@ Lynx.games = Lynx.games || {};
       sand: "rgba(236,208,140,0.92)",
       grass: "rgba(104,170,64,0.92)",
     };
-    const walkTile = (ch) => "#SKEabABFf^v".indexOf(ch) >= 0;
+    const walkTile = (ch) => "#SKEabABFf^vH".indexOf(ch) >= 0;
+    const WATER = { top: "rgba(40,120,200,0.78)", side: "rgba(24,80,150,0.85)", ripple: "rgba(200,235,255,0.55)", berth: "rgba(255,255,255,0.85)" };
+
+    // little waves drifting over the river, and the harbours' berths
+    function drawRipples() {
+      const o = G.O;
+      const t = G.time;
+      for (let i = 0; i < o.H; i++) {
+        for (let j = 0; j < o.W; j++) {
+          const ch = o.rows[i][j];
+          if (!isWater(ch)) continue;
+          const h = baseAt(i, j) + 0.0005;
+          const [u, v] = cellUV(i, j);
+          if (ch === "h") {
+            const [cf, cr] = cellCenterFR(i, j);
+            const pts = ring(cf, cr, CELL * 0.48, h, 24);
+            pts.push(pts[0]);
+            ar.ctx.setLineDash([5, 4]);
+            w.line3(pts, WATER.berth, 2, 0.02);
+            ar.ctx.setLineDash([]);
+          }
+          if ((i + j) % 2) continue;
+          const k = (t * 0.25 + (i * 0.37 + j * 0.61)) % 1;
+          const du = (k - 0.5) * CELL * 0.8;
+          const a = toFR(u + du, v - CELL * 0.22);
+          const b = toFR(u + du + CELL * 0.06, v);
+          const c = toFR(u + du, v + CELL * 0.22);
+          w.line3([[...a, h], [...b, h], [...c, h]], `rgba(200,235,255,${(0.55 * Math.sin(k * Math.PI)).toFixed(2)})`, 1.5, 0.01);
+        }
+      }
+    }
+    // the Helm stone: where the ship sails to (on the cube's top), or why it won't
+    function drawHelmMark(s) {
+      const b = s.b;
+      const ok = !!G.ship && G.ship.target;
+      const pts = ring(b.cf, b.cr, b.half * 1.5, b.h1 + 0.001, 24);
+      pts.push(pts[0]);
+      w.line3(pts, ok ? rgba(HELM.color, 0.95) : "rgba(255,120,90,0.9)", 2.5, 0.02);
+      if (ok && Math.hypot(G.ship.f - b.cf, G.ship.r - b.cr) > 0.01) {
+        ar.ctx.setLineDash([6, 5]);
+        w.line3([[G.ship.f, G.ship.r, RISE + 0.001], [b.cf, b.cr, b.h1 + 0.001]], rgba(HELM.color, 0.8), 2, 0.01);
+        ar.ctx.setLineDash([]);
+      }
+    }
 
     function drawFloor() {
       if (!G.O || G.phase === "menu") return;
@@ -747,9 +970,30 @@ Lynx.games = Lynx.games || {};
       const fires = [];
       const wet = [];
       const spikes = [];
+      const water = [];
+      const waterSide = [];
+      const cam = w.camLocal();
       for (let i = -PAD; i < o.H + PAD; i++) {
         for (let j = -PAD; j < o.W + PAD; j++) {
           const ch = tileAt(i, j);
+          if (isWater(ch)) {
+            // the river: its surface up at the shores' height, its sides down to the floor where it meets the chasm
+            const h = baseAt(i, j);
+            addQuad(water, cellQuad(i, j, i, j, h, -0.02));
+            const top = cellQuad(i, j, i, j, h);
+            const nb = [[0, -1], [-1, 0], [0, 1], [1, 0]];
+            const [cf, cr] = cellCenterFR(i, j);
+            for (let k = 0; k < 4; k++) {
+              if (tileAt(i + nb[k][0], j + nb[k][1]) !== ".") continue;
+              const a = top[k];
+              const b = top[(k + 1) % 4];
+              const mf = (a[0] + b[0]) / 2;
+              const mr = (a[1] + b[1]) / 2;
+              if ((cam.f - mf) * (mf - cf) + (cam.r - mr) * (mr - cr) <= 0) continue;
+              addQuad(waterSide, [[a[0], a[1], 0], [b[0], b[1], 0], [b[0], b[1], h], [a[0], a[1], h]]);
+            }
+            continue;
+          }
           if (baseAt(i, j)) {
             // raised: drawn standing (queued); under a raised bridge, the chasm
             if (ch === "~") addQuad(chasm, cellQuad(i, j, i, j, 0, -0.02));
@@ -771,6 +1015,9 @@ Lynx.games = Lynx.games || {};
         }
       }
       fillPath(chasm, LOOK.chasm, null);
+      fillPath(waterSide, WATER.side, null);
+      fillPath(water, WATER.top, null);
+      if (water.length) drawRipples();
       fillPath(path, LOOK.path, LOOK.grout, 1.2);
       fillPath(bridges, LOOK.bridge, LOOK.bridgeLine, 1.5);
       const g = ar.ctx;
@@ -787,6 +1034,7 @@ Lynx.games = Lynx.games || {};
       // the stones' reach
       G.stones.forEach((s, tag) => {
         if (!s) return;
+        if (G.lv.helm === tag) return drawHelmMark(s);
         const st = STONES[tag];
         const { cf, cr } = s.b;
         if (tag === 0) {
@@ -852,6 +1100,7 @@ Lynx.games = Lynx.games || {};
           const h = baseAt(i, j);
           if (!h) continue;
           const ch = o.rows[i][j];
+          if (isWater(ch)) continue; // (drawn with the floor)
           const bridge = ch === "~";
           const on = !bridge || lit(i, j);
           const h0 = bridge ? h - SLAB : 0;
@@ -881,7 +1130,7 @@ Lynx.games = Lynx.games || {};
               const b = top[(k + 1) % 4];
               const [ni, nj] = [i + nb[k][0], j + nb[k][1]];
               const nc = tileAt(ni, nj);
-              const nh = bridge ? (baseAt(ni, nj) >= h - 1e-6 && (nc !== "~" || lit(ni, nj)) ? h : h0) : nc === "~" ? 0 : baseAt(ni, nj);
+              const nh = bridge ? (baseAt(ni, nj) >= h - 1e-6 && (nc !== "~" || lit(ni, nj)) ? h : h0) : nc === "~" ? 0 : isWater(nc) ? Math.min(h, baseAt(ni, nj)) : baseAt(ni, nj);
               if (nh >= h - 1e-6) continue;
               const mf = (a[0] + b[0]) / 2;
               const mr = (a[1] + b[1]) / 2;
@@ -898,7 +1147,15 @@ Lynx.games = Lynx.games || {};
             const tp = [];
             addQuad(tp, top);
             if (bridge) fillPath(tp, LOOK.bridge, LOOK.bridgeLine, 1.5);
-            else fillPath(tp, RAISED.top[clamp(Math.round(h / RISE) - 1, 0, 2)], RAISED.line, 1.2);
+            else if (ch === "H") {
+              // a harbour's pier: wooden planks
+              fillPath(tp, "rgba(150,100,56,0.97)", RAISED.line, 1.2);
+              for (let k = 1; k < 4; k++) {
+                const q = cellQuad(i, j, i, j, h + 0.0005);
+                const lerp2 = (a, b, x) => [a[0] + (b[0] - a[0]) * x, a[1] + (b[1] - a[1]) * x, a[2]];
+                w.line3([lerp2(q[0], q[1], k / 4), lerp2(q[3], q[2], k / 4)], "rgba(70,44,20,0.85)", 1.2, 0.01);
+              }
+            } else fillPath(tp, RAISED.top[clamp(Math.round(h / RISE) - 1, 0, 2)], RAISED.line, 1.2);
             const inner = [];
             if (ch === "F" || ch === "f") addQuad(inner, cellQuad(i, j, i, j, h, 0.12));
             else if (ch === "^" || ch === "v") addQuad(inner, cellQuad(i, j, i, j, h, 0.12));
@@ -1248,6 +1505,113 @@ Lynx.games = Lynx.games || {};
       });
     }
 
+    // A real cube standing in the river: its sides are under water (the water
+    // is a cube's height deep), so they are painted over with the river; its
+    // top, at the water's level, stays the real cube.
+    function submerged(b) {
+      const top = Math.min(b.h1, RISE);
+      if (top <= b.h0) return;
+      const c = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => api.fromB(b, u * b.half, v * b.half));
+      const faces = [];
+      for (let k = 0; k < 4; k++) {
+        const a = c[k];
+        const d = c[(k + 1) % 4];
+        addQuad(faces, [[a[0], a[1], b.h0], [d[0], d[1], b.h0], [d[0], d[1], top], [a[0], a[1], top]]);
+      }
+      // one by one: as one path, a face and the one behind it (wound the other way) would cancel out
+      const g = ar.ctx;
+      g.save();
+      g.globalAlpha = 0.92;
+      faces.forEach((q) => fillPath([q], "rgb(40,120,200)", null));
+      g.restore();
+    }
+
+    // the River's ship: a wooden hull sitting in the water, a deck, a mast with a sail
+    const HULL = [[1, 0], [0.72, 0.62], [0.2, 1], [-0.75, 1], [-1, 0.72], [-1, -0.72], [-0.75, -1], [0.2, -1], [0.72, -0.62]];
+    function queueShip() {
+      const sh = G.ship;
+      if (!sh) return;
+      const c = Math.cos(sh.yaw);
+      const sn = Math.sin(sh.yaw);
+      const P = (x, y, h) => [sh.f + x * c - y * sn, sh.r + x * sn + y * c, h];
+      const bob = 0.0006 * Math.sin(G.time * 2.3);
+      const wl = RISE - 0.003 + bob; // the waterline (the hull's bottom shows a little under the surface)
+      const deck = RISE + SHIP_DECK + bob;
+      const outer = HULL.map(([x, y]) => P(x * SHIP_L, y * SHIP_B, deck));
+      const low = HULL.map(([x, y]) => P(x * SHIP_L * 0.92, y * SHIP_B * 0.8, wl));
+      const z = w.camZ(sh.f, sh.r, (wl + deck) / 2);
+      if (z < w.near) return;
+      const corners = [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([x, y]) => P(x * SHIP_L, y * SHIP_B, deck));
+      const fs = corners.map((p) => p[0]);
+      const rs = corners.map((p) => p[1]);
+      const cam = w.camLocal();
+      ar.queue(z, () => {
+        // the sides facing the camera
+        const sides = [];
+        for (let k = 0; k < HULL.length; k++) {
+          const a = outer[k];
+          const b = outer[(k + 1) % HULL.length];
+          const mf = (a[0] + b[0]) / 2;
+          const mr = (a[1] + b[1]) / 2;
+          if ((cam.f - mf) * (mf - sh.f) + (cam.r - mr) * (mr - sh.r) <= 0) continue;
+          addQuad(sides, [low[k], low[(k + 1) % HULL.length], b, a]);
+        }
+        fillPath(sides, "rgba(110,64,30,0.98)", "rgba(40,22,8,0.95)", 1.2);
+        if (cam.h > deck) {
+          const top = [];
+          for (let k = 0; k < HULL.length; k++) {
+            const q = w.project(...outer[k]);
+            if (!q) return;
+            top.push(q);
+          }
+          fillPath([top], "rgba(196,150,96,0.98)", "rgba(60,34,12,0.95)", 1.5);
+          // the deck's planks
+          for (const y of [-0.5, 0, 0.5]) w.line3([P(SHIP_L * 0.62, y * SHIP_B, deck + 0.0003), P(-SHIP_L * 0.9, y * SHIP_B, deck + 0.0003)], "rgba(110,70,34,0.7)", 1, 0.01);
+        }
+      }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), wl, deck, corners));
+      // the mast and its sail, a queue item of their own (in front of or behind the explorer on deck)
+      const mz = w.camZ(...P(SHIP_L * 0.25, 0, deck + 0.03));
+      if (mz < w.near) return;
+      ar.queue(mz, () => {
+        const g = ar.ctx;
+        const foot = w.project(...P(SHIP_L * 0.25, 0, deck));
+        const head = w.project(...P(SHIP_L * 0.25, 0, deck + 0.065));
+        if (!foot || !head) return;
+        g.save();
+        g.lineCap = "round";
+        g.strokeStyle = "#3a2410";
+        g.lineWidth = Math.max(2, head.ppm * 0.0026);
+        g.beginPath();
+        g.moveTo(foot.x, foot.y);
+        g.lineTo(head.x, head.y);
+        g.stroke();
+        // the sail: square, across the ship, bellied a little by the wind
+        const sail = [P(SHIP_L * 0.28, -SHIP_B * 1.05, deck + 0.058), P(SHIP_L * 0.28, SHIP_B * 1.05, deck + 0.058), P(SHIP_L * 0.36, SHIP_B * 0.95, deck + 0.02), P(SHIP_L * 0.36, -SHIP_B * 0.95, deck + 0.02)];
+        const sp = sail.map((p) => w.project(...p));
+        if (sp.every(Boolean)) {
+          g.beginPath();
+          sp.forEach((q, k) => (k ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+          g.closePath();
+          g.fillStyle = "rgba(246,240,224,0.96)";
+          g.fill();
+          g.strokeStyle = "rgba(90,70,50,0.9)";
+          g.lineWidth = 1.2;
+          g.stroke();
+          // a red stripe across it
+          const mid = (a, b, x) => ({ x: a.x + (b.x - a.x) * x, y: a.y + (b.y - a.y) * x });
+          g.strokeStyle = "rgba(200,50,40,0.9)";
+          g.lineWidth = Math.max(2, head.ppm * 0.003);
+          g.beginPath();
+          const l = mid(sp[0], sp[3], 0.45);
+          const r = mid(sp[1], sp[2], 0.45);
+          g.moveTo(l.x, l.y);
+          g.lineTo(r.x, r.y);
+          g.stroke();
+        }
+        g.restore();
+      });
+    }
+
     // the things that stand up: queued, so the explorer and the cubes go in front / behind right
     function drawStanding() {
       if (!G.O || G.phase === "menu") return;
@@ -1255,6 +1619,7 @@ Lynx.games = Lynx.games || {};
       const t = G.time;
       const g = ar.ctx;
       queueRaised();
+      queueShip();
       G.stones.forEach((s, tag) => {
         if (!s) return;
         if (tag === 0) queuePalm(s.b);
@@ -1410,7 +1775,7 @@ Lynx.games = Lynx.games || {};
       }
       G.stones.forEach((s, tag) => {
         if (!s) return;
-        const st = STONES[tag];
+        const st = stoneInfo(tag);
         const p = w.project(s.b.cf, s.b.cr, s.b.h1 + 0.012);
         if (!p) return;
         ar.text(`${st.icon} ${T(st.name)}`, p.x, p.y, { size: 12, align: "center", color: rgba(st.color, 1) });
@@ -1446,7 +1811,8 @@ Lynx.games = Lynx.games || {};
       // the stones: which the robot has seen, and what each does (under the Overlays button)
       const sx = v.x + v.w - 12;
       let sy = v.y + (small ? 52 : 60);
-      STONES.forEach((st, tag) => {
+      levelStones().forEach(({ tag }) => {
+        const st = stoneInfo(tag);
         const seen = !!G.stones[tag];
         ar.text(small ? `${tag} ${st.icon}` : `${tag} ${st.icon} ${T(st.name)}: ${T(st.tip)}`, sx, sy, { size: small ? 11 : 12, align: "right", color: seen ? rgba(st.color, 1) : "rgba(170,170,170,0.75)" });
         sy += small ? 14 : 16;
@@ -1459,6 +1825,15 @@ Lynx.games = Lynx.games || {};
           ar.text(l, v.cx, hy, { size: small ? 12 : 14, align: "center", color: "#c8f0ff" });
           hy += 18;
         });
+      }
+      // the River: board / go ashore
+      const sh = G.ship;
+      if (sh && G.phase === "play") {
+        let msg = null;
+        if (canBoard()) msg = "\u{26F5} Fire / A: board the ship";
+        else if (sh.aboard) msg = sh.berth && pierOf(sh.berth) ? "Fire / A: go ashore" : "Steer with the Helm stone (cube 4) in the river";
+        const p = msg && w.project(hero.f, hero.r, hero.z + 0.05);
+        if (p) ar.text(T(msg), p.x, p.y, { size: small ? 12 : 14, align: "center", color: "#bfeaff" });
       }
       if (G.flash) {
         ar.flash(G.flash.color, clamp(1 - G.flash.t / 0.4, 0, 1));
@@ -1514,7 +1889,7 @@ Lynx.games = Lynx.games || {};
         });
       }
       ar.text(
-        small ? "Tap a level · tap it again (or ▶): start" : "The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-7: choose · Fire / A: start",
+        small ? "Tap a level · tap it again (or ▶): start" : `The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-${LEVELS.length}: choose · Fire / A: start`,
         v.cx, v.y + v.h - 22, { size: small ? 11 : 12, align: "center", color: "#ffe9a8" },
       );
     }
@@ -1553,10 +1928,12 @@ Lynx.games = Lynx.games || {};
     const touch = Lynx.touchButtons();
     const menuBtns = [touch.add("▲ Previous level", () => G.phase === "menu" && choose(-1)), touch.add("▼ Next level", () => G.phase === "menu" && choose(1))];
     const hintBtn = touch.add("\u{1F4A1} Hint", () => G.phase === "play" && (G.hint = !G.hint));
+    const shipBtn = touch.add("\u{26F5} Board / ashore", () => boardOrLeave());
     const touchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
     function showButtons() {
       menuBtns.forEach((b) => (b.style.display = G.phase === "menu" && touchDevice ? "" : "none"));
       hintBtn.style.display = G.phase === "play" ? "" : "none";
+      shipBtn.style.display = G.phase === "play" && G.ship && touchDevice ? "" : "none";
     }
 
     function confirm(state) {
@@ -1567,7 +1944,7 @@ Lynx.games = Lynx.games || {};
 
     return {
       actionLabel: "▶ OK",
-      frozen: () => G.phase !== "play" || G.fallT > 0,
+      frozen: () => G.phase !== "play" || G.fallT > 0 || !!(G.ship && G.ship.aboard),
       solids: () => (G.phase === "menu" || !G.O ? [] : gateSolids().concat(platSolids())),
       drawFloor,
       draw() {
@@ -1586,7 +1963,8 @@ Lynx.games = Lynx.games || {};
         if (G.phase !== "play") return;
         G.levelTime += dt;
         updateMechanisms(dt);
-        updateKnight(dt);
+        updateShip(dt);
+        if (!(G.ship && G.ship.aboard)) updateKnight(dt); // (on board: the ship carries her)
         if (hero.z < -0.05 && G.fallT <= 0) respawn(); // (stuck under the floor somehow)
       },
       hud() {
@@ -1607,7 +1985,8 @@ Lynx.games = Lynx.games || {};
           ? ""
           : "Explorer: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V",
       onFire(state) {
-        confirm(state);
+        if (G.phase === "play" && G.ship) boardOrLeave();
+        else confirm(state);
         return true; // (no sword)
       },
       // Jump (Space / gamepad A) does the same outside play: start, go on, try again
@@ -1620,6 +1999,7 @@ Lynx.games = Lynx.games || {};
       drawHero: drawExplorer,
       blockOver(b) {
         if (b.tag === 1 && G.phase !== "menu") weightOver(b);
+        if (G.O && G.phase !== "menu" && waterAt(b.cf, b.cr)) submerged(b);
       },
       onWeapon(wpn) {
         if (G.phase !== "menu") return false;
@@ -1638,8 +2018,9 @@ Lynx.games = Lynx.games || {};
         gates: Object.fromEntries(Object.entries(G.gates).map(([k, g]) => [k, g.open])),
         stones: G.stones.map((s, tag) => (s ? `${tag}@${s.i.toFixed(2)},${s.j.toFixed(2)}` : `${tag}:-`)),
         hero: G.O ? cellAt(hero.f, hero.r).map((x) => +x.toFixed(2)) : null, floor: G.O ? floorAt(hero.f, hero.r) : null,
+        ship: G.ship && { cell: cellAt(G.ship.f, G.ship.r).map((x) => +x.toFixed(2)), aboard: G.ship.aboard, berth: G.ship.berth, target: G.ship.target },
       }),
-      debug: { G, LEVELS, loadLevel, cellAt, cellCenterFR, floorAt, findStones, win, retry, baseAt, platSolids, groundCell },
+      debug: { G, LEVELS, loadLevel, cellAt, cellCenterFR, floorAt, findStones, win, retry, baseAt, platSolids, groundCell, boardOrLeave, canBoard },
     };
   };
 })(window.Lynx);
