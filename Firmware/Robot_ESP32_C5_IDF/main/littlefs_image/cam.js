@@ -460,7 +460,7 @@ window.addEventListener("DOMContentLoaded", () => {
     coins: ["game_coins.js"],
     sonar: ["game_sonar.js"],
     echo: ["game_echo.js"],
-    crossing: ["game_crossing.js"],
+    crossing: ["blockquest_gl.js", "game_crossing.js"],
     shepherd: ["game_shepherd.js"],
     lightwall: ["game_lightwall.js"],
     inkblot: ["game_inkblot.js"],
@@ -524,6 +524,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // opts: {noIntro, forceIntro} (the game's introduction: see intro.js)
   function startActive(calib, app, opts = {}) {
     stopActive();
+    showDifficulty(calib, app);
     const introBtn = document.getElementById("camIntroBtn");
     if (introBtn) {
       const e = Lynx.findEntry(app.active);
@@ -744,6 +745,33 @@ window.addEventListener("DOMContentLoaded", () => {
     });
     Lynx.control.onDriveModeChange(render);
     render(shown);
+  }
+
+  // The game's difficulty in the Menu panel (for the games that have one):
+  // saved robot-side like the Games & apps page does, and the game restarts with it.
+  function showDifficulty(calib, app) {
+    const label = document.getElementById("camDifficultyLabel");
+    const select = document.getElementById("camDifficultySelect");
+    if (!label || !select) return;
+    const entry = Lynx.findEntry(app.active);
+    const spec = entry && (entry.settings || []).find((s) => s.key === "difficulty" && s.type === "select");
+    label.style.display = spec ? "" : "none";
+    if (!spec) return;
+    select.textContent = "";
+    spec.options.forEach(([value, text]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      select.appendChild(opt);
+    });
+    select.value = app[app.active].difficulty;
+    select.onchange = () => {
+      app[app.active].difficulty = select.value;
+      select.blur(); // (keys back to the game)
+      startActive(calib, app, { noIntro: true });
+      Lynx.saveAppSettings(app)
+        .catch(() => (document.getElementById("cam-status").textContent = "Couldn't save the difficulty -- is the robot reachable?"));
+    };
   }
 
   // Quick switch between games/apps from the Menu panel: saved robot-side

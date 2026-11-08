@@ -619,7 +619,8 @@ Lynx.games = Lynx.games || {};
     const D = DIFFICULTY[diffKey];
     const maxHearts = clamp(Math.round(+cfg.hearts) || 5, 1, 9);
     const camDist = clamp((+cfg.camDistCm || CAM_DIST * 100) / 100, 0.1, 0.3);
-    const firstLevel = clamp(Math.round(+cfg.startLevel) || 1, 1, LEVELS.length);
+    const cfgFirst = clamp(Math.round(+cfg.startLevel) || 1, 1, LEVELS.length);
+    let firstLevel = cfgFirst; // (the title screen's level menu picks it)
     const w = Lynx.world3d(ar, { textures: cfg.textures !== false });
 
     let state = "title"; // title | playing | dead | levelDone | won
@@ -1463,8 +1464,23 @@ Lynx.games = Lynx.games || {};
       takeControl(true);
       sfx("go");
     }
+    const levelMenu = Lynx.levelMenu(ar, {
+      key: "knight",
+      // (translated first: the names and intros are in nl.js whole)
+      levels: LEVELS.map((l) => ({ name: Lynx.tr ? Lynx.tr(l.name) : l.name, blurb: (Lynx.tr ? Lynx.tr(l.intro || "") : l.intro || "").replace(/^[^:]*: ?/, "").replace(/^./, (c) => c.toUpperCase()) })),
+      sel: cfgFirst - 1,
+      active: () => state === "title" && !(Lynx.intro && Lynx.intro.active),
+      onStart: (i) => {
+        firstLevel = i + 1;
+        start(firstLevel);
+      },
+    });
     Lynx.onAction("fire", () => {
-      if (state === "title") start(firstLevel);
+      if (state === "title") {
+        // the level chosen on the title screen (an introduction's demo: the configured one)
+        firstLevel = Lynx.intro && Lynx.intro.active ? cfgFirst : levelMenu.sel + 1;
+        start(firstLevel);
+      }
       else if (state === "playing") attackPressed();
       else if (state === "dead" && stateTime > 1.5) {
         // again, from the start of this level
@@ -1806,8 +1822,16 @@ Lynx.games = Lynx.games || {};
       const v = ar.view;
       const x0 = v.x + 12;
       if (state === "title") {
-        ar.banner("POCKET KNIGHT", "Fire to start -- you play the knight, the robot follows it");
-        ar.text("Clear a floor of about 1.3 x 2.5 m in front of the robot", v.cx, v.cy + 70, { size: 14, align: "center" });
+        if (Lynx.intro && Lynx.intro.active) {
+          ar.banner("POCKET KNIGHT", "Fire to start -- you play the knight, the robot follows it");
+          return;
+        }
+        const small = Lynx.smallScreen();
+        ar.flash("#000", 0.35);
+        ar.text("POCKET KNIGHT", v.cx, v.y + (small ? 40 : 64), { size: small ? 28 : 44, align: "center", color: "#ff3b30", font: "Impact, 'Arial Black', sans-serif", weight: "normal" });
+        ar.text("You play the knight, the robot follows it", v.cx, v.y + (small ? 60 : 92), { size: small ? 12 : 14, align: "center" });
+        levelMenu.draw(v.y + (small ? 76 : 116), v.y + v.h - 90);
+        ar.text("Clear a floor of about 1.3 x 2.5 m in front of the robot", v.cx, v.y + v.h - 40, { size: 13, align: "center" });
         return;
       }
       for (let i = 0; i < maxHearts; i++) ar.text("♥", x0 + i * 18, v.y + 26, { size: 18, color: i < hearts ? "#ff3040" : "rgba(255,255,255,0.3)" });
