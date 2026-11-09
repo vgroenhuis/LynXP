@@ -8,7 +8,9 @@
 // Gems: each cube's tag decides its kind (tag mod 4): ruby (heavy hits that
 // splash), emerald (poison), sapphire (slows), topaz (lightning that jumps on
 // to more monsters). A cube seen for the first time in a level gets a grade 1
-// gem -- a rounded triangle; every grade adds a facet, power and reach.
+// gem -- a rounded triangle; every grade has its own shape (see gemOutline:
+// triangle, the same with its bottom curved in, square, ... stars from 10)
+// and more power and reach.
 //   Merging: stack one cube on another. After a moment the two gems become
 //   one, in the bottom cube: two of the same grade make one grade higher;
 //   different grades give the higher one -- the kinds mix either way (colour
@@ -369,7 +371,7 @@ Lynx.games = Lynx.games || {};
       real.forEach((b) => {
         if (!gems.has(b.tag)) {
           gems.set(b.tag, newGem(b.tag));
-          if (state === "playing") say(`Cube ${b.tag}: a ${KINDS[kindOf(b.tag)].name} gem`, rgb(KINDS[kindOf(b.tag)].color), 1.6);
+          if (state === "playing") say(`Cube ${b.tag}: ${/^[aeiou]/.test(KINDS[kindOf(b.tag)].name) ? "an" : "a"} ${KINDS[kindOf(b.tag)].name} gem`, rgb(KINDS[kindOf(b.tag)].color), 1.6);
         }
         const gem = gems.get(b.tag);
         const tile = tileOf(b.x, b.y);
@@ -760,6 +762,116 @@ Lynx.games = Lynx.games || {};
       });
     }
 
+    // -- the gems' shapes, by grade -----------------------------------------------------------------------------
+    // A 2D outline per grade (unit size, v up), cut into a stone: a flat front
+    // face (the outline shrunk), bevels out to the full outline, the same at the
+    // back. It keeps facing the camera, rocking a little, so the outline reads
+    // at a glance while the bevels show it's solid.
+    //   odd grades: rounded regular shapes, more corners each time -- 1 a
+    //   triangle, 3 a square, 5 a pentagon, 7 a hexagon, 9 an octagon;
+    //   even grades: the shape before with its bottom edge curved in;
+    //   10 and up: every edge curved in (stars).
+    const outlines = new Map();
+    function gemOutline(grade) {
+      if (outlines.has(grade)) return outlines.get(grade);
+      const K = [3, 3, 4, 4, 5, 5, 6, 6, 8][Math.min(grade, 9) - 1] || 8;
+      const concave = (e) => grade >= 10 || (grade % 2 === 0 && e === K - 1); // edge e: from corner e to e+1 (K-1: the bottom one)
+      // corners, the bottom edge level
+      const C = [];
+      for (let k = 0; k < K; k++) {
+        const a = -Math.PI / 2 + Math.PI / K + (2 * Math.PI * k) / K;
+        C.push([Math.cos(a), Math.sin(a)]);
+      }
+      const lerp2 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      const quadB = (a, c, b, t) => lerp2(lerp2(a, c, t), lerp2(c, b, t), t);
+      const ROUND = 0.2; // how much of each edge goes into the rounded corners
+      const out = [];
+      for (let k = 0; k < K; k++) {
+        const prev = C[(k - 1 + K) % K];
+        const cur = C[k];
+        const next = C[(k + 1) % K];
+        // the rounded corner: from a little before it to a little after
+        const a = lerp2(cur, prev, ROUND);
+        const b = lerp2(cur, next, ROUND);
+        for (let t = 0; t <= 1.001; t += 0.25) out.push(quadB(a, cur, b, t));
+        // the edge on to the next corner: straight, or curved in
+        if (concave(k)) {
+          const e0 = b;
+          const e1 = lerp2(next, cur, ROUND);
+          const mid = lerp2(cur, next, 0.5);
+          const k2 = grade >= 10 ? 0.62 : 0.25; // (pulled toward the middle; a star's edges less deep)
+          const ctl = [mid[0] * k2, mid[1] * k2];
+          for (let t = 0.2; t < 0.81; t += 0.2) out.push(quadB(e0, ctl, e1, t));
+        }
+      }
+      // centred on its own middle, scaled to radius 1
+      const cx = out.reduce((s2, p) => s2 + p[0], 0) / out.length;
+      const cy = out.reduce((s2, p) => s2 + p[1], 0) / out.length;
+      const r = Math.max(...out.map((p) => Math.hypot(p[0] - cx, p[1] - cy)));
+      const o = out.map((p) => [(p[0] - cx) / r, (p[1] - cy) / r]);
+      outlines.set(grade, o);
+      return o;
+    }
+    function drawCutGem(x, y, h, R, grade, rock, color, alpha) {
+      const cam = ar.cameraWorld();
+      const outl = gemOutline(grade);
+      // its frame: W toward the camera (level), rocked a little; U across, V up
+      const face = Math.atan2(cam.y - y, cam.x - x) + Math.sin(rock * 0.9) * 0.55;
+      const W = [Math.cos(face), Math.sin(face), 0];
+      const U = [-Math.sin(face), Math.cos(face), 0];
+      const P = (u, v, d) => [x + (U[0] * u + W[0] * d) * R, y + (U[1] * u + W[1] * d) * R, h + v * R];
+      const D = 0.42; // half thickness (of R)
+      const INSET = 0.6; // the flat faces: the outline at this size
+      const n = outl.length;
+      const front = outl.map(([u, v]) => P(u * INSET, v * INSET, D));
+      const back = outl.map(([u, v]) => P(u * INSET, v * INSET, -D));
+      const rim = outl.map(([u, v]) => P(u, v, 0));
+      const faces = [{ pts: front, table: true }, { pts: back, table: true }];
+      for (let k = 0; k < n; k++) {
+        const k2 = (k + 1) % n;
+        faces.push({ pts: [front[k], front[k2], rim[k2], rim[k]] });
+        faces.push({ pts: [back[k], back[k2], rim[k2], rim[k]] });
+      }
+      const ctr = [x, y, h];
+      const g = ar.ctx;
+      const drawn = [];
+      faces.forEach((f) => {
+        const m = [0, 0, 0];
+        f.pts.forEach((p) => p.forEach((q2, i) => (m[i] += q2 / f.pts.length)));
+        // the normal: from three of its points, turned outward
+        const [a, b, c] = f.table ? [f.pts[0], f.pts[Math.floor(n / 3)], f.pts[Math.floor((2 * n) / 3)]] : f.pts;
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let nn = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const nl = Math.hypot(...nn) || 1;
+        nn = nn.map((q2) => q2 / nl);
+        if (nn[0] * (m[0] - ctr[0]) + nn[1] * (m[1] - ctr[1]) + nn[2] * (m[2] - ctr[2]) < 0) nn = nn.map((q2) => -q2);
+        const toCam = [cam.x - m[0], cam.y - m[1], cam.h - m[2]];
+        if (nn[0] * toCam[0] + nn[1] * toCam[1] + nn[2] * toCam[2] <= 0) return;
+        const pts = f.pts.map((p) => ar.project(p[0], p[1], p[2]));
+        if (pts.some((p) => !p)) return;
+        drawn.push({ pts, nn, toCam, depth: Math.hypot(...toCam), table: f.table });
+      });
+      // (a concave outline isn't convex: far faces first)
+      drawn.sort((p, q2) => q2.depth - p.depth);
+      drawn.forEach(({ pts, nn, toCam, depth, table }) => {
+        const V = toCam.map((q2) => q2 / depth);
+        const H = [LIGHT[0] + V[0], LIGHT[1] + V[1], LIGHT[2] + V[2]];
+        const hl = Math.hypot(...H);
+        const spec = Math.pow(Math.max(0, (nn[0] * H[0] + nn[1] * H[1] + nn[2] * H[2]) / hl), table ? 40 : 18);
+        const lam = (table ? 0.55 : 0.3) + 0.6 * Math.max(0, nn[0] * LIGHT[0] + nn[1] * LIGHT[1] + nn[2] * LIGHT[2]);
+        const col = color.map((q2) => Math.min(255, q2 * lam + 255 * spec * 0.85));
+        g.beginPath();
+        pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+        g.closePath();
+        g.fillStyle = rgb(col, alpha);
+        g.fill();
+        g.strokeStyle = rgb(color.map((q2) => Math.min(255, q2 * 0.45 + 150)), (table ? 0.7 : 0.35) * alpha);
+        g.lineWidth = table ? 1.2 : 0.6;
+        g.stroke();
+      });
+    }
+
     function drawGem(c) {
       const g = c.gem;
       const b = c.b;
@@ -792,7 +904,7 @@ Lynx.games = Lynx.games || {};
       const col = gemColor(g);
       ar.queue(p.depth, () => {
         ar.glow(p.x, p.y, Math.max(8, R * 2.4 * p.ppm), [[0, rgb(col, 0.45)], [1, rgb(col, 0)]]);
-        drawGemSolid(b.x, b.y, h, R, Math.min(2 + g.grade, 9), g.spin, col, c.tower || c.stacked ? 0.92 : 0.5);
+        drawCutGem(b.x, b.y, h, R, g.grade, g.spin, col, c.tower || c.stacked ? 0.94 : 0.5);
         if (g.grade > 1) ar.text(String(g.grade), p.x, p.y - R * 1.6 * p.ppm - 4, { size: 11, align: "center", color: "#ffffff", alpha: 0.85 });
       });
       // its ring on the floor (a tower: the reach, when the camera points at it)
