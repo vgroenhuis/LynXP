@@ -410,8 +410,9 @@ window.Lynx = window.Lynx || {};
       icon: "\u{1F48E}",
       blurb:
         "Tower defense with your tagged cubes. A 1 x 1 m arena of 5 cm tiles appears on the floor in front of the robot; monsters walk from the gates to your crystal. " +
-        "Every cube is a tower with a floating gem -- grade 1, a rounded triangle, its kind from the cube's tag: ruby (heavy hits, splash), emerald (poison), sapphire (slows), topaz (chain lightning). " +
-        "Stack two cubes to merge their gems into the bottom one: two of the same grade make one grade higher (another facet, more power and reach), and the kinds mix. " +
+        "Every cube is a tower with a floating gem -- grade 1, a rounded triangle. Six kinds, each fighting its own way, one more each level: amethyst bolts, the ruby cannon (a slow shell that blasts a crowd), " +
+        "the emerald laser (a beam through every monster on its line), the topaz blade (a sword, only for the squares next to it), sapphire frost (slows everything near) and diamond storm (lightning jumping on). " +
+        "Stack two cubes to merge their gems into the bottom one: two of the same grade make one grade higher (a new shape, more power and reach). " +
         "The emptied top cube gets a new gem on the golden home field (mana, from slain monsters). Road levels keep the monsters to a road; on the open fields they find their own way, " +
         "and you build walls (click a tile with the mouse, or aim the middle of the camera at it and press FIRE) to make it longer. Space / A calls the next wave early for bonus mana. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
