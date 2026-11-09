@@ -647,7 +647,11 @@ Lynx.games = Lynx.games || {};
     const q = (i, j, m = 0) => ({ f0: (N - 1 - i) * T + m, f1: (N - i) * T - m, r0: -S / 2 + j * T + m, r1: -S / 2 + (j + 1) * T - m });
 
     function drawArena() {
-      w.floor({ f0: 0, f1: S, r0: -S / 2, r1: S / 2 }, 0.0002, L.road ? "rgba(60,110,50,0.28)" : "rgba(70,105,55,0.25)", "rgba(160,220,140,0.7)", { width: 2 });
+      // the grass in 2 x 2 tile patches (one big polygon, clipped where it
+      // runs under the camera, came out cut off), the border as a line
+      const grass = L.road ? "rgba(60,110,50,0.28)" : "rgba(70,105,55,0.25)";
+      for (let a = 0; a < N; a += 2) for (let b = 0; b < N; b += 2) w.floor({ f0: a * T, f1: (a + 2) * T, r0: -S / 2 + b * T, r1: -S / 2 + (b + 2) * T }, 0.0002, grass, null);
+      w.line3([[0, -S / 2, 0.0006], [S, -S / 2, 0.0006], [S, S / 2, 0.0006], [0, S / 2, 0.0006], [0, -S / 2, 0.0006]], "rgba(160,220,140,0.75)", 2, T);
       for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
           const t = tiles[idx(i, j)];

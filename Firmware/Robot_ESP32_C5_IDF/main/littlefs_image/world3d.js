@@ -58,6 +58,10 @@ window.Lynx = window.Lynx || {};
     // distance in front of the lens (the projection's z) of a local point
     function camZ(f, r, h) {
       const w = toWorld(f, r);
+      // (the projection's own depth, through the full camera model: an
+      // estimate from the pan and tilt alone let corners through the clip
+      // that the projection then dropped -- a floor cut off at an angle)
+      if (ar.camPoint) return ar.camPoint(w.x, w.y, h)[2];
       const rel = ar.toCamera(w.x, w.y);
       const vert = ar.cameraWorld().h - h;
       return rel.forward * Math.cos(ar.tilt) + vert * Math.sin(ar.tilt);
