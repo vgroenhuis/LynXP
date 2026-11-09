@@ -277,10 +277,22 @@ window.Lynx = window.Lynx || {};
     g.putImageData(img, 0, 0);
     return c;
   }
+  // A game's own textures: Lynx.registerTexture(name, () => canvas) -- made
+  // the first time it's asked for (128 x 128 px = 0.3 m on a floor, tiling).
+  const customTextures = new Map();
+  Lynx.registerTexture = (name, make) => {
+    if (!customTextures.has(name)) customTextures.set(name, make);
+  };
   Lynx.texture = (name) => {
+    if (textureCache.has(name)) return textureCache.get(name);
+    const custom = customTextures.get(name);
+    if (custom) {
+      textureCache.set(name, custom());
+      return textureCache.get(name);
+    }
     const kind = TEXTURE_KINDS[name] || DETAIL_KINDS[name];
     if (!kind) return null;
-    if (!textureCache.has(name)) textureCache.set(name, TEXTURE_KINDS[name] ? makeTexture(kind) : makeDetail(kind));
+    textureCache.set(name, TEXTURE_KINDS[name] ? makeTexture(kind) : makeDetail(kind));
     return textureCache.get(name);
   };
 
@@ -1094,6 +1106,11 @@ window.Lynx = window.Lynx || {};
     }
     return {
       el: bar,
+      // a button's label changed (e.g. Pause / Resume)
+      relabel(b, label) {
+        b.textContent = "";
+        touchLabel(b, label);
+      },
       add(label, onClick) {
         const b = document.createElement("button");
         b.className = "cam-overlay-btn";

@@ -25,10 +25,13 @@
 // wall: taken down, half its price back). A wall may not shut the way
 // completely; if the cubes do, the monsters climb over them. Space /
 // gamepad A / the touch button: call the next wave now (bonus mana).
+// P / the Pause button (or the tab hidden): pause -- walls can still be built.
 //
-// Drawing: flat colour on the 2D canvas through world3d.js (floor, walls),
-// the gems as faceted solids (back faces culled: a convex shape needs no
-// sorting), the monsters as shaded blobs; all depth sorted (ar.queue).
+// Drawing: the 2D canvas through world3d.js, textured (textures made here,
+// in the browser: grass, earth, bricks, granite, gold, crystal, the gates'
+// swirl), the gems as cut stones, the monsters as bodies of a few 3D parts
+// (a beetle, a sprinter, a wasp, a stone golem, a crystal giant); all depth
+// sorted (ar.queue).
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -78,6 +81,253 @@ Lynx.games = Lynx.games || {};
   ];
 
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  // -- textures: made in the browser, 128 x 128 px = 0.3 m, tiling ------------------------------------------------
+  function seeded(seed) {
+    let t = seed;
+    return () => {
+      t = (t + 0x6d2b79f5) | 0;
+      let x = Math.imul(t ^ (t >>> 15), 1 | t);
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function texture(seed, paint) {
+    return () => {
+      const c = document.createElement("canvas");
+      c.width = 128;
+      c.height = 128;
+      const g = c.getContext("2d");
+      const rnd = seeded(seed);
+      // draws at (x, y) and wherever it wraps round the edges
+      const wrap = (x, y, r, fn) => {
+        for (const dx of [-128, 0, 128]) for (const dy of [-128, 0, 128]) if (x + dx > -r && x + dx < 128 + r && y + dy > -r && y + dy < 128 + r) fn(x + dx, y + dy);
+      };
+      paint(g, rnd, wrap);
+      return c;
+    };
+  }
+  const blobs = (g, rnd, wrap, n, rMin, rMax, colors) => {
+    for (let k = 0; k < n; k++) {
+      const x = rnd() * 128;
+      const y = rnd() * 128;
+      const r = rMin + rnd() * (rMax - rMin);
+      const col = colors[Math.floor(rnd() * colors.length)];
+      wrap(x, y, r, (px, py) => {
+        const gr = g.createRadialGradient(px, py, 0, px, py, r);
+        gr.addColorStop(0, col);
+        gr.addColorStop(1, col.replace(/[\d.]+\)$/, "0)"));
+        g.fillStyle = gr;
+        g.fillRect(px - r, py - r, 2 * r, 2 * r);
+      });
+    }
+  };
+  const TEXTURES = {
+    // grass: mottled ground, then hundreds of short blades and a few clover leaves
+    gb_grass: texture(31, (g, rnd, wrap) => {
+      g.fillStyle = "#4a7334";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 40, 8, 26, ["rgba(90,130,50,0.35)", "rgba(40,70,25,0.35)", "rgba(110,120,50,0.25)"]);
+      for (let k = 0; k < 900; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        const a = -Math.PI / 2 + (rnd() - 0.5) * 1.6;
+        const l = 2 + rnd() * 4;
+        const shade = rnd();
+        g.strokeStyle = shade < 0.5 ? `rgba(${120 + rnd() * 60},${170 + rnd() * 50},${70 + rnd() * 30},0.7)` : `rgba(${30 + rnd() * 20},${70 + rnd() * 30},${20 + rnd() * 15},0.6)`;
+        g.lineWidth = 0.8 + rnd() * 0.6;
+        wrap(x, y, l, (px, py) => {
+          g.beginPath();
+          g.moveTo(px, py);
+          g.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l);
+          g.stroke();
+        });
+      }
+      for (let k = 0; k < 14; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        g.fillStyle = "rgba(150,200,90,0.55)";
+        wrap(x, y, 3, (px, py) => {
+          for (let l = 0; l < 3; l++) {
+            g.beginPath();
+            g.arc(px + Math.cos(l * 2.1) * 1.4, py + Math.sin(l * 2.1) * 1.4, 1.3, 0, 2 * Math.PI);
+            g.fill();
+          }
+        });
+      }
+    }),
+    // the road: packed earth, ruts, gravel and pebbles
+    gb_dirt: texture(37, (g, rnd, wrap) => {
+      g.fillStyle = "#8a6a44";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 40, 6, 22, ["rgba(120,92,60,0.4)", "rgba(96,72,46,0.4)", "rgba(150,120,84,0.3)"]);
+      for (let k = 0; k < 1400; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        g.fillStyle = rnd() < 0.5 ? "rgba(60,44,28,0.45)" : "rgba(190,160,120,0.35)";
+        g.fillRect(x, y, 1, 1);
+      }
+      for (let k = 0; k < 26; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        const r = 1.2 + rnd() * 2.6;
+        const v = 120 + rnd() * 70;
+        wrap(x, y, r + 1, (px, py) => {
+          g.fillStyle = "rgba(40,30,20,0.4)";
+          g.beginPath();
+          g.ellipse(px + 0.6, py + 0.8, r, r * 0.75, 0, 0, 2 * Math.PI);
+          g.fill();
+          g.fillStyle = `rgb(${v},${v - 6},${v - 14})`;
+          g.beginPath();
+          g.ellipse(px, py, r, r * 0.75, 0, 0, 2 * Math.PI);
+          g.fill();
+          g.fillStyle = "rgba(255,255,255,0.35)";
+          g.beginPath();
+          g.ellipse(px - r * 0.3, py - r * 0.3, r * 0.35, r * 0.25, 0, 0, 2 * Math.PI);
+          g.fill();
+        });
+      }
+    }),
+    // walls: small stone bricks in courses
+    gb_brick: texture(41, (g, rnd) => {
+      g.fillStyle = "#5c574e";
+      g.fillRect(0, 0, 128, 128);
+      const bh = 8;
+      for (let row = 0; row < 128 / bh; row++) {
+        let x = row % 2 ? -6 : 0;
+        while (x < 128) {
+          const bw = 12 + Math.floor(rnd() * 6);
+          const v = 140 + (rnd() - 0.5) * 34;
+          const w2 = Math.min(bw, 128 - x);
+          for (const dx of [0, x < 0 ? 128 : 0]) {
+            g.fillStyle = `rgb(${v + 8},${v},${v - 12})`;
+            g.fillRect(x + dx + 1, row * bh + 1, w2 - 2, bh - 2);
+            g.fillStyle = "rgba(255,250,235,0.22)";
+            g.fillRect(x + dx + 1, row * bh + 1, w2 - 2, 1);
+            g.fillStyle = "rgba(0,0,0,0.25)";
+            g.fillRect(x + dx + 1, row * bh + bh - 2, w2 - 2, 1);
+          }
+          x += bw;
+        }
+      }
+      for (let k = 0; k < 900; k++) {
+        g.fillStyle = rnd() < 0.5 ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.08)";
+        g.fillRect(rnd() * 128, rnd() * 128, 1, 1);
+      }
+    }),
+    // the walls' tops: flat capstones
+    gb_cap: texture(43, (g, rnd) => {
+      g.fillStyle = "#56524a";
+      g.fillRect(0, 0, 128, 128);
+      for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+          const v = 150 + (rnd() - 0.5) * 30;
+          g.fillStyle = `rgb(${v + 6},${v},${v - 10})`;
+          g.fillRect(i * 16 + 1, j * 16 + 1, 14, 14);
+          g.fillStyle = "rgba(255,255,255,0.12)";
+          g.fillRect(i * 16 + 1, j * 16 + 1, 14, 1.5);
+        }
+      }
+    }),
+    // rocks: speckled granite with cracks
+    gb_granite: texture(47, (g, rnd, wrap) => {
+      g.fillStyle = "#6a655d";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 30, 6, 20, ["rgba(40,36,32,0.35)", "rgba(150,144,134,0.3)"]);
+      for (let k = 0; k < 2500; k++) {
+        const t = rnd();
+        g.fillStyle = t < 0.4 ? "rgba(20,18,16,0.5)" : t < 0.8 ? "rgba(200,195,185,0.45)" : "rgba(160,110,90,0.5)";
+        g.fillRect(rnd() * 128, rnd() * 128, 1 + (rnd() < 0.2), 1);
+      }
+      g.strokeStyle = "rgba(20,16,12,0.5)";
+      for (let k = 0; k < 5; k++) {
+        let x = rnd() * 128;
+        let y = rnd() * 128;
+        g.beginPath();
+        g.moveTo(x, y);
+        for (let n = 0; n < 6; n++) {
+          x += (rnd() - 0.5) * 20;
+          y += (rnd() - 0.5) * 20;
+          g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+    }),
+    // the home field: gold plates with engraved rings
+    gb_gold: texture(53, (g, rnd) => {
+      const gr = g.createLinearGradient(0, 0, 128, 128);
+      gr.addColorStop(0, "#c89a30");
+      gr.addColorStop(0.5, "#f0cc60");
+      gr.addColorStop(1, "#b0842a");
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 128, 128);
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          const x = i * 32;
+          const y = j * 32;
+          g.strokeStyle = "rgba(90,60,10,0.7)";
+          g.lineWidth = 1.5;
+          g.strokeRect(x + 1, y + 1, 30, 30);
+          g.strokeStyle = "rgba(255,240,180,0.6)";
+          g.lineWidth = 1;
+          g.strokeRect(x + 2.5, y + 2.5, 27, 27);
+          g.strokeStyle = "rgba(110,70,10,0.55)";
+          g.beginPath();
+          g.arc(x + 16, y + 16, 8 + rnd() * 2, 0, 2 * Math.PI);
+          g.stroke();
+          g.beginPath();
+          g.moveTo(x + 16, y + 6);
+          g.lineTo(x + 16, y + 26);
+          g.moveTo(x + 6, y + 16);
+          g.lineTo(x + 26, y + 16);
+          g.stroke();
+        }
+      }
+    }),
+    // under the crystal: violet crystal tiles
+    gb_crystal: texture(59, (g, rnd) => {
+      g.fillStyle = "#3a1e52";
+      g.fillRect(0, 0, 128, 128);
+      for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+          const x = i * 16;
+          const y = j * 16;
+          const v = rnd();
+          g.fillStyle = `rgb(${120 + v * 60},${60 + v * 30},${170 + v * 60})`;
+          g.beginPath();
+          g.moveTo(x + 8, y + 1);
+          g.lineTo(x + 15, y + 8);
+          g.lineTo(x + 8, y + 15);
+          g.lineTo(x + 1, y + 8);
+          g.closePath();
+          g.fill();
+          g.fillStyle = "rgba(255,220,255,0.35)";
+          g.beginPath();
+          g.moveTo(x + 8, y + 1);
+          g.lineTo(x + 15, y + 8);
+          g.lineTo(x + 8, y + 8);
+          g.closePath();
+          g.fill();
+        }
+      }
+    }),
+    // the gates: a violet swirl
+    gb_portal: texture(61, (g, rnd) => {
+      g.fillStyle = "#2a0848";
+      g.fillRect(0, 0, 128, 128);
+      for (let k = 0; k < 4; k++) {
+        const cx = (k % 2) * 64 + 32;
+        const cy = Math.floor(k / 2) * 64 + 32;
+        for (let a = 0; a < 40; a += 0.15) {
+          const r = a * 0.75;
+          g.fillStyle = `rgba(${180 + rnd() * 60},${80 + rnd() * 60},255,0.5)`;
+          g.fillRect(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 1.6, 1.6);
+        }
+      }
+    }),
+  };
+  if (Lynx.registerTexture) Object.keys(TEXTURES).forEach((k) => Lynx.registerTexture(k, TEXTURES[k]));
+
   const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 
   Lynx.games.gems = (ar, cfg, app) => {
@@ -278,6 +528,7 @@ Lynx.games = Lynx.games || {};
       stacks = new Map();
       state = "playing";
       stateTime = 0;
+      if (paused) togglePause(false);
       say(`${L.name}: set your cubes out round the road -- monsters in ${START_WAIT_S} s`, "#ffe9a8", 4);
       sfx("go");
     }
@@ -412,8 +663,31 @@ Lynx.games = Lynx.games || {};
       window.removeEventListener("pointermove", onMove);
       ["pointerdown", "mousedown"].forEach((t) => window.removeEventListener(t, onDown, { capture: true }));
     });
-    Lynx.onAction("jump", () => state === "playing" && callWave());
-    Lynx.touchButtons().add("⏩ Next wave", () => callWave());
+    Lynx.onAction("jump", () => state === "playing" && !paused && callWave());
+    Lynx.touchButtons().add("⏩ Next wave", () => !paused && callWave());
+    // Pause: P, the button, or the tab hidden. Paused, the cubes still count
+    // where they're moved (merges and the home field wait) and walls can be built.
+    let paused = false;
+    const touch = Lynx.touchButtons();
+    const pauseBtn = touch.add("⏸ Pause", () => togglePause());
+    function togglePause(on = !paused) {
+      if (state !== "playing" && on) return;
+      paused = on;
+      if (pauseBtn && touch.relabel) touch.relabel(pauseBtn, paused ? "▶ Resume" : "⏸ Pause");
+      sfx("click");
+    }
+    const onKey = (e) => {
+      const t = e.target;
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA"))) return;
+      if (e.code === "KeyP") togglePause();
+    };
+    const onHidden = () => document.hidden && state === "playing" && !paused && togglePause(true);
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("visibilitychange", onHidden);
+    ar.onDestroy(() => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("visibilitychange", onHidden);
+    });
 
     // -- the cubes: towers, stacks, the home field ------------------------------------------------------------------
     let cubes = []; // this frame's: {b, gem, tile, tower}
@@ -667,6 +941,12 @@ Lynx.games = Lynx.games || {};
       return tileOf(F.C[0] + F.fwd[0] * t, F.C[1] + F.fwd[1] * t);
     }
     function update(dt) {
+      if (paused && state === "playing") {
+        // (frozen: only where the mouse and the crosshair point)
+        aimTile = aim();
+        hoverTile = mouse && mouseOn() ? tileAtScreen(mouse.x, mouse.y) : null;
+        return;
+      }
       time += dt;
       stateTime += dt;
       if (toast && (toast.t -= dt) <= 0) toast = null;
@@ -687,7 +967,7 @@ Lynx.games = Lynx.games || {};
         if (nextWaveIn <= 0) sendWave();
       }
       while (spawnQ.length && spawnQ[0].at <= time) spawn(spawnQ.shift());
-      monsters.forEach((m) => stepMonster(m, dt));
+      monsters.forEach((m) => !m.frozen && stepMonster(m, dt));
       if (state !== "playing") return;
       stepTowers(dt);
       stepShots(dt);
@@ -699,23 +979,25 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- drawing -----------------------------------------------------------------------------------------------------
-    const WALL = { top: "#a29a8a", side: "#7d766a", dark: "#5f594f", line: "rgba(20,15,10,0.6)", detail: "slab" };
-    const ROCK = { top: "#6f6a62", side: "#57534c", dark: "#3f3c37", line: "rgba(10,8,5,0.7)" };
+    const WALL = { top: "#a29a8a", side: "#7d766a", dark: "#5f594f", line: "rgba(20,15,10,0.6)", tex: "gb_brick", topTex: "gb_cap" };
+    const ROCK = { top: "#6f6a62", side: "#57534c", dark: "#3f3c37", line: "rgba(10,8,5,0.7)", tex: "gb_granite", topTex: "gb_granite" };
     const q = (i, j, m = 0) => ({ f0: (N - 1 - i) * T + m, f1: (N - i) * T - m, r0: -S / 2 + j * T + m, r1: -S / 2 + (j + 1) * T - m });
 
     function drawArena() {
       // the grass in 2 x 2 tile patches (one big polygon, clipped where it
       // runs under the camera, came out cut off), the border as a line
-      const grass = L.road ? "rgba(60,110,50,0.28)" : "rgba(70,105,55,0.25)";
-      for (let a = 0; a < N; a += 2) for (let b = 0; b < N; b += 2) w.floor({ f0: a * T, f1: (a + 2) * T, r0: -S / 2 + b * T, r1: -S / 2 + (b + 2) * T }, 0.0002, grass, null);
+      // (textured: grass, the road's earth, gold, crystal, the gates' swirl -- over a flat colour)
+      for (let a = 0; a < N; a += 2) for (let b = 0; b < N; b += 2) w.floor({ f0: a * T, f1: (a + 2) * T, r0: -S / 2 + b * T, r1: -S / 2 + (b + 2) * T }, 0.0002, "rgba(70,110,50,0.5)", null, { detail: "gb_grass", alpha: 0.85 });
       w.line3([[0, -S / 2, 0.0006], [S, -S / 2, 0.0006], [S, S / 2, 0.0006], [0, S / 2, 0.0006], [0, -S / 2, 0.0006]], "rgba(160,220,140,0.75)", 2, T);
       for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
           const t = tiles[idx(i, j)];
-          if (t === "road") w.floor(q(i, j), 0.0004, "rgba(150,115,70,0.6)", null);
-          else if (t === "entry") w.floor(q(i, j), 0.0004, `rgba(170,60,255,${0.45 + 0.2 * Math.sin(time * 4 + i + j)})`, null);
-          else if (t === "home") w.floor(q(i, j), 0.0004, "rgba(255,210,80,0.45)", "rgba(255,230,140,0.9)");
-          else if (t === "base") w.floor(q(i, j), 0.0004, "rgba(255,120,255,0.3)", null);
+          if (t === "road") w.floor(q(i, j), 0.0004, "rgba(150,115,70,0.8)", null, { detail: "gb_dirt", alpha: 0.95 });
+          else if (t === "entry") {
+            w.floor(q(i, j), 0.0004, "rgba(60,10,100,0.8)", null, { detail: "gb_portal", alpha: 0.6 + 0.3 * Math.sin(time * 4 + i + j) });
+            w.floor(q(i, j), 0.0005, `rgba(190,90,255,${0.15 + 0.15 * Math.sin(time * 5 + i * 2 + j)})`, null);
+          } else if (t === "home") w.floor(q(i, j), 0.0004, "rgba(255,210,80,0.7)", "rgba(255,230,140,0.9)", { detail: "gb_gold", alpha: 0.95 });
+          else if (t === "base") w.floor(q(i, j), 0.0004, "rgba(160,80,220,0.7)", null, { detail: "gb_crystal", alpha: 0.9 });
         }
       }
       // the grid (the open fields: where a wall can go)
@@ -977,48 +1259,231 @@ Lynx.games = Lynx.games || {};
       return { f0: l.f - hh, f1: l.f + hh, r0: l.r - hh, r1: l.r + hh };
     }
 
+    // -- the monsters: each kind its own body ---------------------------------------------------------------------
+    // Built from a few 3D parts in the monster's own frame (f ahead, s to its
+    // left, h up): shaded ellipsoids (drawn as ellipses turned along their
+    // long axis), limbs (tapered lines), flat pieces (wings, horns, spikes) and
+    // faceted solids; the parts far from the camera first.
+    const hexRgb = (h) => {
+      const n = parseInt(h.slice(1), 16);
+      return [n >> 16, (n >> 8) & 255, n & 255];
+    };
+    const mixC = (a, b2, t) => a.map((v, i) => v + (b2[i] - v) * t);
     function drawMonster(m) {
-      const r = m.def.r * 1.35 * Math.sqrt(S);
-      const bob = Math.abs(Math.sin(time * 9 + m.wob)) * r * 0.25;
-      const p = ar.project(m.x, m.y, r + bob);
-      if (!p) return;
-      ar.queue(p.depth, () => {
-        const g = ar.ctx;
-        const rp = Math.max(3, r * p.ppm);
-        ar.floorCircle(m.x, m.y, r * 0.9, "rgba(0,0,0,0.3)");
-        const grad = g.createRadialGradient(p.x - rp * 0.35, p.y - rp * 0.4, rp * 0.1, p.x, p.y, rp);
-        const base = m.hitT > 0 ? "#ffffff" : m.slowT > 0 ? "#80c8ff" : m.poisonT > 0 ? "#90ff70" : m.def.color;
-        grad.addColorStop(0, "rgba(255,255,255,0.9)");
-        grad.addColorStop(0.25, base);
-        grad.addColorStop(1, "rgba(20,10,20,0.95)");
-        g.fillStyle = grad;
+      const r = m.def.r * (m.type === "swarm" ? 1.9 : 1.35) * Math.sqrt(S);
+      const dir = m.dir === undefined ? 0 : m.dir;
+      const cf = Math.cos(dir);
+      const sf = Math.sin(dir);
+      const P = (f, sd, h) => [m.x + cf * f - sf * sd, m.y + sf * f + cf * sd, h];
+      const head = ar.project(m.x, m.y, r);
+      if (!head) return;
+      let base = hexRgb(m.def.color);
+      if (m.slowT > 0) base = mixC(base, [150, 210, 255], 0.5);
+      if (m.poisonT > 0) base = mixC(base, [120, 255, 90], 0.35);
+      if (m.hitT > 0) base = mixC(base, [255, 255, 255], 0.7);
+      const dark = mixC(base, [10, 6, 12], 0.6);
+      const light = mixC(base, [255, 255, 255], 0.35);
+      const cam = ar.cameraWorld();
+      const t = time * (m.slowT > 0 ? 0.55 : 1) + m.wob;
+      const parts = []; // {at: [x, y, h], fn}
+      const add = (at, fn) => parts.push({ at, fn });
+      const g = ar.ctx;
+      const pr = (p) => ar.project(p[0], p[1], p[2]);
+      // an ellipsoid: centre, half-length along f, half-width, half-height (its long axis along f)
+      const ell = (c, lf, ls, lh, col, glossy = true) => add(c, () => {
+        const pc = pr(c);
+        const pa = pr([c[0] + cf * lf, c[1] + sf * lf, c[2]]); // (the end of its long axis)
+        if (!pc || !pa) return;
+        const rx = Math.max(1.5, Math.hypot(pa.x - pc.x, pa.y - pc.y), ls * pc.ppm * 0.6);
+        const ry = Math.max(1.5, Math.max(ls, lh) * pc.ppm);
+        const ang = Math.atan2(pa.y - pc.y, pa.x - pc.x);
+        const R2 = Math.max(rx, ry);
+        const gr = g.createRadialGradient(pc.x - R2 * 0.3, pc.y - ry * 0.45, R2 * 0.05, pc.x, pc.y, R2 * 1.05);
+        gr.addColorStop(0, rgb(glossy ? mixC(col, [255, 255, 255], 0.6) : mixC(col, [255, 255, 255], 0.25)));
+        gr.addColorStop(0.35, rgb(col));
+        gr.addColorStop(1, rgb(mixC(col, [0, 0, 0], 0.65)));
+        g.fillStyle = gr;
         g.beginPath();
-        g.ellipse(p.x, p.y, rp * 1.1, rp * 0.9, 0, 0, 2 * Math.PI);
+        g.ellipse(pc.x, pc.y, rx, ry, ang, 0, 2 * Math.PI);
         g.fill();
-        // eyes, toward where it's going
-        const look = m.dir === undefined ? 0 : m.dir;
-        const e = ar.project(m.x + Math.cos(look) * r * 0.7, m.y + Math.sin(look) * r * 0.7, r * 1.2 + bob);
-        if (e) {
-          g.fillStyle = "#fff";
-          for (const sd of [-1, 1]) {
-            g.beginPath();
-            g.arc(e.x + sd * rp * 0.28, e.y, rp * 0.18, 0, 2 * Math.PI);
-            g.fill();
-          }
-          g.fillStyle = "#200";
-          for (const sd of [-1, 1]) {
-            g.beginPath();
-            g.arc(e.x + sd * rp * 0.28, e.y + rp * 0.04, rp * 0.08, 0, 2 * Math.PI);
-            g.fill();
+      });
+      // a limb: a tapered line through points
+      const limb = (pts, w0, w1, col) => add(pts[Math.floor(pts.length / 2)], () => {
+        const sp = pts.map(pr);
+        if (sp.some((q2) => !q2)) return;
+        g.strokeStyle = rgb(col);
+        g.lineCap = "round";
+        g.lineJoin = "round";
+        for (let i = 0; i + 1 < sp.length; i++) {
+          const wdt = w0 + ((w1 - w0) * (i + 0.5)) / (sp.length - 1);
+          g.lineWidth = Math.max(1, wdt * sp[i].ppm);
+          g.beginPath();
+          g.moveTo(sp[i].x, sp[i].y);
+          g.lineTo(sp[i + 1].x, sp[i + 1].y);
+          g.stroke();
+        }
+      });
+      // a flat piece (a wing, a horn, a spike): lit by which way it faces
+      const flat = (pts, col, alpha = 1) => add(pts.reduce((acc, q2) => acc.map((v, i) => v + q2[i] / pts.length), [0, 0, 0]), () => {
+        const sp = pts.map(pr);
+        if (sp.some((q2) => !q2)) return;
+        const u = pts[1].map((v, i) => v - pts[0][i]);
+        const v2 = pts[2].map((v, i) => v - pts[0][i]);
+        const nn = [u[1] * v2[2] - u[2] * v2[1], u[2] * v2[0] - u[0] * v2[2], u[0] * v2[1] - u[1] * v2[0]];
+        const nl = Math.hypot(...nn) || 1;
+        const lam = 0.45 + 0.55 * Math.abs((nn[0] * LIGHT[0] + nn[1] * LIGHT[1] + nn[2] * LIGHT[2]) / nl);
+        g.fillStyle = rgb(col.map((c) => Math.min(255, c * lam)), alpha);
+        g.beginPath();
+        sp.forEach((q2, i) => (i ? g.lineTo(q2.x, q2.y) : g.moveTo(q2.x, q2.y)));
+        g.closePath();
+        g.fill();
+        g.strokeStyle = rgb(mixC(col, [0, 0, 0], 0.5), 0.6 * alpha);
+        g.lineWidth = 0.7;
+        g.stroke();
+      });
+      // a faceted solid round centre c: rings of points [[f, s, h]...] in the monster's frame, joined ring to ring
+      const solid = (rings, col) => {
+        const R3 = rings.map((ring) => ring.map(([f, sd, h]) => P(f, sd, h)));
+        const ctr = R3.flat().reduce((acc, q2, _, arr) => acc.map((v, i) => v + q2[i] / arr.length), [0, 0, 0]);
+        for (let k = 0; k + 1 < R3.length; k++) {
+          const A = R3[k];
+          const B2 = R3[k + 1];
+          const n = Math.max(A.length, B2.length);
+          for (let i = 0; i < n; i++) {
+            const quad = [A[i % A.length], A[(i + 1) % A.length], B2[(i + 1) % B2.length], B2[i % B2.length]].filter((q2, j, arr) => arr.findIndex((o) => o === q2) === j);
+            const fc = quad.reduce((acc, q2) => acc.map((v, j) => v + q2[j] / quad.length), [0, 0, 0]);
+            const out = fc.map((v, j) => v - ctr[j]);
+            const u = quad[1].map((v, j) => v - quad[0][j]);
+            const v2 = quad[2].map((v, j) => v - quad[0][j]);
+            let nn = [u[1] * v2[2] - u[2] * v2[1], u[2] * v2[0] - u[0] * v2[2], u[0] * v2[1] - u[1] * v2[0]];
+            if (nn[0] * out[0] + nn[1] * out[1] + nn[2] * out[2] < 0) nn = nn.map((v) => -v);
+            if (nn[0] * (cam.x - fc[0]) + nn[1] * (cam.y - fc[1]) + nn[2] * (cam.h - fc[2]) <= 0) continue;
+            add(fc, () => {
+              const sp = quad.map(pr);
+              if (sp.some((q2) => !q2)) return;
+              const nl = Math.hypot(...nn) || 1;
+              const lam = 0.32 + 0.68 * Math.max(0, (nn[0] * LIGHT[0] + nn[1] * LIGHT[1] + nn[2] * LIGHT[2]) / nl);
+              g.fillStyle = rgb(col.map((c) => Math.min(255, c * lam)));
+              g.beginPath();
+              sp.forEach((q2, j) => (j ? g.lineTo(q2.x, q2.y) : g.moveTo(q2.x, q2.y)));
+              g.closePath();
+              g.fill();
+              g.strokeStyle = rgb(mixC(col, [0, 0, 0], 0.55), 0.7);
+              g.lineWidth = 0.7;
+              g.stroke();
+            });
           }
         }
-        // health
+      };
+      const ring = (n, rf, rs, h, f0 = 0, rot = 0) => Array.from({ length: n }, (_, i) => {
+        const a = rot + (2 * Math.PI * i) / n;
+        return [f0 + Math.cos(a) * rf, Math.sin(a) * rs, h];
+      });
+      const eyes = (f, sd, h, size, col = [255, 250, 220]) => {
+        for (const side of [-1, 1]) {
+          const c = P(f, side * sd, h);
+          add(c, () => {
+            const q2 = pr(c);
+            if (!q2) return;
+            const rr = Math.max(1.2, size * q2.ppm);
+            g.fillStyle = rgb(col);
+            g.beginPath();
+            g.arc(q2.x, q2.y, rr, 0, 2 * Math.PI);
+            g.fill();
+            g.fillStyle = "#120808";
+            g.beginPath();
+            g.arc(q2.x, q2.y, rr * 0.45, 0, 2 * Math.PI);
+            g.fill();
+          });
+        }
+      };
+
+      if (m.type === "crawler") {
+        // a beetle: shell with a seam, head, mandibles, six legs walking
+        const h = r * 0.75;
+        ell(P(0, 0, h), r * 1.25, r * 0.95, r * 0.75, base);
+        limb([P(-r * 1.1, 0, h + r * 0.55), P(r * 0.6, 0, h + r * 0.72)], r * 0.08, r * 0.08, dark);
+        for (const side of [-1, 1]) limb([P(-r * 0.9, side * r * 0.5, h + r * 0.4), P(r * 0.4, side * r * 0.62, h + r * 0.55)], r * 0.05, r * 0.05, light);
+        ell(P(r * 1.15, 0, h * 0.8), r * 0.45, r * 0.45, r * 0.38, dark);
+        for (const side of [-1, 1]) {
+          limb([P(r * 1.4, side * r * 0.2, h * 0.6), P(r * 1.85, side * r * 0.35, h * 0.55), P(r * 1.95, side * r * 0.1, h * 0.5)], r * 0.12, r * 0.06, dark);
+          for (const k of [-1, 0, 1]) {
+            const sw = Math.sin(t * 14 + k * 2.1 + (side > 0 ? 0 : Math.PI)) * r * 0.3;
+            limb([P(k * r * 0.55, side * r * 0.7, h * 0.7), P(k * r * 0.6 + sw * 0.5, side * r * 1.35, h * 1.05), P(k * r * 0.75 + sw, side * r * 1.7, 0)], r * 0.13, r * 0.07, dark);
+          }
+        }
+        eyes(r * 1.45, r * 0.22, h * 0.95, r * 0.1);
+      } else if (m.type === "runner") {
+        // a sprinter: a lean body on two long legs, a tail for balance, a crest
+        const stride = Math.sin(t * 16);
+        const h = r * 2.1 + Math.abs(stride) * r * 0.15;
+        for (const side of [-1, 1]) {
+          const sw = stride * side * r * 0.9;
+          limb([P(0, side * r * 0.35, h - r * 0.2), P(sw * 0.4 - r * 0.25, side * r * 0.4, h * 0.5), P(sw, side * r * 0.4, 0)], r * 0.22, r * 0.1, dark);
+        }
+        limb([P(-r * 0.7, 0, h), P(-r * 1.7, 0, h + r * 0.3), P(-r * 2.5, 0, h + r * 0.15 + Math.sin(t * 8) * r * 0.2)], r * 0.32, r * 0.05, base);
+        ell(P(0, 0, h), r * 1.0, r * 0.62, r * 0.6, base);
+        limb([P(r * 0.6, 0, h + r * 0.3), P(r * 1.0, 0, h + r * 0.9)], r * 0.32, r * 0.25, base);
+        ell(P(r * 1.25, 0, h + r * 1.0), r * 0.55, r * 0.36, r * 0.34, light);
+        flat([P(r * 0.9, 0, h + r * 1.25), P(r * 1.5, 0, h + r * 1.35), P(r * 0.7, 0, h + r * 1.75)], mixC(base, [255, 200, 60], 0.5));
+        eyes(r * 1.5, r * 0.22, h + r * 1.1, r * 0.11, [255, 230, 80]);
+      } else if (m.type === "swarm") {
+        // a wasp: hovering, striped sting, beating wings
+        const h = r * 3.2 + Math.sin(t * 6) * r * 0.5;
+        ell(P(-r * 0.9, 0, h - r * 0.15), r * 0.85, r * 0.55, r * 0.55, [235, 190, 40]);
+        for (const k of [-1.25, -0.85, -0.45]) limb([P(r * k, -r * 0.5, h - r * 0.1), P(r * k, r * 0.5, h - r * 0.1)], r * 0.16, r * 0.16, [30, 24, 10]);
+        flat([P(-r * 1.7, r * 0.12, h - r * 0.25), P(-r * 1.7, -r * 0.12, h - r * 0.25), P(-r * 2.3, 0, h - r * 0.45)], [40, 30, 10]);
+        ell(P(r * 0.3, 0, h), r * 0.55, r * 0.45, r * 0.45, base);
+        ell(P(r * 0.95, 0, h + r * 0.05), r * 0.35, r * 0.35, r * 0.32, dark);
+        eyes(r * 1.15, r * 0.2, h + r * 0.12, r * 0.12, [255, 60, 40]);
+        const flap = Math.sin(time * 55 + m.wob) * 0.9;
+        for (const side of [-1, 1]) {
+          const tip = P(-r * 0.4, side * r * 2.0 * Math.cos(flap), h + r * 0.4 + r * 1.6 * Math.abs(Math.sin(flap)));
+          flat([P(r * 0.5, side * r * 0.3, h + r * 0.35), tip, P(-r * 0.6, side * r * 0.25, h + r * 0.3)], [200, 230, 255], 0.45);
+        }
+      } else if (m.type === "brute") {
+        // a stone golem: a faceted block body, a boxy head, horns, heavy arms and feet
+        const step = Math.sin(t * 6);
+        const h = r * 0.6;
+        for (const side of [-1, 1]) {
+          limb([P(0, side * r * 0.5, h), P(step * side * r * 0.35, side * r * 0.55, 0)], r * 0.45, r * 0.5, dark);
+          limb([P(r * 0.1, side * r * 1.05, h + r * 1.2), P(-step * side * r * 0.4 + r * 0.2, side * r * 1.25, h + r * 0.55), P(r * 0.4, side * r * 1.2, h + r * 0.1)], r * 0.36, r * 0.42, mixC(base, [90, 80, 70], 0.4));
+        }
+        solid([ring(4, r * 0.75, r * 0.8, h, 0, Math.PI / 4), ring(4, r * 1.0, r * 1.1, h + r * 0.75, 0, Math.PI / 4), ring(4, r * 0.8, r * 0.95, h + r * 1.5, 0, Math.PI / 4)], base);
+        solid([ring(4, r * 0.4, r * 0.42, h + r * 1.5, r * 0.25, Math.PI / 4), ring(4, r * 0.38, r * 0.4, h + r * 2.1, r * 0.3, Math.PI / 4)], light);
+        for (const side of [-1, 1]) flat([P(r * 0.35, side * r * 0.25, h + r * 2.0), P(r * 0.3, side * r * 0.45, h + r * 2.05), P(r * 0.4, side * r * 0.7, h + r * 2.6)], [235, 225, 200]);
+        eyes(r * 0.62, r * 0.17, h + r * 1.8, r * 0.09, [255, 140, 40]);
+      } else {
+        // the giant: a floating crystal demon -- a faceted spindle, a ring of spikes, horns, burning eyes
+        const h = r * 1.6 + Math.sin(t * 2) * r * 0.2;
+        const spin = t * 0.8;
+        solid([[[0, 0, h + r * 1.3]], ring(6, r * 0.95, r * 0.95, h + r * 0.15, 0, spin), ring(6, r * 0.7, r * 0.7, h - r * 0.5, 0, spin + 0.5), [[0, 0, h - r * 1.2]]], base);
+        for (let k = 0; k < 6; k++) {
+          const a = spin + (2 * Math.PI * k) / 6;
+          const c = [Math.cos(a), Math.sin(a)];
+          const b0 = P(c[0] * r * 0.8, c[1] * r * 0.8, h + r * 0.25);
+          const b1 = P(c[0] * r * 0.8, c[1] * r * 0.8, h);
+          flat([b0, P(c[0] * r * 1.8, c[1] * r * 1.8, h + r * 0.25), b1], mixC(base, [255, 120, 255], 0.4));
+        }
+        for (const side of [-1, 1]) flat([P(r * 0.2, side * r * 0.3, h + r * 1.0), P(r * 0.1, side * r * 0.55, h + r * 1.0), P(r * 0.3, side * r * 0.75, h + r * 1.9)], [40, 20, 40]);
+        eyes(r * 0.7, r * 0.3, h + r * 0.45, r * 0.13, [255, 220, 120]);
+      }
+
+      // the shadow, the parts far to near, the health bar
+      ar.queue(head.depth, () => {
+        ar.floorCircle(m.x, m.y, r * (m.type === "brute" ? 1.3 : 1.0), "rgba(0,0,0,0.3)");
+        parts
+          .map((pt) => ({ ...pt, d: Math.hypot(pt.at[0] - cam.x, pt.at[1] - cam.y, pt.at[2] - cam.h) }))
+          .sort((p1, p2) => p2.d - p1.d)
+          .forEach((pt) => pt.fn());
         if (m.hp < m.max) {
-          const bw = Math.max(14, rp * 2.2);
+          const top = ar.project(m.x, m.y, r * (m.type === "boss" ? 3.6 : m.type === "swarm" ? 4.2 : m.type === "runner" ? 3.8 : 2.8));
+          if (!top) return;
+          const bw = Math.max(14, r * 2.4 * top.ppm);
           g.fillStyle = "rgba(0,0,0,0.6)";
-          g.fillRect(p.x - bw / 2, p.y - rp * 1.4 - 5, bw, 3);
+          g.fillRect(top.x - bw / 2, top.y - 6, bw, 3);
           g.fillStyle = m.poisonT > 0 ? "#80ff60" : "#ff5050";
-          g.fillRect(p.x - bw / 2, p.y - rp * 1.4 - 5, (bw * Math.max(0, m.hp)) / m.max, 3);
+          g.fillRect(top.x - bw / 2, top.y - 6, (bw * Math.max(0, m.hp)) / m.max, 3);
         }
       });
     }
@@ -1116,6 +1581,10 @@ Lynx.games = Lynx.games || {};
       if (cubesIgnored && state === "playing") ar.text("The cubes shut the way: the monsters climb over them", v.cx, v.y + 70, { size: 13, align: "center", color: "#ffb080" });
       if (toast) ar.text(toast.text, v.cx, v.y + v.h * 0.3, { size: 20, align: "center", color: toast.color, alpha: clamp(toast.t * 2, 0, 1) });
       if (layer.drawStatus) layer.drawStatus();
+      if (paused && state === "playing") {
+        ar.flash("#000", 0.35);
+        ar.banner("PAUSED", "P or the Pause button: carry on · walls can still be built meanwhile", { color: "#9ad8ff" });
+      }
       if (state === "won" || state === "over") {
         ar.flash("#000", 0.45);
         ar.banner(state === "won" ? "THE CRYSTAL HOLDS" : "THE CRYSTAL SHATTERED", `${tr(L.name)} · score ${Math.round(score)} · wave ${wave}/${L.waves}`, { color: state === "won" ? "#9ad8ff" : "#ff6080" });
@@ -1134,7 +1603,13 @@ Lynx.games = Lynx.games || {};
         state, level: L && L.name, wave, mana: Math.floor(mana), baseHp, score: Math.round(score), monsters: monsters.length,
         gems: [...gems].map(([tag, g]) => `${tag}:${g.grade > 0 ? gemName(g) : "empty"}`), cubesIgnored,
       }),
-      debug: { tileWorld, sendWave, gems: () => gems, aimTile: () => aimTile, tileAtScreen, tileScreen: (i, j) => {
+      debug: { tileWorld, sendWave,
+        // (tests: a monster of this kind on this tile, standing still)
+        monster(type, i, j) {
+          const p = tileWorld(i, j);
+          monsters.push({ type, def: MONSTERS[type], x: p.x, y: p.y, hp: 100, max: 100, to: null, jit: 0, slowT: 0, slowK: 0, poisonT: 0, poisonDps: 0, wob: Math.random() * 6, hitT: 0, dir: 0.8, frozen: true });
+        },
+        paused: () => paused, gems: () => gems, aimTile: () => aimTile, tileAtScreen, tileScreen: (i, j) => {
         const r = q(i, j);
         return w.project((r.f0 + r.f1) / 2, (r.r0 + r.r1) / 2, 0);
       } },
