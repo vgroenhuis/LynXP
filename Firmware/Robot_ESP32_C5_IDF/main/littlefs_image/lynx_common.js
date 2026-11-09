@@ -413,7 +413,7 @@ window.Lynx = window.Lynx || {};
         "Every cube is a tower with a floating gem -- grade 1, a rounded triangle, its kind from the cube's tag: ruby (heavy hits, splash), emerald (poison), sapphire (slows), topaz (chain lightning). " +
         "Stack two cubes to merge their gems into the bottom one: two of the same grade make one grade higher (another facet, more power and reach), and the kinds mix. " +
         "The emptied top cube gets a new gem on the golden home field (mana, from slain monsters). Road levels keep the monsters to a road; on the open fields they find their own way, " +
-        "and you build walls (aim the middle of the camera at a tile, FIRE) to make it longer. Space / A calls the next wave early for bonus mana. Needs internet once (the tag detector). Tags to print: /tags.html",
+        "and you build walls (click a tile with the mouse, or aim the middle of the camera at it and press FIRE) to make it longer. Space / A calls the next wave early for bonus mana. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
         { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
           options: [["easy", "Easy (weaker monsters)"], ["normal", "Normal"], ["hard", "Hard (tougher monsters)"]] },
