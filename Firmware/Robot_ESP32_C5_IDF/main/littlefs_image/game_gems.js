@@ -502,7 +502,14 @@ Lynx.games = Lynx.games || {};
         cubesIgnored = true;
       }
       dist = d;
+      cubeSet = cubesIgnored ? null : cs;
     }
+    let cubeSet = null; // the tiles cubes stand on, while they count as in the way
+    // a tile a monster can't step onto now: a wall, a rock, a cube (unless they climb over cubes)
+    const blockedTile = (t) => {
+      const k = idx(t.i, t.j);
+      return tiles[k] === "wall" || tiles[k] === "rock" || (!!cubeSet && cubeSet.has(k));
+    };
 
     // -- flow --------------------------------------------------------------------------------------------------------
     function startLevel(n) {
@@ -787,6 +794,28 @@ Lynx.games = Lynx.games || {};
         if (baseHp <= 0) finish(false);
         return;
       }
+      // The tile it was walking into is blocked now (a wall built, a cube put
+      // down): back to the tile it came from -- or, that one blocked too, the
+      // free neighbour nearest the crystal; nowhere free: on over it.
+      if (m.to && blockedTile(m.to) && !(m.to.i === here.i && m.to.j === here.j)) {
+        if (m.from && !blockedTile(m.from) && !(m.from.i === m.to.i && m.from.j === m.to.j)) {
+          m.to = m.from;
+          m.from = null;
+        } else {
+          let bestD = Infinity;
+          let pick = null;
+          for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const t2 = { i: here.i + di, j: here.j + dj };
+            if (!inside(t2.i, t2.j) || blockedTile(t2) || (t2.i === m.to.i && t2.j === m.to.j)) continue;
+            const dd = dist[idx(t2.i, t2.j)];
+            if (pick === null || dd < bestD) {
+              bestD = dd;
+              pick = t2;
+            }
+          }
+          if (pick) m.to = pick;
+        }
+      }
       if (!m.to || near(m, m.to)) {
         // the next tile: the neighbour nearest the crystal
         let bestD = Infinity;
@@ -801,7 +830,10 @@ Lynx.games = Lynx.games || {};
             pick = { i: a, j: b2 };
           }
         }
-        if (pick) m.to = pick;
+        if (pick) {
+          m.from = { i: here.i, j: here.j };
+          m.to = pick;
+        }
       }
       if (!m.to) return;
       const tw = tileWorld(m.to.i, m.to.j);
@@ -1696,7 +1728,9 @@ Lynx.games = Lynx.games || {};
           const p = tileWorld(i, j);
           monsters.push({ type, def: MONSTERS[type], x: p.x, y: p.y, hp: 100, max: 100, to: null, jit: 0, slowT: 0, slowK: 0, poisonT: 0, poisonDps: 0, wob: Math.random() * 6, hitT: 0, dir: 0.8, frozen: true });
         },
-        paused: () => paused, gems: () => gems, aimTile: () => aimTile, tileAtScreen, tileScreen: (i, j) => {
+        paused: () => paused,
+        toggleWall,
+        monsters: () => monsters, gems: () => gems, aimTile: () => aimTile, tileAtScreen, tileScreen: (i, j) => {
         const r = q(i, j);
         return w.project((r.f0 + r.f1) / 2, (r.r0 + r.r1) / 2, 0);
       } },
