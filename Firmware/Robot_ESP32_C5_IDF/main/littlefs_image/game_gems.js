@@ -5,16 +5,22 @@
 // cube's tags 24-29 aside) is a tower: a gem floats above it and shoots the
 // monsters in reach.
 //
-// Gems: each cube's tag decides its kind (tag mod 4): ruby (heavy hits that
-// splash), emerald (poison), sapphire (slows), topaz (lightning that jumps on
-// to more monsters). A cube seen for the first time in a level gets a grade 1
-// gem -- a rounded triangle; every grade has its own shape (see gemOutline:
-// triangle, the same with its bottom curved in, square, ... stars from 10)
-// and more power and reach.
+// Gems: six kinds, each fighting its own way -- level 1 has only the first,
+// every level brings one more (introduced on a card at its start):
+//   amethyst bolt   magic bolts after one monster, steady
+//   ruby cannon     a lobbed shell that blasts everything round where it lands; slow
+//   emerald laser   a beam through its target to the end of its reach: all on the line
+//   topaz blade     a sword: only the squares next to it, heavy quick blows
+//   sapphire frost  waves of cold: everything near it slowed (a little hurt)
+//   diamond storm   lightning jumping from monster to monster
+// A cube's kind: its tag, counting round the level's kinds (tag mod n). A cube
+// seen for the first time in a level gets a grade 1 gem -- a rounded
+// triangle; every grade has its own shape (see gemOutline: triangle, the same
+// with its bottom curved in, square, ... stars from 10) and more power and reach.
 //   Merging: stack one cube on another. After a moment the two gems become
 //   one, in the bottom cube: two of the same grade make one grade higher;
-//   different grades give the higher one -- the kinds mix either way (colour
-//   and effects by the gems' weight). The top cube is then empty.
+//   different grades give the higher one. Two kinds: the stronger gem's kind
+//   stays (the bottom one's if equal). The top cube is then empty.
 //   A new gem: put an empty cube on the golden home field for a moment
 //   (costs mana; mana comes from monsters slain, and slowly by itself).
 //
@@ -41,11 +47,27 @@ Lynx.games = Lynx.games || {};
 
 (function (Lynx) {
   const N = 20; // tiles per side
+  // The gem kinds, one more each level (level n: the first n), each its own
+  // way of fighting. intro: the level's introduction card.
   const KINDS = [
-    { id: "ruby", name: "ruby", color: [255, 48, 72] },
-    { id: "emerald", name: "emerald", color: [48, 224, 112] },
-    { id: "sapphire", name: "sapphire", color: [58, 123, 255] },
-    { id: "topaz", name: "topaz", color: [255, 192, 32] },
+    { id: "bolt", name: "amethyst bolt", color: [190, 90, 255],
+      intro: ["Shoots magic bolts that fly after one monster -- steady, medium reach.",
+        "The first in line within reach is always the target."] },
+    { id: "cannon", name: "ruby cannon", color: [255, 48, 72],
+      intro: ["Lobs a cannonball that explodes where it lands: it hurts every monster around.",
+        "Long reach and a huge blast, but very slow to reload -- good against crowds."] },
+    { id: "laser", name: "emerald laser", color: [48, 224, 112],
+      intro: ["Fires a beam through its target, on to the end of its reach:",
+        "every monster on that line is hit. Place it along a straight bit of the way."] },
+    { id: "blade", name: "topaz blade", color: [255, 192, 32],
+      intro: ["Fights with a sword: only monsters on the squares right next to it,",
+        "but its blows are heavy and quick. Put it close to the way they walk."] },
+    { id: "frost", name: "sapphire frost", color: [58, 123, 255],
+      intro: ["Sends out waves of cold: every monster near it slows down (and gets a little hurt).",
+        "Pair it with the others -- slowed monsters stay in their reach longer."] },
+    { id: "storm", name: "diamond storm", color: [210, 240, 255],
+      intro: ["Throws lightning that jumps from monster to monster:",
+        "one bolt, several hit. More jumps at higher grades."] },
   ];
   const START_WAIT_S = 25; // before the first wave: time to set the cubes out
   const WAVE_GAP_S = 14;
@@ -67,19 +89,19 @@ Lynx.games = Lynx.games || {};
   // point an entry); base / home: a 2 x 2 square's top-left; entries: open
   // field's entry tiles; rocks: blocked tiles.
   const LEVELS = [
-    { name: "Meadow Road", blurb: "A winding road -- learn to merge your gems", waves: 8, mana: 40,
+    { name: "Meadow Road", blurb: "A winding road -- amethyst bolts; learn to merge", waves: 8, mana: 40,
       road: [[[0, 4], [5, 4], [5, 15], [10, 15], [10, 4], [15, 4], [15, 10], [17, 10]]], base: [17, 10], home: [17, 13] },
-    { name: "Twin Gates", blurb: "Two roads, one crystal", waves: 10, mana: 50,
+    { name: "Twin Gates", blurb: "Two roads -- new: the ruby cannon", waves: 10, mana: 50,
       road: [[[0, 3], [8, 3], [8, 9], [16, 9]], [[0, 16], [8, 16], [8, 10], [16, 10]]], base: [16, 9], home: [16, 12] },
-    { name: "Open Field", blurb: "No road: build walls and make them walk", waves: 10, mana: 90,
+    { name: "Open Field", blurb: "No road: build walls -- new: the emerald laser", waves: 10, mana: 90,
       entries: [[0, 8], [0, 9], [0, 10], [0, 11]], base: [17, 9], home: [17, 12],
       rocks: [[5, 3], [5, 4], [6, 15], [7, 15], [11, 6], [11, 13], [12, 13]] },
-    { name: "The Spiral", blurb: "A long road coiled round the crystal", waves: 12, mana: 50,
+    { name: "The Spiral", blurb: "A long coiled road -- new: the topaz blade", waves: 12, mana: 50,
       road: [[[0, 2], [17, 2], [17, 17], [2, 17], [2, 5], [14, 5], [14, 14], [5, 14], [5, 8], [11, 8], [11, 11]]], base: [12, 10], home: [12, 12] },
-    { name: "Crossroads", blurb: "Open field, two ways in, quick monsters", waves: 12, mana: 110, speed: 1.15,
+    { name: "Crossroads", blurb: "Two ways in, quick monsters -- new: sapphire frost", waves: 12, mana: 110, speed: 1.15,
       entries: [[8, 0], [9, 0], [10, 0], [11, 0], [0, 8], [0, 9], [0, 10], [0, 11]], base: [17, 15], home: [17, 12],
       rocks: [[4, 4], [4, 5], [5, 4], [9, 12], [10, 12], [14, 7], [14, 8], [3, 15], [3, 16]] },
-    { name: "Last Stand", blurb: "Three gates, fifteen waves", waves: 15, mana: 130, hp: 1.2,
+    { name: "Last Stand", blurb: "Three gates, fifteen waves -- new: diamond storm", waves: 15, mana: 130, hp: 1.2,
       entries: [[9, 0], [10, 0], [0, 9], [0, 10], [9, 19], [10, 19]], base: [17, 9], home: [17, 12] },
   ];
 
@@ -474,6 +496,9 @@ Lynx.games = Lynx.games || {};
     let monsters = [];
     let shots = [];
     let bolts = []; // lightning: {pts, t}
+    let beams = []; // lasers: {a, b, color, t, w}
+    let swings = []; // sword blows: {x, y, h, ang, len, color, t, side}
+    let intro = null; // the level's introduction card: {k (the kind it brings), t}
     let puffs = []; // {x, y, h, r, color, t}
     let gems = new Map(); // tag -> gem
     let stacks = new Map(); // "top>bottom" -> seconds stacked
@@ -501,43 +526,42 @@ Lynx.games = Lynx.games || {};
     const tileWorld = (i, j) => w.toWorld(tileF(i), tileR(j));
 
     // -- gems -----------------------------------------------------------------------------------------------
-    const kindOf = (tag) => ((tag % 4) + 4) % 4;
+    // which kinds this level has (one more each level), and a cube's: by its tag
+    const kindsHere = () => Math.min(KINDS.length, levelIdx + 1);
+    const kindOf = (tag) => ((tag % kindsHere()) + kindsHere()) % kindsHere();
     function newGem(tag, grade = 1) {
-      const comp = [0, 0, 0, 0];
-      comp[kindOf(tag)] = 1;
-      return { grade, comp, cd: 0, spin: Math.random() * 6 };
+      return { grade, kind: kindOf(tag), cd: 0, spin: Math.random() * 6 };
     }
-    const gemColor = (g) => {
-      const c = [0, 0, 0];
-      g.comp.forEach((k, i) => KINDS[i].color.forEach((v, n) => (c[n] += v * k)));
-      // (an average of two colours goes grey: pushed back out to a vivid one)
-      const grey = (c[0] + c[1] + c[2]) / 3;
-      const vivid = c.map((v) => grey + (v - grey) * 1.9);
-      const top = Math.max(...vivid, 1);
-      return vivid.map((v) => clamp((v * 255) / Math.max(top, 200), 0, 255));
-    };
-    const gemName = (g) => {
-      const parts = g.comp.map((k, i) => [k, KINDS[i].name]).filter(([k]) => k >= 0.2).sort((a, b) => b[0] - a[0]).map(([, n]) => n);
-      return `grade ${g.grade} ${parts.join("-")}`;
-    };
+    const gemColor = (g) => KINDS[g.kind].color.slice();
+    const gemName = (g) => `${tr("grade")} ${g.grade} ${tr(KINDS[g.kind].name)}`;
+    const an = (word) => (/^[aeiou]/.test(word) ? "an" : "a");
     function stats(g) {
-      const [ru, em, sa, to] = g.comp;
-      return {
-        dmg: 6 * Math.pow(1.75, g.grade - 1) * (1 + 0.5 * ru),
-        range: (0.14 + 0.025 * g.grade) * S,
-        rate: 1 + 0.12 * g.grade,
-        splash: ru > 0.15 ? 0.04 * S * ru : 0,
-        poison: em,
-        slow: sa,
-        chain: Math.round(to * 3),
-      };
+      const G = g.grade;
+      const P = (base, k) => base * Math.pow(k, G - 1);
+      switch (KINDS[g.kind].id) {
+        case "cannon":
+          return { dmg: P(16, 1.8), range: (0.24 + 0.03 * G) * S, rate: 0.28 + 0.03 * G, splash: (0.05 + 0.007 * G) * S };
+        case "laser":
+          return { dmg: P(5, 1.75), range: (0.22 + 0.03 * G) * S, rate: 0.7 + 0.07 * G, beam: 0.01 * S };
+        case "blade":
+          return { dmg: P(15, 1.8), range: T * (1.6 + 0.1 * G), rate: 1.5 + 0.1 * G };
+        case "frost":
+          return { dmg: P(2, 1.6), range: (0.12 + 0.02 * G) * S, rate: 0.5 + 0.04 * G, slow: Math.min(0.7, 0.35 + 0.05 * G) };
+        case "storm":
+          return { dmg: P(7, 1.75), range: (0.16 + 0.025 * G) * S, rate: 0.8 + 0.08 * G, chain: 2 + Math.floor(G / 2) };
+        default:
+          return { dmg: P(6, 1.75), range: (0.15 + 0.025 * G) * S, rate: 1 + 0.12 * G };
+      }
     }
+    function describe(st) {
+      const fx = [st.splash ? `blast ${Math.round(st.splash * 100)} cm` : "", st.beam ? "pierces" : "", st.slow ? `slows ${Math.round(st.slow * 100)}%` : "", st.chain ? `jumps ${st.chain}` : ""].filter(Boolean).join(" · ");
+      return `damage ${Math.round(st.dmg)} · reach ${Math.round(st.range * 100)} cm · ${st.rate.toFixed(1)}/s${fx ? " · " + fx : ""}`;
+    }
+    // a: the bottom gem, b: the one put on it. The kind: the stronger gem's (the bottom one's if equal).
     function merge(a, b) {
       const grade = a.grade === b.grade ? a.grade + 1 : Math.max(a.grade, b.grade);
-      const wa = Math.pow(2, a.grade - 1);
-      const wb = Math.pow(2, b.grade - 1);
-      const comp = a.comp.map((v, i) => (v * wa + b.comp[i] * wb) / (wa + wb));
-      return { grade, comp, cd: 0.5, spin: a.spin };
+      const kind = b.grade > a.grade ? b.kind : a.kind;
+      return { grade, kind, cd: 0.5, spin: a.spin };
     }
 
     // -- the arena --------------------------------------------------------------------------------------------
@@ -645,6 +669,9 @@ Lynx.games = Lynx.games || {};
       monsters = [];
       shots = [];
       bolts = [];
+      beams = [];
+      swings = [];
+      intro = { k: Math.min(KINDS.length, levelIdx + 1) - 1, t: 0 };
       puffs = [];
       gems = new Map();
       stacks = new Map();
@@ -709,6 +736,10 @@ Lynx.games = Lynx.games || {};
         return;
       }
       if (state !== "playing") return;
+      if (intro) {
+        intro = null;
+        return;
+      }
       // (FIRE never calls a wave: Space / A / the touch button do)
       if (L.road) return;
       if (!aimTile) return say("Aim the middle of the camera at a tile -- or click one with the mouse", "#ff9a7a", 1.8);
@@ -769,7 +800,7 @@ Lynx.games = Lynx.games || {};
     };
     const onDown = (e) => {
       const isMouse = e.type === "mousedown" || (e.type === "pointerdown" && e.pointerType === "mouse");
-      if (!isMouse || !mouseOn() || e.button !== 0) return;
+      if (!isMouse || !mouseOn() || e.button !== 0 || intro) return; // (the introduction up: the click is Fire, which closes it)
       const pt = canvasPoint(e);
       const tile = tileAtScreen(pt.x, pt.y);
       if (!tile) return; // (off the arena: an ordinary click)
@@ -832,7 +863,7 @@ Lynx.games = Lynx.games || {};
       real.forEach((b) => {
         if (!gems.has(b.tag)) {
           gems.set(b.tag, newGem(b.tag));
-          if (state === "playing") say(`Cube ${b.tag}: ${/^[aeiou]/.test(KINDS[kindOf(b.tag)].name) ? "an" : "a"} ${KINDS[kindOf(b.tag)].name} gem`, rgb(KINDS[kindOf(b.tag)].color), 1.6);
+          if (state === "playing") say(`Cube ${b.tag}: ${an(KINDS[kindOf(b.tag)].name)} ${KINDS[kindOf(b.tag)].name}`, rgb(KINDS[kindOf(b.tag)].color), 1.6);
         }
         const gem = gems.get(b.tag);
         // moved (or just set down, or a new gem): its reach shows for RANGE_AFTER_S
@@ -894,7 +925,7 @@ Lynx.games = Lynx.games || {};
       g.pos = gem.pos;
       gems.set(b.tag, g);
       puffs.push({ x: b.x, y: b.y, h: b.h1 + 0.02, r: 0.05, color: gemColor(g), t: 0, ring: true });
-      say(`A new ${KINDS[kindOf(b.tag)].name} gem`, rgb(gemColor(g)), 1.6);
+      say(`A new ${KINDS[g.kind].name}`, rgb(gemColor(g)), 1.6);
       sfx("pickup");
     }
 
@@ -1013,87 +1044,125 @@ Lynx.games = Lynx.games || {};
         g.cd -= dt;
         if (g.cd > 0) return;
         const st = stats(g);
+        const kind = KINDS[g.kind].id;
         const gx = c.b.x;
         const gy = c.b.y;
-        let target = null;
-        let bestTogo = Infinity;
-        monsters.forEach((m) => {
-          if (m.dead || Math.hypot(m.x - gx, m.y - gy) > st.range) return;
-          const tg = togo(m);
-          if (tg < bestTogo) {
-            bestTogo = tg;
-            target = m;
-          }
-        });
-        if (!target) return;
+        const gh = c.b.h1 + 0.02;
+        const inReach = monsters.filter((m) => !m.dead && Math.hypot(m.x - gx, m.y - gy) <= st.range);
+        if (!inReach.length) return;
+        // the first in line (the one with the least way to go)
+        const target = inReach.reduce((a, m) => (togo(m) < togo(a) ? m : a));
         g.cd = 1 / st.rate;
-        shots.push({ x: gx, y: gy, h: c.b.h1 + 0.03, target, st, color: gemColor(g), grade: g.grade });
-        sfx("zap");
+        const color = gemColor(g);
+        const dmg = (m, x) => hurt(m, Math.max(1, x - m.def.armor));
+        if (kind === "bolt") {
+          shots.push({ kind, x: gx, y: gy, h: gh, target, st, color, grade: g.grade });
+          sfx("zap");
+        } else if (kind === "cannon") {
+          // a shell lobbed at where the target is now (it may have moved on by the time it lands)
+          const d = Math.hypot(target.x - gx, target.y - gy);
+          shots.push({ kind, x0: gx, y0: gy, h0: gh, x1: target.x, y1: target.y, t: 0, dur: 0.45 + d / (0.7 * S), peak: 0.06 + d * 0.4, x: gx, y: gy, h: gh, st, color, grade: g.grade });
+          sfx("rocket");
+        } else if (kind === "laser") {
+          // through the target, on to the end of its reach: everything on the line
+          const dx = target.x - gx;
+          const dy = target.y - gy;
+          const dl = Math.hypot(dx, dy) || 1;
+          const ex = gx + (dx / dl) * st.range;
+          const ey = gy + (dy / dl) * st.range;
+          monsters.forEach((m) => {
+            if (m.dead) return;
+            const t = clamp(((m.x - gx) * (ex - gx) + (m.y - gy) * (ey - gy)) / (st.range * st.range), 0, 1);
+            const px = gx + (ex - gx) * t;
+            const py = gy + (ey - gy) * t;
+            if (Math.hypot(m.x - px, m.y - py) < st.beam + m.def.r) dmg(m, st.dmg);
+          });
+          beams.push({ a: [gx, gy, gh], b: [ex, ey, 0.01], color, t: 0, w: 1 + g.grade * 0.4 });
+          sfx("laser");
+        } else if (kind === "blade") {
+          dmg(target, st.dmg);
+          swings.push({ x: gx, y: gy, h: c.b.h1 + 0.008, ang: Math.atan2(target.y - gy, target.x - gx), len: st.range * 0.85, color, t: 0, side: (swings.length % 2) * 2 - 1 });
+          sfx("swing");
+        } else if (kind === "frost") {
+          inReach.forEach((m) => {
+            m.slowT = 2;
+            m.slowK = Math.max(m.slowK, st.slow);
+            dmg(m, st.dmg);
+          });
+          puffs.push({ x: gx, y: gy, h: 0.002, r: st.range / 1.3, color: [170, 220, 255], t: 0, ring: true });
+          puffs.push({ x: gx, y: gy, h: 0.002, r: st.range / 1.6, color: [220, 240, 255], t: 0.15, ring: true });
+        } else if (kind === "storm") {
+          let from = target;
+          const hit = new Set([target]);
+          const pts = [[gx, gy, gh], [target.x, target.y, target.def.r]];
+          dmg(target, st.dmg);
+          let k2 = 1;
+          for (let n = 0; n < st.chain; n++) {
+            let next = null;
+            let bd = 0.12 * S;
+            monsters.forEach((o) => {
+              if (o.dead || hit.has(o)) return;
+              const d = Math.hypot(o.x - from.x, o.y - from.y);
+              if (d < bd) {
+                bd = d;
+                next = o;
+              }
+            });
+            if (!next) break;
+            hit.add(next);
+            pts.push([next.x, next.y, next.def.r]);
+            k2 *= 0.75;
+            dmg(next, st.dmg * k2);
+            from = next;
+          }
+          bolts.push({ pts, t: 0, color });
+          sfx("zap");
+        }
       });
     }
     function stepShots(dt) {
-      shots.forEach((s) => {
-        const m = s.target;
-        if (m.dead) {
-          s.done = true;
+      shots.forEach((s2) => {
+        if (s2.kind === "cannon") {
+          s2.t += dt;
+          const u = Math.min(1, s2.t / s2.dur);
+          s2.x = s2.x0 + (s2.x1 - s2.x0) * u;
+          s2.y = s2.y0 + (s2.y1 - s2.y0) * u;
+          s2.h = s2.h0 * (1 - u) + 0.008 * u + 4 * s2.peak * u * (1 - u);
+          if (u >= 1) {
+            s2.done = true;
+            // the blast: full damage in the middle, half at the edge
+            monsters.forEach((m) => {
+              if (m.dead) return;
+              const d = Math.hypot(m.x - s2.x1, m.y - s2.y1);
+              if (d < s2.st.splash + m.def.r) hurt(m, Math.max(1, s2.st.dmg * (1 - 0.5 * Math.min(1, d / s2.st.splash)) - m.def.armor));
+            });
+            puffs.push({ x: s2.x1, y: s2.y1, h: 0.002, r: s2.st.splash, color: [255, 140, 60], t: 0, ring: true });
+            puffs.push({ x: s2.x1, y: s2.y1, h: 0.015, r: s2.st.splash * 0.9, color: [255, 200, 120], t: 0 });
+            puffs.push({ x: s2.x1, y: s2.y1, h: 0.03, r: s2.st.splash * 0.6, color: [90, 80, 70], t: 0.1 });
+            sfx("explode");
+          }
           return;
         }
-        const th = m.def.r;
-        const dx = m.x - s.x;
-        const dy = m.y - s.y;
-        const dh = th - s.h;
+        const m = s2.target;
+        if (m.dead) {
+          s2.done = true;
+          return;
+        }
+        const dx = m.x - s2.x;
+        const dy = m.y - s2.y;
+        const dh = m.def.r - s2.h;
         const d = Math.hypot(dx, dy, dh);
         const v = 1.2 * S;
         if (d < v * dt + 0.005) {
-          s.done = true;
-          impact(s, m);
+          s2.done = true;
+          hurt(m, Math.max(1, s2.st.dmg - m.def.armor));
           return;
         }
-        s.x += (dx / d) * v * dt;
-        s.y += (dy / d) * v * dt;
-        s.h += (dh / d) * v * dt;
+        s2.x += (dx / d) * v * dt;
+        s2.y += (dy / d) * v * dt;
+        s2.h += (dh / d) * v * dt;
       });
-      shots = shots.filter((s) => !s.done);
-    }
-    function impact(s, m) {
-      const st = s.st;
-      const dmg = (x) => Math.max(1, x - m.def.armor);
-      hurt(m, dmg(st.dmg));
-      if (st.poison > 0.05) {
-        m.poisonT = 3;
-        m.poisonDps = Math.max(m.poisonDps, st.dmg * 0.3 * st.poison);
-      }
-      if (st.slow > 0.05) {
-        m.slowT = 1.5;
-        m.slowK = Math.max(m.slowK, 0.45 * st.slow);
-      }
-      if (st.splash > 0) {
-        monsters.forEach((o) => o !== m && !o.dead && Math.hypot(o.x - m.x, o.y - m.y) < st.splash && hurt(o, Math.max(1, st.dmg * 0.4 - o.def.armor)));
-        puffs.push({ x: m.x, y: m.y, h: 0.002, r: st.splash, color: s.color, t: 0, ring: true });
-      }
-      if (st.chain > 0) {
-        let from = m;
-        const hit = new Set([m]);
-        const pts = [[m.x, m.y, m.def.r]];
-        for (let n = 0; n < st.chain; n++) {
-          let next = null;
-          let bd = 0.12 * S;
-          monsters.forEach((o) => {
-            if (o.dead || hit.has(o)) return;
-            const d = Math.hypot(o.x - from.x, o.y - from.y);
-            if (d < bd) {
-              bd = d;
-              next = o;
-            }
-          });
-          if (!next) break;
-          hit.add(next);
-          pts.push([next.x, next.y, next.def.r]);
-          hurt(next, Math.max(1, st.dmg * 0.6 - next.def.armor));
-          from = next;
-        }
-        if (pts.length > 1) bolts.push({ pts, t: 0, color: s.color });
-      }
+      shots = shots.filter((s2) => !s2.done);
     }
 
     // -- update ------------------------------------------------------------------------------------------------------
@@ -1117,6 +1186,11 @@ Lynx.games = Lynx.games || {};
       puffs = puffs.filter((p) => p.t < 0.6);
       bolts.forEach((b) => (b.t += dt));
       bolts = bolts.filter((b) => b.t < 0.18);
+      beams.forEach((b) => (b.t += dt));
+      beams = beams.filter((b) => b.t < 0.22);
+      swings.forEach((b) => (b.t += dt));
+      swings = swings.filter((b) => b.t < 0.25);
+      if (intro && state === "playing" && (intro.t += dt) > 16) intro = null;
       gems.forEach((g) => (g.spin += dt * 1.2));
       if (state !== "playing") return;
       readCubes(dt);
@@ -1124,8 +1198,8 @@ Lynx.games = Lynx.games || {};
       aimTile = aim();
       hoverTile = mouse && mouseOn() ? tileAtScreen(mouse.x, mouse.y) : null;
       mana += dt * 0.5;
-      // waves
-      if (wave < L.waves) {
+      // waves (not while the introduction card is up)
+      if (wave < L.waves && !intro) {
         nextWaveIn -= dt;
         if (nextWaveIn <= 0) sendWave();
       }
@@ -1809,7 +1883,90 @@ Lynx.games = Lynx.games || {};
         shots.forEach((s) => {
           const p = ar.project(s.x, s.y, s.h);
           if (!p) return;
+          if (s.kind === "cannon") {
+            // a dark iron ball, a glowing fuse, its shadow on the floor
+            ar.queue(p.depth, () => {
+              ar.floorCircle(s.x, s.y, 0.006, "rgba(0,0,0,0.3)");
+              const rr = Math.max(3, (0.006 + 0.0006 * s.grade) * p.ppm);
+              const gr = ar.ctx.createRadialGradient(p.x - rr * 0.35, p.y - rr * 0.35, rr * 0.1, p.x, p.y, rr);
+              gr.addColorStop(0, "#8a8a90");
+              gr.addColorStop(1, "#16161a");
+              ar.ctx.fillStyle = gr;
+              ar.ctx.beginPath();
+              ar.ctx.arc(p.x, p.y, rr, 0, 2 * Math.PI);
+              ar.ctx.fill();
+              ar.glow(p.x + rr * 0.6, p.y - rr * 0.7, rr * 0.9, [[0, "rgba(255,240,180,0.95)"], [0.5, "rgba(255,120,40,0.6)"], [1, "rgba(255,80,0,0)"]]);
+            });
+            return;
+          }
           ar.queue(p.depth, () => ar.glow(p.x, p.y, Math.max(4, (0.006 + 0.001 * s.grade) * p.ppm), [[0, "rgba(255,255,255,0.95)"], [0.4, rgb(s.color, 0.9)], [1, rgb(s.color, 0)]]));
+        });
+        // lasers: a wide coloured glow and a white core, fading
+        beams.forEach((b) => {
+          const pa = ar.project(...b.a);
+          const pb = ar.project(...b.b);
+          if (!pa || !pb) return;
+          ar.queue(Math.min(pa.depth, pb.depth), () => {
+            const g = ar.ctx;
+            const k = 1 - b.t / 0.22;
+            g.save();
+            g.lineCap = "round";
+            g.globalCompositeOperation = "lighter";
+            g.strokeStyle = rgb(b.color, 0.45 * k);
+            g.lineWidth = 7 * b.w;
+            g.beginPath();
+            g.moveTo(pa.x, pa.y);
+            g.lineTo(pb.x, pb.y);
+            g.stroke();
+            g.strokeStyle = `rgba(255,255,255,${0.9 * k})`;
+            g.lineWidth = 1.6 * b.w;
+            g.stroke();
+            g.restore();
+          });
+        });
+        // sword blows: a blade sweeping across toward the target, with a bright trail
+        swings.forEach((sw) => {
+          const u = sw.t / 0.25;
+          const a0 = sw.ang - sw.side * 1.1;
+          const a = a0 + sw.side * 2.2 * Math.min(1, u * 1.6);
+          const tip = (ang, l) => ar.project(sw.x + Math.cos(ang) * l, sw.y + Math.sin(ang) * l, sw.h);
+          const hilt = ar.project(sw.x, sw.y, sw.h);
+          const p1 = tip(a, sw.len);
+          if (!hilt || !p1) return;
+          ar.queue(p1.depth, () => {
+            const g = ar.ctx;
+            const k = 1 - u;
+            // the trail
+            g.strokeStyle = rgb(sw.color, 0.45 * k);
+            g.lineWidth = 3;
+            g.beginPath();
+            let first = true;
+            for (let q2 = 0; q2 <= 8; q2++) {
+              const pt = tip(a0 + (a - a0) * (q2 / 8), sw.len * 0.95);
+              if (!pt) continue;
+              if (first) g.moveTo(pt.x, pt.y);
+              else g.lineTo(pt.x, pt.y);
+              first = false;
+            }
+            g.stroke();
+            // the blade
+            g.strokeStyle = `rgba(235,240,250,${k})`;
+            g.lineWidth = 2.5;
+            g.lineCap = "round";
+            g.beginPath();
+            g.moveTo(hilt.x, hilt.y);
+            g.lineTo(p1.x, p1.y);
+            g.stroke();
+            g.strokeStyle = rgb(sw.color, k);
+            g.lineWidth = 4;
+            const pg = tip(a, sw.len * 0.18);
+            if (pg) {
+              g.beginPath();
+              g.moveTo(hilt.x, hilt.y);
+              g.lineTo(pg.x, pg.y);
+              g.stroke();
+            }
+          });
         });
         puffs.forEach((pf) => {
           const k = pf.t / 0.6;
@@ -1885,13 +2042,12 @@ Lynx.games = Lynx.games || {};
       // what's aimed at: a tower's gem
       const aimed = aimTile && cubes.find((c) => c.tile && c.gem.grade > 0 && Math.abs(c.tile.i - aimTile.i) <= 1 && Math.abs(c.tile.j - aimTile.j) <= 1);
       if (aimed && state === "playing") {
-        const st = stats(aimed.gem);
-        const fx = [st.splash ? "splash" : "", st.poison > 0.05 ? "poison" : "", st.slow > 0.05 ? "slow" : "", st.chain ? `chain ${st.chain}` : ""].filter(Boolean).join(", ");
-        ar.text(`Cube ${aimed.b.tag}: ${gemName(aimed.gem)} · damage ${Math.round(st.dmg)} · reach ${Math.round(st.range * 100)} cm${fx ? " · " + fx : ""}`, v.cx, v.cy + 44, { size: 13, align: "center", color: rgb(gemColor(aimed.gem)) });
+        ar.text(`Cube ${aimed.b.tag}: ${gemName(aimed.gem)} · ${describe(stats(aimed.gem))}`, v.cx, v.cy + 44, { size: 13, align: "center", color: rgb(gemColor(aimed.gem)) });
       }
       if (cubesIgnored && state === "playing") ar.text("The cubes shut the way: the monsters climb over them", v.cx, v.y + 70, { size: 13, align: "center", color: "#ffb080" });
-      if (toast) ar.text(toast.text, v.cx, v.y + v.h * 0.3, { size: 20, align: "center", color: toast.color, alpha: clamp(toast.t * 2, 0, 1) });
+      if (toast && !intro) ar.text(toast.text, v.cx, v.y + v.h * 0.3, { size: 20, align: "center", color: toast.color, alpha: clamp(toast.t * 2, 0, 1) });
       if (layer.drawStatus) layer.drawStatus();
+      if (intro && state === "playing") drawIntro(v);
       if (paused && state === "playing") {
         ar.flash("#000", 0.35);
         ar.banner("PAUSED", "P or the Pause button: carry on · walls can still be built meanwhile", { color: "#9ad8ff" });
@@ -1902,6 +2058,44 @@ Lynx.games = Lynx.games || {};
         if (rankMsg) ar.text(rankMsg, v.cx, v.cy + v.h * 0.18, { size: 16, align: "center", color: "#9ad8ff" });
         if (stateTime > 1.5) ar.text("Press FIRE for the level menu", v.cx, v.cy + v.h * 0.25, { size: 14, align: "center" });
       }
+    }
+
+    // The level's introduction card: the gem kind it brings (the first level:
+    // its one kind and how gems work), and which cubes get which kind.
+    function drawIntro(v) {
+      const g = ar.ctx;
+      const K = KINDS[intro.k];
+      const n = kindsHere();
+      const small = Lynx.smallScreen();
+      const wdt = Math.min(640, v.w - 30);
+      // (translated piece by piece: names inside longer lines)
+      const lines = K.intro.map((t2) => tr(t2));
+      const nIntro = lines.length;
+      if (levelIdx === 0) lines.push(tr("Stack two cubes to merge their gems: two of a grade make one grade higher."), tr("Put an emptied cube on the gold home field for a new gem."));
+      else lines.push(tr("Merging two kinds: the stronger gem's kind stays (the bottom one's if equal)."));
+      if (n === 1) lines.push(tr("Every cube holds one."));
+      else {
+        lines.push(tr(`Which cube holds which: its tag number, counting round (tag mod ${n}):`));
+        lines.push(KINDS.slice(0, n).map((k2, i) => `${i}: ${tr(k2.name.split(" ")[1])}`).join(" · "));
+      }
+      const size = small ? 12 : 14;
+      const hgt = 70 + lines.length * (size + 8) + 30;
+      const x0 = v.cx - wdt / 2;
+      const y0 = v.cy - hgt / 2;
+      g.save();
+      g.globalAlpha = Math.min(1, intro.t * 4, (16 - intro.t) * 2);
+      g.fillStyle = "rgba(10,12,24,0.88)";
+      g.strokeStyle = rgb(K.color, 0.9);
+      g.lineWidth = 2;
+      g.beginPath();
+      if (g.roundRect) g.roundRect(x0, y0, wdt, hgt, 12);
+      else g.rect(x0, y0, wdt, hgt);
+      g.fill();
+      g.stroke();
+      ar.text(`${tr(levelIdx === 0 ? "Your gem:" : "New gem:")} ${tr(K.name)}`, v.cx, y0 + 38, { size: small ? 18 : 24, align: "center", color: rgb(K.color) });
+      lines.forEach((t2, i) => ar.text(t2, v.cx, y0 + 70 + i * (size + 8), { size, align: "center", color: i < nIntro ? "#ffffff" : "#c8c0a8" }));
+      ar.text("FIRE / click: got it -- the monsters come after this", v.cx, y0 + hgt - 14, { size: 12, align: "center", color: "#9ad8ff" });
+      g.restore();
     }
 
     ar.onFrame((now, dt) => {
