@@ -1354,5 +1354,9 @@ Lynx.NL = {
 "click: wall ({} mana)": "klik: muur ({} mana)",
 "click: take the wall down": "klik: muur weghalen",
 "Aim the middle of the camera at a tile -- or click one with the mouse": "Richt het midden van de camera op een tegel -- of klik er een aan met de muis",
-"🧱 Wall": "🧱 Muur"
+"🧱 Wall": "🧱 Muur",
+"⏸ Pause": "⏸ Pauze",
+"▶ Resume": "▶ Verder",
+"PAUSED": "GEPAUZEERD",
+"P or the Pause button: carry on · walls can still be built meanwhile": "P of de pauzeknop: verder · muren bouwen kan intussen gewoon"
 };
