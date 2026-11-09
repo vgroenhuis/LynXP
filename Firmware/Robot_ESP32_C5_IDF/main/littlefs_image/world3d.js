@@ -260,7 +260,9 @@ window.Lynx = window.Lynx || {};
         faces.forEach(([a, b, fill]) => {
           const p = polyScreen([[a[0], a[1], h0], [b[0], b[1], h0], [b[0], b[1], h1], [a[0], a[1], h1]]);
           if (!p) return;
-          fillPoly(p, fill, null);
+          // (see-through and textured: the texture alone -- the flat colour
+          // under it as well would add up to nearly opaque)
+          if (!(img && o.alpha !== undefined)) fillPoly(p, fill, null);
           if (img || detail) {
             texFace(a, b, h0, h1, img || detail);
             if (img) fillPoly(p, `rgba(20,12,4,${fill === col.dark ? 0.3 : 0.1})`, null);
@@ -271,7 +273,7 @@ window.Lynx = window.Lynx || {};
         const top = (h, fill) => {
           const p = polyScreen([[q.f0, q.r0, h], [q.f1, q.r0, h], [q.f1, q.r1, h], [q.f0, q.r1, h]]);
           if (!p) return;
-          fillPoly(p, fill, null);
+          if (!(img && o.alpha !== undefined)) fillPoly(p, fill, null);
           if (img) texFloor(q, h, col.topTex || "flagstone");
           else if (detail) texFloor(q, h, col.detail);
           fillPoly(p, null, col.line, 1);
