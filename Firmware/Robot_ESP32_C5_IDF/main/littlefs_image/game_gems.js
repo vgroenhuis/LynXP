@@ -1015,21 +1015,44 @@ Lynx.games = Lynx.games || {};
     const ROCK = { top: "#6f6a62", side: "#57534c", dark: "#3f3c37", line: "rgba(10,8,5,0.7)", tex: "gb_granite", topTex: "gb_granite" };
     const q = (i, j, m = 0) => ({ f0: (N - 1 - i) * T + m, f1: (N - i) * T - m, r0: -S / 2 + j * T + m, r1: -S / 2 + (j + 1) * T - m });
 
+    const FLOOR_ALPHA = 0.5;
+    const texOn = typeof Lynx.texture === "function" && !!ar.texturedQuad;
+    function floorTex(r, h, flat, tex, alpha = FLOOR_ALPHA) {
+      if (texOn && Lynx.texture(tex)) w.floor(r, h, null, null, { detail: tex, alpha });
+      else w.floor(r, h, flat.replace(/[\d.]+\)$/, `${alpha})`), null);
+    }
     function drawArena() {
       // the grass in 2 x 2 tile patches (one big polygon, clipped where it
       // runs under the camera, came out cut off), the border as a line
       // (textured: grass, the road's earth, gold, crystal, the gates' swirl -- over a flat colour)
-      for (let a = 0; a < N; a += 2) for (let b = 0; b < N; b += 2) w.floor({ f0: a * T, f1: (a + 2) * T, r0: -S / 2 + b * T, r1: -S / 2 + (b + 2) * T }, 0.0002, "rgba(70,110,50,0.5)", null, { detail: "gb_grass", alpha: 0.85 });
+      // Half see-through (the camera's picture shows through): the texture
+      // alone at FLOOR_ALPHA (the flat colour too only without textures), and
+      // nothing under another surface -- two layers would add up.
+      const grassy = (t) => t === "grass" || t === "wall" || t === "rock";
+      for (let a = 0; a < N; a += 2) {
+        for (let b = 0; b < N; b += 2) {
+          // (rows a.., columns b.. from the near left corner: tile i = N - 1 - a)
+          const four = [[0, 0], [0, 1], [1, 0], [1, 1]].map(([da, db]) => grassy(tiles[idx(N - 1 - (a + da), b + db)]));
+          if (four.every(Boolean)) floorTex({ f0: a * T, f1: (a + 2) * T, r0: -S / 2 + b * T, r1: -S / 2 + (b + 2) * T }, 0.0002, "rgba(70,110,50,1)", "gb_grass");
+          else {
+            [[0, 0], [0, 1], [1, 0], [1, 1]].forEach(([da, db], n) => {
+              if (four[n]) floorTex(q(N - 1 - (a + da), b + db), 0.0002, "rgba(70,110,50,1)", "gb_grass");
+            });
+          }
+        }
+      }
       w.line3([[0, -S / 2, 0.0006], [S, -S / 2, 0.0006], [S, S / 2, 0.0006], [0, S / 2, 0.0006], [0, -S / 2, 0.0006]], "rgba(160,220,140,0.75)", 2, T);
       for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
           const t = tiles[idx(i, j)];
-          if (t === "road") w.floor(q(i, j), 0.0004, "rgba(150,115,70,0.8)", null, { detail: "gb_dirt", alpha: 0.95 });
+          if (t === "road") floorTex(q(i, j), 0.0004, "rgba(150,115,70,1)", "gb_dirt");
           else if (t === "entry") {
-            w.floor(q(i, j), 0.0004, "rgba(60,10,100,0.8)", null, { detail: "gb_portal", alpha: 0.6 + 0.3 * Math.sin(time * 4 + i + j) });
+            floorTex(q(i, j), 0.0004, "rgba(60,10,100,1)", "gb_portal", FLOOR_ALPHA * (0.85 + 0.3 * Math.sin(time * 4 + i + j)));
             w.floor(q(i, j), 0.0005, `rgba(190,90,255,${0.15 + 0.15 * Math.sin(time * 5 + i * 2 + j)})`, null);
-          } else if (t === "home") w.floor(q(i, j), 0.0004, "rgba(255,210,80,0.7)", "rgba(255,230,140,0.9)", { detail: "gb_gold", alpha: 0.95 });
-          else if (t === "base") w.floor(q(i, j), 0.0004, "rgba(160,80,220,0.7)", null, { detail: "gb_crystal", alpha: 0.9 });
+          } else if (t === "home") {
+            floorTex(q(i, j), 0.0004, "rgba(255,210,80,1)", "gb_gold");
+            w.floor(q(i, j), 0.0005, null, "rgba(255,230,140,0.9)");
+          } else if (t === "base") floorTex(q(i, j), 0.0004, "rgba(160,80,220,1)", "gb_crystal");
         }
       }
       // the grid (the open fields: where a wall can go)
