@@ -20,11 +20,11 @@
 //
 // Levels: a road (the monsters keep to it) or an open field, where the
 // monsters find their own way to the crystal -- around the rocks, the cubes
-// standing in the arena and the walls you build: aim the middle of the
-// camera at a tile and press FIRE (FIRE on a wall takes it down again, half
-// its price back). A wall may not shut the way completely; if the cubes do,
-// the monsters climb over them. Space / gamepad A / the touch button (or
-// FIRE on a road level): call the next wave now (bonus mana).
+// standing in the arena and the walls you build: click a tile with the
+// mouse, or aim the middle of the camera at it and press FIRE (again on a
+// wall: taken down, half its price back). A wall may not shut the way
+// completely; if the cubes do, the monsters climb over them. Space /
+// gamepad A / the touch button: call the next wave now (bonus mana).
 //
 // Drawing: flat colour on the 2D canvas through world3d.js (floor, walls),
 // the gems as faceted solids (back faces culled: a convex shape needs no
@@ -336,9 +336,14 @@ Lynx.games = Lynx.games || {};
         return;
       }
       if (state !== "playing") return;
-      if (L.road || !aimTile) return callWave();
-      // a wall: build it, or take it down
-      const k = idx(aimTile.i, aimTile.j);
+      // (FIRE never calls a wave: Space / A / the touch button do)
+      if (L.road) return;
+      if (!aimTile) return say("Aim the middle of the camera at a tile -- or click one with the mouse", "#ff9a7a", 1.8);
+      toggleWall(aimTile);
+    });
+    // A wall on this tile: built, or taken down (half its price back).
+    function toggleWall(tile) {
+      const k = idx(tile.i, tile.j);
       if (tiles[k] === "wall") {
         tiles[k] = "grass";
         wallsVersion++;
@@ -350,13 +355,62 @@ Lynx.games = Lynx.games || {};
       if (mana < WALL_COST) return say(`A wall costs ${WALL_COST} mana`, "#ff9a7a", 1.4);
       if (monsters.some((m) => {
         const t = tileOf(m.x, m.y);
-        return t && t.i === aimTile.i && t.j === aimTile.j;
+        return t && t.i === tile.i && t.j === tile.j;
       })) return say("A monster is on that tile", "#ff9a7a", 1.4);
       if (!reachable(bfs(null, k))) return say("That would shut the way completely", "#ff9a7a", 1.6);
       tiles[k] = "wall";
       wallsVersion++;
       mana -= WALL_COST;
       sfx("tick");
+    }
+    // The mouse: the tile under it lights up, a click builds / takes down a
+    // wall there (and isn't Fire). Touches are left alone: on a touch screen a
+    // touch on the picture drives (the crosshair and Fire build there).
+    let mouse = null; // {x, y} in the canvas, while over it
+    let hoverTile = null;
+    function tileAtScreen(x, y) {
+      const inPoly = (pts) => {
+        let c = false;
+        for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) {
+          if (pts[a].y > y !== pts[b].y > y && x < ((pts[b].x - pts[a].x) * (y - pts[a].y)) / (pts[b].y - pts[a].y) + pts[a].x) c = !c;
+        }
+        return c;
+      };
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          const r = q(i, j);
+          const pts = w.polyScreen([[r.f0, r.r0, 0], [r.f1, r.r0, 0], [r.f1, r.r1, 0], [r.f0, r.r1, 0]], 1);
+          if (pts && inPoly(pts)) return { i, j };
+        }
+      }
+      return null;
+    }
+    const canvasPoint = (e) => {
+      const r = ar.ctx.canvas.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    const mouseOn = () => state === "playing" && L && !L.road && !document.pointerLockElement;
+    const onMove = (e) => {
+      if (e.pointerType && e.pointerType !== "mouse") return;
+      mouse = canvasPoint(e);
+    };
+    const onDown = (e) => {
+      const isMouse = e.type === "mousedown" || (e.type === "pointerdown" && e.pointerType === "mouse");
+      if (!isMouse || !mouseOn() || e.button !== 0) return;
+      const pt = canvasPoint(e);
+      const tile = tileAtScreen(pt.x, pt.y);
+      if (!tile) return; // (off the arena: an ordinary click)
+      e.stopPropagation(); // (not Fire)
+      if (e.type !== "pointerdown") return; // (the same press's mousedown: only kept away)
+      e.preventDefault();
+      toggleWall(tile);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("mouseleave", () => (mouse = null));
+    ["pointerdown", "mousedown"].forEach((t) => window.addEventListener(t, onDown, { capture: true }));
+    ar.onDestroy(() => {
+      window.removeEventListener("pointermove", onMove);
+      ["pointerdown", "mousedown"].forEach((t) => window.removeEventListener(t, onDown, { capture: true }));
     });
     Lynx.onAction("jump", () => state === "playing" && callWave());
     Lynx.touchButtons().add("⏩ Next wave", () => callWave());
@@ -625,6 +679,7 @@ Lynx.games = Lynx.games || {};
       readCubes(dt);
       updatePaths(cubes.map((c) => c.b));
       aimTile = aim();
+      hoverTile = mouse && mouseOn() ? tileAtScreen(mouse.x, mouse.y) : null;
       mana += dt * 0.5;
       // waves
       if (wave < L.waves) {
@@ -669,10 +724,12 @@ Lynx.games = Lynx.games || {};
         w.line3([[k * T, -S / 2, 0.0005], [k * T, S / 2, 0.0005]], gc, 1, T);
         w.line3([[0, -S / 2 + k * T, 0.0005], [S, -S / 2 + k * T, 0.0005]], gc, 1, T);
       }
-      if (aimTile && !L.road && state === "playing") {
-        const t = tiles[idx(aimTile.i, aimTile.j)];
+      // the tiles a wall would go on: the crosshair's, the mouse's
+      for (const at of [aimTile, hoverTile]) {
+        if (!at || L.road || state !== "playing") continue;
+        const t = tiles[idx(at.i, at.j)];
         const ok = t === "grass" || t === "wall";
-        w.floor(q(aimTile.i, aimTile.j), 0.0008, ok ? "rgba(120,255,160,0.25)" : "rgba(255,100,100,0.2)", ok ? "rgba(160,255,190,0.95)" : "rgba(255,120,120,0.9)", { width: 2 });
+        w.floor(q(at.i, at.j), 0.0008, ok ? "rgba(120,255,160,0.25)" : "rgba(255,100,100,0.2)", ok ? "rgba(160,255,190,0.95)" : "rgba(255,120,120,0.9)", { width: 2 });
       }
       for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
@@ -1034,7 +1091,7 @@ Lynx.games = Lynx.games || {};
       ar.text(`◆ ${Math.floor(mana)} mana`, x0, v.y + 26, { size: 18, color: "#9ad8ff" });
       ar.text(`Crystal ${Math.max(0, baseHp)}/20`, x0, v.y + 48, { size: 15, color: "#ff9aff" });
       ar.text(`${tr(L.name)} · wave ${wave}/${L.waves}`, v.x + v.w - 14, v.y + 26, { size: 15, align: "right" });
-      if (state === "playing" && wave < L.waves) ar.text(`next wave in ${Math.ceil(nextWaveIn)} s  (${L.road ? "FIRE / " : ""}Space / A: now)`, v.x + v.w - 14, v.y + 46, { size: 13, align: "right", color: "#c8c0a8" });
+      if (state === "playing" && wave < L.waves) ar.text(`next wave in ${Math.ceil(nextWaveIn)} s  (Space / A: now)`, v.x + v.w - 14, v.y + 46, { size: 13, align: "right", color: "#c8c0a8" });
       ar.text(`SCORE ${Math.round(score)}`, x0, v.y + v.h - 16, { size: 18, color: "#9ad8ff" });
       const towers = cubes.filter((c) => c.tower).length;
       const empty = cubes.filter((c) => c.gem.grade <= 0).length;
@@ -1043,6 +1100,11 @@ Lynx.games = Lynx.games || {};
         const t = tiles[idx(aimTile.i, aimTile.j)];
         const hint = t === "wall" ? "FIRE: take the wall down" : t === "grass" ? `FIRE: wall (${WALL_COST} mana)` : "";
         if (hint) ar.text(hint, v.cx, v.cy + 26, { size: 13, align: "center", color: "#c8ffd0" });
+      }
+      if (state === "playing" && hoverTile && mouse) {
+        const t = tiles[idx(hoverTile.i, hoverTile.j)];
+        const hint = t === "wall" ? "click: take the wall down" : t === "grass" ? `click: wall (${WALL_COST} mana)` : "";
+        if (hint) ar.text(hint, mouse.x + 14, mouse.y - 10, { size: 12, color: "#c8ffd0" });
       }
       // what's aimed at: a tower's gem
       const aimed = aimTile && cubes.find((c) => c.tile && c.gem.grade > 0 && Math.abs(c.tile.i - aimTile.i) <= 1 && Math.abs(c.tile.j - aimTile.j) <= 1);
@@ -1067,12 +1129,15 @@ Lynx.games = Lynx.games || {};
       draw();
     });
     return {
-      actionLabel: "🧱 Wall / wave",
+      actionLabel: "🧱 Wall",
       snapshot: () => ({
         state, level: L && L.name, wave, mana: Math.floor(mana), baseHp, score: Math.round(score), monsters: monsters.length,
         gems: [...gems].map(([tag, g]) => `${tag}:${g.grade > 0 ? gemName(g) : "empty"}`), cubesIgnored,
       }),
-      debug: { tileWorld, sendWave, gems: () => gems, aimTile: () => aimTile },
+      debug: { tileWorld, sendWave, gems: () => gems, aimTile: () => aimTile, tileAtScreen, tileScreen: (i, j) => {
+        const r = q(i, j);
+        return w.project((r.f0 + r.f1) / 2, (r.r0 + r.r1) / 2, 0);
+      } },
     };
   };
 })(window.Lynx);
