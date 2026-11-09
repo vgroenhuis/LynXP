@@ -403,6 +403,25 @@ window.Lynx = window.Lynx || {};
       boards: [],
     },
     {
+      id: "gems",
+      released: "2026-11-09",
+      kind: "game",
+      name: "Gem Bastion",
+      icon: "\u{1F48E}",
+      blurb:
+        "Tower defense with your tagged cubes. A 1 x 1 m arena of 5 cm tiles appears on the floor in front of the robot; monsters walk from the gates to your crystal. " +
+        "Every cube is a tower with a floating gem -- grade 1, a rounded triangle, its kind from the cube's tag: ruby (heavy hits, splash), emerald (poison), sapphire (slows), topaz (chain lightning). " +
+        "Stack two cubes to merge their gems into the bottom one: two of the same grade make one grade higher (another facet, more power and reach), and the kinds mix. " +
+        "The emptied top cube gets a new gem on the golden home field (mana, from slain monsters). Road levels keep the monsters to a road; on the open fields they find their own way, " +
+        "and you build walls (aim the middle of the camera at a tile, FIRE) to make it longer. Space / A calls the next wave early for bonus mana. Needs internet once (the tag detector). Tags to print: /tags.html",
+      settings: [
+        { key: "difficulty", label: "Difficulty", type: "select", def: "normal",
+          options: [["easy", "Easy (weaker monsters)"], ["normal", "Normal"], ["hard", "Hard (tougher monsters)"]] },
+        { key: "arenaM", label: "Arena size (20 x 20 tiles)", type: "number", unit: "m", def: 1, min: 0.6, max: 2, step: 0.1 },
+      ],
+      boards: [{ key: "gems", title: "Gem Bastion", better: "higher", format: "points" }],
+    },
+    {
       id: "race",
       released: "2026-09-27",
       kind: "game",

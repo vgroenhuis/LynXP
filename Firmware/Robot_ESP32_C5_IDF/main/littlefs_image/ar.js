@@ -983,7 +983,7 @@ window.Lynx = window.Lynx || {};
   // RB (the "weapon" action) choose too, and the game's own Fire starts
   // menu.sel. The choice is remembered on this browser.
   //   const menu = Lynx.levelMenu(ar, {key, levels: [{name, note, blurb}], sel, active: () => bool, onStart(i), color})
-  //   menu.draw(top, bottom)   (screen y range for the rows; the hint goes under them)
+  //   menu.draw(top, bottom)   (screen y range for the rows; the hint goes under them), menu.select(i)
   Lynx.levelMenu = (ar, o) => {
     const n = o.levels.length;
     const storeKey = `levelMenu.${o.key}`;
@@ -1034,6 +1034,9 @@ window.Lynx = window.Lynx || {};
     return {
       get sel() {
         return sel;
+      },
+      select(i) {
+        if (i >= 0 && i < n) sel = i;
       },
       draw(top, bottom) {
         const v = ar.view;
