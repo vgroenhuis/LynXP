@@ -1358,5 +1358,7 @@ Lynx.NL = {
 "⏸ Pause": "⏸ Pauze",
 "▶ Resume": "▶ Verder",
 "PAUSED": "GEPAUZEERD",
-"P or the Pause button: carry on · walls can still be built meanwhile": "P of de pauzeknop: verder · muren bouwen kan intussen gewoon"
+"P or the Pause button: carry on · walls can still be built meanwhile": "P of de pauzeknop: verder · muren bouwen kan intussen gewoon",
+"◎ Show ranges": "◎ Bereik tonen",
+"◎ Hide ranges": "◎ Bereik verbergen"
 };

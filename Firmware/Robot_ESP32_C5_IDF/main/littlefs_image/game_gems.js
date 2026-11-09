@@ -26,6 +26,9 @@
 // completely; if the cubes do, the monsters climb over them. Space /
 // gamepad A / the touch button: call the next wave now (bonus mana).
 // P / the Pause button (or the tab hidden): pause -- walls can still be built.
+// A tower's reach (a circle on the floor; a monster is in reach when its
+// centre is): shown when the crosshair is on it or next to it, for 10 s after
+// its cube was moved or set down, and for all of them with R / the button.
 //
 // Drawing: the 2D canvas through world3d.js, textured (textures made here,
 // in the browser: grass, earth, bricks, granite, gold, crystal, the gates'
@@ -326,6 +329,118 @@ Lynx.games = Lynx.games || {};
       }
     }),
   };
+  // the monsters' skins: grey around mid-tone, laid over a part's own colour
+  // and shading ("overlay": light lightens, dark darkens, mid grey nothing)
+  Object.assign(TEXTURES, {
+    // a beetle's shell: fine lengthwise lines, pits, a few pale spots
+    gb_chitin: texture(67, (g, rnd, wrap) => {
+      g.fillStyle = "#808080";
+      g.fillRect(0, 0, 128, 128);
+      for (let x = 0; x < 128; x += 4) {
+        g.fillStyle = "rgba(40,40,40,0.35)";
+        g.fillRect(x, 0, 1, 128);
+        g.fillStyle = "rgba(220,220,220,0.25)";
+        g.fillRect(x + 1, 0, 1, 128);
+      }
+      for (let k = 0; k < 160; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        g.fillStyle = "rgba(30,30,30,0.5)";
+        g.fillRect(x, y, 1.5, 1.5);
+      }
+      for (let k = 0; k < 7; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        const r = 5 + rnd() * 7;
+        wrap(x, y, r, (px, py) => {
+          g.fillStyle = "rgba(235,235,225,0.55)";
+          g.beginPath();
+          g.ellipse(px, py, r, r * 0.8, 0, 0, 2 * Math.PI);
+          g.fill();
+        });
+      }
+    }),
+    // a sprinter's hide: overlapping scales in rows
+    gb_scales: texture(71, (g, rnd) => {
+      g.fillStyle = "#6a6a6a";
+      g.fillRect(0, 0, 128, 128);
+      for (let row = 0; row < 18; row++) {
+        for (let col = -1; col < 18; col++) {
+          const x = col * 8 + (row % 2) * 4;
+          const y = row * 8 - 4;
+          const gr = g.createRadialGradient(x, y - 2, 0.5, x, y, 6);
+          const v = 150 + rnd() * 50;
+          gr.addColorStop(0, `rgb(${v},${v},${v})`);
+          gr.addColorStop(1, "rgb(70,70,70)");
+          g.fillStyle = gr;
+          g.beginPath();
+          g.arc(x, y, 5.5, 0, Math.PI);
+          g.fill();
+        }
+      }
+    }),
+    // a wasp's fuzz: short hairs every way
+    gb_fuzz: texture(73, (g, rnd, wrap) => {
+      g.fillStyle = "#808080";
+      g.fillRect(0, 0, 128, 128);
+      for (let k = 0; k < 1500; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        const a = rnd() * Math.PI * 2;
+        const l = 1.5 + rnd() * 3;
+        g.strokeStyle = rnd() < 0.5 ? "rgba(230,230,230,0.5)" : "rgba(30,30,30,0.45)";
+        g.lineWidth = 0.7;
+        wrap(x, y, l, (px, py) => {
+          g.beginPath();
+          g.moveTo(px, py);
+          g.lineTo(px + Math.cos(a) * l, py + Math.sin(a) * l);
+          g.stroke();
+        });
+      }
+    }),
+    // a golem's stone: blotches, grit, cracks
+    gb_stoneskin: texture(79, (g, rnd, wrap) => {
+      g.fillStyle = "#808080";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 30, 6, 20, ["rgba(40,40,40,0.4)", "rgba(210,210,210,0.35)"]);
+      for (let k = 0; k < 1800; k++) {
+        g.fillStyle = rnd() < 0.5 ? "rgba(20,20,20,0.45)" : "rgba(235,235,235,0.4)";
+        g.fillRect(rnd() * 128, rnd() * 128, 1, 1);
+      }
+      g.strokeStyle = "rgba(15,15,15,0.6)";
+      g.lineWidth = 1;
+      for (let k = 0; k < 6; k++) {
+        let x = rnd() * 128;
+        let y = rnd() * 128;
+        g.beginPath();
+        g.moveTo(x, y);
+        for (let n = 0; n < 5; n++) {
+          x += (rnd() - 0.5) * 22;
+          y += (rnd() - 0.5) * 22;
+          g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+    }),
+    // the giant's crystal: sharp light and dark shards
+    gb_shards: texture(83, (g, rnd) => {
+      g.fillStyle = "#808080";
+      g.fillRect(0, 0, 128, 128);
+      for (let k = 0; k < 40; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        const a = rnd() * Math.PI;
+        const l = 8 + rnd() * 20;
+        g.fillStyle = rnd() < 0.5 ? "rgba(250,250,250,0.45)" : "rgba(20,20,20,0.4)";
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+        g.lineTo(x + Math.cos(a + 0.35) * l * 0.6, y + Math.sin(a + 0.35) * l * 0.6);
+        g.closePath();
+        g.fill();
+      }
+    }),
+  });
   if (Lynx.registerTexture) Object.keys(TEXTURES).forEach((k) => Lynx.registerTexture(k, TEXTURES[k]));
 
   const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
@@ -677,6 +792,16 @@ Lynx.games = Lynx.games || {};
     let paused = false;
     const touch = Lynx.touchButtons();
     const pauseBtn = touch.add("⏸ Pause", () => togglePause());
+    // Every tower's reach on the floor: R or the button
+    let showRanges = false;
+    let wall = 0; // seconds, running while paused too (a moved cube's reach shows this long after)
+    const RANGE_AFTER_S = 10;
+    const rangeBtn = touch.add("◎ Show ranges", () => toggleRanges());
+    function toggleRanges() {
+      showRanges = !showRanges;
+      if (rangeBtn && touch.relabel) touch.relabel(rangeBtn, showRanges ? "◎ Hide ranges" : "◎ Show ranges");
+      sfx("click");
+    }
     function togglePause(on = !paused) {
       if (state !== "playing" && on) return;
       paused = on;
@@ -687,6 +812,7 @@ Lynx.games = Lynx.games || {};
       const t = e.target;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA"))) return;
       if (e.code === "KeyP") togglePause();
+      else if (e.code === "KeyR") toggleRanges();
     };
     const onHidden = () => document.hidden && state === "playing" && !paused && togglePause(true);
     window.addEventListener("keydown", onKey);
@@ -709,6 +835,11 @@ Lynx.games = Lynx.games || {};
           if (state === "playing") say(`Cube ${b.tag}: ${/^[aeiou]/.test(KINDS[kindOf(b.tag)].name) ? "an" : "a"} ${KINDS[kindOf(b.tag)].name} gem`, rgb(KINDS[kindOf(b.tag)].color), 1.6);
         }
         const gem = gems.get(b.tag);
+        // moved (or just set down, or a new gem): its reach shows for RANGE_AFTER_S
+        if (!gem.anchor || Math.hypot(gem.anchor.x - b.x, gem.anchor.y - b.y) > 0.01) {
+          gem.anchor = { x: b.x, y: b.y };
+          gem.movedAt = wall;
+        }
         const tile = tileOf(b.x, b.y);
         if (b.level === 0) {
           gem.pos = { x: b.x, y: b.y };
@@ -1379,7 +1510,8 @@ Lynx.games = Lynx.games || {};
         return;
       }
       const R = Math.min(0.036, 0.015 + 0.003 * g.grade);
-      const h = b.h1 + 0.012 + R + Math.sin(time * 2 + b.tag) * 0.003;
+      // (close over its cube: which gem is whose shows at a glance)
+      const h = b.h1 + 0.004 + R + Math.sin(time * 2 + b.tag) * 0.0015;
       const p = ar.project(b.x, b.y, h);
       if (!p) return;
       const col = gemColor(g);
@@ -1391,7 +1523,13 @@ Lynx.games = Lynx.games || {};
       // its ring on the floor (a tower: the reach, when the camera points at it)
       if (c.tower) {
         w.floor(footQ(b), 0.0009, null, rgb(col, 0.9), { width: 2 });
-        if (aimTile && c.tile && Math.abs(aimTile.i - c.tile.i) <= 1 && Math.abs(aimTile.j - c.tile.j) <= 1) ar.floorCircle(b.x, b.y, stats(g).range, rgb(col, 0.06), rgb(col, 0.6));
+        // its reach: all shown (R / the button), aimed at, or moved in the last RANGE_AFTER_S
+        const aimedAt = aimTile && c.tile && Math.abs(aimTile.i - c.tile.i) <= 1 && Math.abs(aimTile.j - c.tile.j) <= 1;
+        const moved = g.movedAt !== undefined && wall - g.movedAt < RANGE_AFTER_S;
+        if (showRanges || aimedAt || moved) {
+          const fade = aimedAt || showRanges ? 1 : Math.min(1, (RANGE_AFTER_S - (wall - g.movedAt)) / 2);
+          ar.floorCircle(b.x, b.y, stats(g).range, rgb(col, 0.06 * fade), rgb(col, 0.6 * fade));
+        }
       }
     }
     // a cube's footprint in the arena's frame
@@ -1411,6 +1549,14 @@ Lynx.games = Lynx.games || {};
       return [n >> 16, (n >> 8) & 255, n & 255];
     };
     const mixC = (a, b2, t) => a.map((v, i) => v + (b2[i] - v) * t);
+    const patterns = new Map();
+    function skinPattern(g, tex) {
+      if (!patterns.has(tex)) {
+        const img = Lynx.texture ? Lynx.texture(tex) : null;
+        patterns.set(tex, img ? g.createPattern(img, "repeat") : null);
+      }
+      return patterns.get(tex);
+    }
     function drawMonster(m) {
       const r = m.def.r * (m.type === "swarm" ? 1.9 : 1.35) * Math.sqrt(S);
       const dir = m.dir === undefined ? 0 : m.dir;
@@ -1431,8 +1577,20 @@ Lynx.games = Lynx.games || {};
       const add = (at, fn) => parts.push({ at, fn });
       const g = ar.ctx;
       const pr = (p) => ar.project(p[0], p[1], p[2]);
+      // the current path, overlaid with a skin texture (scale: px per texture px)
+      const skin = (tex, cx, cy, scale, alpha = 0.75) => {
+        const pat = skinPattern(g, tex);
+        if (!pat) return;
+        if (pat.setTransform && typeof DOMMatrix === "function") pat.setTransform(new DOMMatrix([scale, 0, 0, scale, cx, cy]));
+        g.save();
+        g.globalCompositeOperation = "overlay";
+        g.globalAlpha = alpha;
+        g.fillStyle = pat;
+        g.fill();
+        g.restore();
+      };
       // an ellipsoid: centre, half-length along f, half-width, half-height (its long axis along f)
-      const ell = (c, lf, ls, lh, col, glossy = true) => add(c, () => {
+      const ell = (c, lf, ls, lh, col, glossy = true, tex = null) => add(c, () => {
         const pc = pr(c);
         const pa = pr([c[0] + cf * lf, c[1] + sf * lf, c[2]]); // (the end of its long axis)
         if (!pc || !pa) return;
@@ -1448,6 +1606,7 @@ Lynx.games = Lynx.games || {};
         g.beginPath();
         g.ellipse(pc.x, pc.y, rx, ry, ang, 0, 2 * Math.PI);
         g.fill();
+        if (tex) skin(tex, pc.x, pc.y, Math.max(0.08, R2 / 48));
       });
       // a limb: a tapered line through points
       const limb = (pts, w0, w1, col) => add(pts[Math.floor(pts.length / 2)], () => {
@@ -1484,15 +1643,21 @@ Lynx.games = Lynx.games || {};
         g.stroke();
       });
       // a faceted solid round centre c: rings of points [[f, s, h]...] in the monster's frame, joined ring to ring
-      const solid = (rings, col) => {
+      const solid = (rings, col, tex = null) => {
         const R3 = rings.map((ring) => ring.map(([f, sd, h]) => P(f, sd, h)));
         const ctr = R3.flat().reduce((acc, q2, _, arr) => acc.map((v, i) => v + q2[i] / arr.length), [0, 0, 0]);
+        const faces = [];
         for (let k = 0; k + 1 < R3.length; k++) {
           const A = R3[k];
           const B2 = R3[k + 1];
           const n = Math.max(A.length, B2.length);
-          for (let i = 0; i < n; i++) {
-            const quad = [A[i % A.length], A[(i + 1) % A.length], B2[(i + 1) % B2.length], B2[i % B2.length]].filter((q2, j, arr) => arr.findIndex((o) => o === q2) === j);
+          for (let i = 0; i < n; i++) faces.push([A[i % A.length], A[(i + 1) % A.length], B2[(i + 1) % B2.length], B2[i % B2.length]].filter((q2, j, arr) => arr.findIndex((o) => o === q2) === j));
+        }
+        // its ends closed (a ring of points, not a tip: a lid)
+        if (R3[0].length >= 3) faces.push(R3[0]);
+        if (R3.length > 1 && R3[R3.length - 1].length >= 3) faces.push(R3[R3.length - 1]);
+        {
+          for (const quad of faces) {
             const fc = quad.reduce((acc, q2) => acc.map((v, j) => v + q2[j] / quad.length), [0, 0, 0]);
             const out = fc.map((v, j) => v - ctr[j]);
             const u = quad[1].map((v, j) => v - quad[0][j]);
@@ -1510,6 +1675,10 @@ Lynx.games = Lynx.games || {};
               sp.forEach((q2, j) => (j ? g.lineTo(q2.x, q2.y) : g.moveTo(q2.x, q2.y)));
               g.closePath();
               g.fill();
+              if (tex) {
+                const c0 = pr(ctr);
+                if (c0) skin(tex, c0.x, c0.y, Math.max(0.08, (r * c0.ppm) / 40));
+              }
               g.strokeStyle = rgb(mixC(col, [0, 0, 0], 0.55), 0.7);
               g.lineWidth = 0.7;
               g.stroke();
@@ -1543,10 +1712,10 @@ Lynx.games = Lynx.games || {};
       if (m.type === "crawler") {
         // a beetle: shell with a seam, head, mandibles, six legs walking
         const h = r * 0.75;
-        ell(P(0, 0, h), r * 1.25, r * 0.95, r * 0.75, base);
+        ell(P(0, 0, h), r * 1.25, r * 0.95, r * 0.75, base, true, "gb_chitin");
         limb([P(-r * 1.1, 0, h + r * 0.55), P(r * 0.6, 0, h + r * 0.72)], r * 0.08, r * 0.08, dark);
         for (const side of [-1, 1]) limb([P(-r * 0.9, side * r * 0.5, h + r * 0.4), P(r * 0.4, side * r * 0.62, h + r * 0.55)], r * 0.05, r * 0.05, light);
-        ell(P(r * 1.15, 0, h * 0.8), r * 0.45, r * 0.45, r * 0.38, dark);
+        ell(P(r * 1.15, 0, h * 0.8), r * 0.45, r * 0.45, r * 0.38, dark, true, "gb_chitin");
         for (const side of [-1, 1]) {
           limb([P(r * 1.4, side * r * 0.2, h * 0.6), P(r * 1.85, side * r * 0.35, h * 0.55), P(r * 1.95, side * r * 0.1, h * 0.5)], r * 0.12, r * 0.06, dark);
           for (const k of [-1, 0, 1]) {
@@ -1564,18 +1733,18 @@ Lynx.games = Lynx.games || {};
           limb([P(0, side * r * 0.35, h - r * 0.2), P(sw * 0.4 - r * 0.25, side * r * 0.4, h * 0.5), P(sw, side * r * 0.4, 0)], r * 0.22, r * 0.1, dark);
         }
         limb([P(-r * 0.7, 0, h), P(-r * 1.7, 0, h + r * 0.3), P(-r * 2.5, 0, h + r * 0.15 + Math.sin(t * 8) * r * 0.2)], r * 0.32, r * 0.05, base);
-        ell(P(0, 0, h), r * 1.0, r * 0.62, r * 0.6, base);
+        ell(P(0, 0, h), r * 1.0, r * 0.62, r * 0.6, base, true, "gb_scales");
         limb([P(r * 0.6, 0, h + r * 0.3), P(r * 1.0, 0, h + r * 0.9)], r * 0.32, r * 0.25, base);
-        ell(P(r * 1.25, 0, h + r * 1.0), r * 0.55, r * 0.36, r * 0.34, light);
+        ell(P(r * 1.25, 0, h + r * 1.0), r * 0.55, r * 0.36, r * 0.34, light, true, "gb_scales");
         flat([P(r * 0.9, 0, h + r * 1.25), P(r * 1.5, 0, h + r * 1.35), P(r * 0.7, 0, h + r * 1.75)], mixC(base, [255, 200, 60], 0.5));
         eyes(r * 1.5, r * 0.22, h + r * 1.1, r * 0.11, [255, 230, 80]);
       } else if (m.type === "swarm") {
         // a wasp: hovering, striped sting, beating wings
         const h = r * 3.2 + Math.sin(t * 6) * r * 0.5;
-        ell(P(-r * 0.9, 0, h - r * 0.15), r * 0.85, r * 0.55, r * 0.55, [235, 190, 40]);
+        ell(P(-r * 0.9, 0, h - r * 0.15), r * 0.85, r * 0.55, r * 0.55, [235, 190, 40], false, "gb_fuzz");
         for (const k of [-1.25, -0.85, -0.45]) limb([P(r * k, -r * 0.5, h - r * 0.1), P(r * k, r * 0.5, h - r * 0.1)], r * 0.16, r * 0.16, [30, 24, 10]);
         flat([P(-r * 1.7, r * 0.12, h - r * 0.25), P(-r * 1.7, -r * 0.12, h - r * 0.25), P(-r * 2.3, 0, h - r * 0.45)], [40, 30, 10]);
-        ell(P(r * 0.3, 0, h), r * 0.55, r * 0.45, r * 0.45, base);
+        ell(P(r * 0.3, 0, h), r * 0.55, r * 0.45, r * 0.45, base, false, "gb_fuzz");
         ell(P(r * 0.95, 0, h + r * 0.05), r * 0.35, r * 0.35, r * 0.32, dark);
         eyes(r * 1.15, r * 0.2, h + r * 0.12, r * 0.12, [255, 60, 40]);
         const flap = Math.sin(time * 55 + m.wob) * 0.9;
@@ -1591,15 +1760,15 @@ Lynx.games = Lynx.games || {};
           limb([P(0, side * r * 0.5, h), P(step * side * r * 0.35, side * r * 0.55, 0)], r * 0.45, r * 0.5, dark);
           limb([P(r * 0.1, side * r * 1.05, h + r * 1.2), P(-step * side * r * 0.4 + r * 0.2, side * r * 1.25, h + r * 0.55), P(r * 0.4, side * r * 1.2, h + r * 0.1)], r * 0.36, r * 0.42, mixC(base, [90, 80, 70], 0.4));
         }
-        solid([ring(4, r * 0.75, r * 0.8, h, 0, Math.PI / 4), ring(4, r * 1.0, r * 1.1, h + r * 0.75, 0, Math.PI / 4), ring(4, r * 0.8, r * 0.95, h + r * 1.5, 0, Math.PI / 4)], base);
-        solid([ring(4, r * 0.4, r * 0.42, h + r * 1.5, r * 0.25, Math.PI / 4), ring(4, r * 0.38, r * 0.4, h + r * 2.1, r * 0.3, Math.PI / 4)], light);
+        solid([ring(4, r * 0.75, r * 0.8, h, 0, Math.PI / 4), ring(4, r * 1.0, r * 1.1, h + r * 0.75, 0, Math.PI / 4), ring(4, r * 0.8, r * 0.95, h + r * 1.5, 0, Math.PI / 4)], base, "gb_stoneskin");
+        solid([ring(4, r * 0.4, r * 0.42, h + r * 1.5, r * 0.25, Math.PI / 4), ring(4, r * 0.38, r * 0.4, h + r * 2.1, r * 0.3, Math.PI / 4)], light, "gb_stoneskin");
         for (const side of [-1, 1]) flat([P(r * 0.35, side * r * 0.25, h + r * 2.0), P(r * 0.3, side * r * 0.45, h + r * 2.05), P(r * 0.4, side * r * 0.7, h + r * 2.6)], [235, 225, 200]);
         eyes(r * 0.62, r * 0.17, h + r * 1.8, r * 0.09, [255, 140, 40]);
       } else {
         // the giant: a floating crystal demon -- a faceted spindle, a ring of spikes, horns, burning eyes
         const h = r * 1.6 + Math.sin(t * 2) * r * 0.2;
         const spin = t * 0.8;
-        solid([[[0, 0, h + r * 1.3]], ring(6, r * 0.95, r * 0.95, h + r * 0.15, 0, spin), ring(6, r * 0.7, r * 0.7, h - r * 0.5, 0, spin + 0.5), [[0, 0, h - r * 1.2]]], base);
+        solid([[[0, 0, h + r * 1.3]], ring(6, r * 0.95, r * 0.95, h + r * 0.15, 0, spin), ring(6, r * 0.7, r * 0.7, h - r * 0.5, 0, spin + 0.5), [[0, 0, h - r * 1.2]]], base, "gb_shards");
         for (let k = 0; k < 6; k++) {
           const a = spin + (2 * Math.PI * k) / 6;
           const c = [Math.cos(a), Math.sin(a)];
@@ -1736,6 +1905,7 @@ Lynx.games = Lynx.games || {};
     }
 
     ar.onFrame((now, dt) => {
+      wall += Math.min(dt, 0.1);
       update(Math.min(dt, 0.1));
       draw();
     });
