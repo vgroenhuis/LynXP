@@ -529,7 +529,7 @@ Lynx.games = Lynx.games || {};
       state = "playing";
       stateTime = 0;
       if (paused) togglePause(false);
-      say(`${L.name}: set your cubes out round the road -- monsters in ${START_WAIT_S} s`, "#ffe9a8", 4);
+      say(`${L.name}: set your cubes out ${L.road ? "round the road" : "in the field"} -- monsters in ${START_WAIT_S} s`, "#ffe9a8", 4);
       sfx("go");
     }
 
@@ -1016,7 +1016,7 @@ Lynx.games = Lynx.games || {};
       for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
           const t = tiles[idx(i, j)];
-          if (t === "wall") w.box(q(i, j, 0.002), 0, T * 0.5, WALL);
+          if (t === "wall") w.box(q(i, j, 0.002), 0, T * 0.5, WALL, { alpha: 0.75 }); // (a little see-through: what walks behind shows)
           else if (t === "rock") w.box(q(i, j, 0.004), 0, T * 0.7, ROCK);
         }
       }
