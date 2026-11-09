@@ -65,19 +65,19 @@ Lynx.games = Lynx.games || {};
   // field's entry tiles; rocks: blocked tiles.
   const LEVELS = [
     { name: "Meadow Road", blurb: "A winding road -- learn to merge your gems", waves: 8, mana: 40,
-      road: [[[0, 4], [5, 4], [5, 15], [10, 15], [10, 4], [15, 4], [15, 10], [17, 10]]], base: [17, 10], home: [17, 1] },
+      road: [[[0, 4], [5, 4], [5, 15], [10, 15], [10, 4], [15, 4], [15, 10], [17, 10]]], base: [17, 10], home: [17, 13] },
     { name: "Twin Gates", blurb: "Two roads, one crystal", waves: 10, mana: 50,
-      road: [[[0, 3], [8, 3], [8, 9], [16, 9]], [[0, 16], [8, 16], [8, 10], [16, 10]]], base: [16, 9], home: [17, 1] },
+      road: [[[0, 3], [8, 3], [8, 9], [16, 9]], [[0, 16], [8, 16], [8, 10], [16, 10]]], base: [16, 9], home: [16, 12] },
     { name: "Open Field", blurb: "No road: build walls and make them walk", waves: 10, mana: 90,
-      entries: [[0, 8], [0, 9], [0, 10], [0, 11]], base: [17, 9], home: [17, 1],
+      entries: [[0, 8], [0, 9], [0, 10], [0, 11]], base: [17, 9], home: [17, 12],
       rocks: [[5, 3], [5, 4], [6, 15], [7, 15], [11, 6], [11, 13], [12, 13]] },
     { name: "The Spiral", blurb: "A long road coiled round the crystal", waves: 12, mana: 50,
-      road: [[[0, 2], [17, 2], [17, 17], [2, 17], [2, 5], [14, 5], [14, 14], [5, 14], [5, 8], [11, 8], [11, 11]]], base: [12, 10], home: [18, 0] },
+      road: [[[0, 2], [17, 2], [17, 17], [2, 17], [2, 5], [14, 5], [14, 14], [5, 14], [5, 8], [11, 8], [11, 11]]], base: [12, 10], home: [12, 12] },
     { name: "Crossroads", blurb: "Open field, two ways in, quick monsters", waves: 12, mana: 110, speed: 1.15,
-      entries: [[8, 0], [9, 0], [10, 0], [11, 0], [0, 8], [0, 9], [0, 10], [0, 11]], base: [17, 15], home: [17, 1],
+      entries: [[8, 0], [9, 0], [10, 0], [11, 0], [0, 8], [0, 9], [0, 10], [0, 11]], base: [17, 15], home: [17, 12],
       rocks: [[4, 4], [4, 5], [5, 4], [9, 12], [10, 12], [14, 7], [14, 8], [3, 15], [3, 16]] },
     { name: "Last Stand", blurb: "Three gates, fifteen waves", waves: 15, mana: 130, hp: 1.2,
-      entries: [[9, 0], [10, 0], [0, 9], [0, 10], [9, 19], [10, 19]], base: [17, 9], home: [18, 0] },
+      entries: [[9, 0], [10, 0], [0, 9], [0, 10], [9, 19], [10, 19]], base: [17, 9], home: [17, 12] },
   ];
 
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -1125,6 +1125,7 @@ Lynx.games = Lynx.games || {};
       const quadB = (a, c, b, t) => lerp2(lerp2(a, c, t), lerp2(c, b, t), t);
       const ROUND = 0.2; // how much of each edge goes into the rounded corners
       const out = [];
+      const corners = [];
       for (let k = 0; k < K; k++) {
         const prev = C[(k - 1 + K) % K];
         const cur = C[k];
@@ -1132,6 +1133,7 @@ Lynx.games = Lynx.games || {};
         // the rounded corner: from a little before it to a little after
         const a = lerp2(cur, prev, ROUND);
         const b = lerp2(cur, next, ROUND);
+        corners.push(out.length + 2); // (the arc's middle point: the corner)
         for (let t = 0; t <= 1.001; t += 0.25) out.push(quadB(a, cur, b, t));
         // the edge on to the next corner: straight, or curved in
         if (concave(k)) {
@@ -1148,10 +1150,11 @@ Lynx.games = Lynx.games || {};
       const cy = out.reduce((s2, p) => s2 + p[1], 0) / out.length;
       const r = Math.max(...out.map((p) => Math.hypot(p[0] - cx, p[1] - cy)));
       const o = out.map((p) => [(p[0] - cx) / r, (p[1] - cy) / r]);
+      o.corners = corners;
       outlines.set(grade, o);
       return o;
     }
-    function drawCutGem(x, y, h, R, grade, rock, color, alpha) {
+    function drawCutGem(x, y, h, R, grade, rock, color, alpha, seed = 0) {
       const cam = ar.cameraWorld();
       const outl = gemOutline(grade);
       // its frame: W toward the camera (level), rocked a little; U across, V up
@@ -1205,9 +1208,93 @@ Lynx.games = Lynx.games || {};
         g.closePath();
         g.fillStyle = rgb(col, alpha);
         g.fill();
+        // a real stone's look: each facet shades across (light at one edge, deep
+        // colour at the other); the face toward the camera gets the cut's star,
+        // an inner rim, a glowing core, a few inclusions and a moving twinkle
+        let x0 = Infinity;
+        let y0 = Infinity;
+        let x1 = -Infinity;
+        let y1 = -Infinity;
+        pts.forEach((p) => {
+          x0 = Math.min(x0, p.x);
+          y0 = Math.min(y0, p.y);
+          x1 = Math.max(x1, p.x);
+          y1 = Math.max(y1, p.y);
+        });
+        const sheen = g.createLinearGradient(x0, y0, x1, y1);
+        sheen.addColorStop(0, `rgba(255,255,255,${(0.22 + 0.4 * spec) * alpha})`);
+        sheen.addColorStop(0.45, "rgba(255,255,255,0)");
+        sheen.addColorStop(1, rgb(color.map((q2) => q2 * 0.25), 0.35 * alpha));
+        g.fillStyle = sheen;
+        g.fill();
         g.strokeStyle = rgb(color.map((q2) => Math.min(255, q2 * 0.45 + 150)), (table ? 0.7 : 0.35) * alpha);
         g.lineWidth = table ? 1.2 : 0.6;
         g.stroke();
+        if (table && x1 - x0 > 6) {
+          const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+          const cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+          const rad = Math.max(x1 - x0, y1 - y0) / 2;
+          // the glowing core
+          const core = g.createRadialGradient(cx, cy, 0, cx, cy, rad * 0.9);
+          core.addColorStop(0, rgb(color.map((q2) => Math.min(255, q2 * 0.6 + 120)), 0.55 * alpha));
+          core.addColorStop(1, rgb(color, 0));
+          g.fillStyle = core;
+          g.beginPath();
+          pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+          g.closePath();
+          g.fill();
+          // the star: lines from the middle to the corners, and an inner rim
+          g.strokeStyle = `rgba(255,255,255,${0.32 * alpha})`;
+          g.lineWidth = 0.7;
+          g.beginPath();
+          (outl.corners || []).forEach((k) => {
+            const p = pts[k];
+            if (!p) return;
+            g.moveTo(cx, cy);
+            g.lineTo(p.x, p.y);
+          });
+          g.stroke();
+          g.strokeStyle = rgb(color.map((q2) => q2 * 0.4), 0.55 * alpha);
+          g.beginPath();
+          pts.forEach((p, i) => {
+            const qx = cx + (p.x - cx) * 0.55;
+            const qy = cy + (p.y - cy) * 0.55;
+            if (i) g.lineTo(qx, qy);
+            else g.moveTo(qx, qy);
+          });
+          g.closePath();
+          g.stroke();
+          // inclusions: a few specks, always the same for this cube
+          const rnd = seeded(seed * 31 + grade);
+          for (let k = 0; k < 3; k++) {
+            const a = rnd() * Math.PI * 2;
+            const d = rnd() * rad * 0.45;
+            g.fillStyle = `rgba(${rnd() < 0.5 ? "255,255,255" : "20,10,30"},${0.45 * alpha})`;
+            g.beginPath();
+            g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, Math.max(0.6, rad * 0.05), 0, 2 * Math.PI);
+            g.fill();
+          }
+          // a twinkle wandering over it
+          const tw = Math.pow(Math.max(0, Math.sin(time * 2.3 + seed * 1.7)), 10);
+          if (tw > 0.05) {
+            const a = time * 1.1 + seed;
+            const sx = cx + Math.cos(a) * rad * 0.45;
+            const sy = cy + Math.sin(a * 1.3) * rad * 0.35;
+            const L2 = rad * (0.25 + 0.35 * tw);
+            g.strokeStyle = `rgba(255,255,255,${tw * alpha})`;
+            g.lineWidth = 1.2;
+            g.beginPath();
+            g.moveTo(sx - L2, sy);
+            g.lineTo(sx + L2, sy);
+            g.moveTo(sx, sy - L2);
+            g.lineTo(sx, sy + L2);
+            g.stroke();
+            g.fillStyle = `rgba(255,255,255,${tw * alpha})`;
+            g.beginPath();
+            g.arc(sx, sy, Math.max(1, rad * 0.06), 0, 2 * Math.PI);
+            g.fill();
+          }
+        }
       });
     }
 
@@ -1243,7 +1330,7 @@ Lynx.games = Lynx.games || {};
       const col = gemColor(g);
       ar.queue(p.depth, () => {
         ar.glow(p.x, p.y, Math.max(8, R * 2.4 * p.ppm), [[0, rgb(col, 0.45)], [1, rgb(col, 0)]]);
-        drawCutGem(b.x, b.y, h, R, g.grade, g.spin, col, c.tower || c.stacked ? 0.94 : 0.5);
+        drawCutGem(b.x, b.y, h, R, g.grade, g.spin, col, c.tower || c.stacked ? 0.94 : 0.5, b.tag);
         if (g.grade > 1) ar.text(String(g.grade), p.x, p.y - R * 1.6 * p.ppm - 4, { size: 11, align: "center", color: "#ffffff", alpha: 0.85 });
       });
       // its ring on the floor (a tower: the reach, when the camera points at it)
