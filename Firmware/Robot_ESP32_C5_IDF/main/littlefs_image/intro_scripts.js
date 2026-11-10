@@ -513,6 +513,67 @@ window.Lynx = window.Lynx || {};
     ],
   };
 
+  // Wisp Hollow: the same meadow frame as Gem Bastion's arena (gbAt); pretend cubes on tiles
+  const whCubes = (ctx, list) => ctx.game.debug.setCubes(list.map(([tag, i, j, level]) => ({ tag, i, j, level })));
+  I.wisps = {
+    grid: [0.1, 1.3, -0.65, 0.65],
+    start: (ctx) => {
+      const d = ctx.game.debug;
+      if (!d || !d.startLevel) return;
+      d.startLevel(0);
+      d.closeCard();
+      d.setRobot(19, 10);
+    },
+    steps: [
+      {
+        say: ["Wisp Hollow: a quiet puzzle at night. No enemies, no way to lose.", "Dwaallichtjesdal: een rustige puzzel in de nacht. Geen vijanden, je kunt niet verliezen."],
+        cam: { orbit: [0.7, 0, 0], radius: 1.3, height: 1.0, from: -35, to: 0 },
+      },
+      {
+        say: ["Wisps drift out of a spring. Your cubes are lanterns: a wisp flies to the nearest one it can see.", "Uit een bron komen dwaallichtjes. Je kubussen zijn lantaarns: een lichtje vliegt naar de dichtstbijzijnde die het kan zien."],
+        cam: { orbit: gbAt(4, 4, 0.02), radius: 0.42, height: 0.28, from: 10, to: 60 },
+        run: (ctx) => whCubes(ctx, [[0, 5, 5]]),
+      },
+      {
+        say: ["Lay a trail to the shrine. A lantern they have visited can be picked up and set down further on.", "Leg een spoor naar het heiligdom. Een lantaarn waar ze geweest zijn, kun je oppakken en verderop neerzetten."],
+        cam: { orbit: gbAt(10, 10, 0), radius: 0.8, height: 0.55, from: -30, to: 20 },
+        run: (ctx) => whCubes(ctx, [[0, 5, 5], [1, 9, 10]]),
+        at: [[3.2, (ctx) => whCubes(ctx, [[0, 12, 13], [1, 9, 10]])]],
+      },
+      {
+        say: ["Night-blooms open where a wisp passes. They earn you stars.", "Nachtbloemen gaan open waar een lichtje langskomt. Daarmee verdien je sterren."],
+        cam: { orbit: gbAt(12, 14, 0.01), radius: 0.3, height: 0.18, from: 30, to: 80 },
+      },
+      {
+        say: ["Hedges hide a lantern's light. Stack two cubes for a tall lantern, seen over the hedges.", "Heggen verbergen het licht van een lantaarn. Stapel twee kubussen voor een hoge lantaarn, zichtbaar over de heggen."],
+        cam: { orbit: gbAt(8, 8, 0.02), radius: 0.75, height: 0.6, from: -50, to: 0 },
+        run: (ctx) => {
+          const d = ctx.game.debug;
+          d.startLevel(2);
+          d.closeCard();
+          whCubes(ctx, [[0, 12, 9], [1, 12, 9, 1], [2, 14, 5]]);
+        },
+      },
+      {
+        say: ["A cube in the stream is a stepping stone. A weight on a plate opens its gate: a cube, or the robot itself.", "Een kubus in de beek is een stapsteen. Een gewicht op een plaat opent de poort: een kubus, of de robot zelf."],
+        cam: { orbit: gbAt(9, 8, 0), radius: 0.85, height: 0.6, from: 20, to: 60 },
+        run: (ctx) => {
+          const d = ctx.game.debug;
+          d.startLevel(5);
+          d.closeCard();
+          d.setRobot(8, 14);
+          whCubes(ctx, [[0, 4, 4], [1, 8, 4], [2, 10, 4], [3, 13, 5], [4, 13, 5, 1]]);
+        },
+      },
+      {
+        say: ["Wisps fall asleep in the soft moss. Fire rings the robot's bell and wakes them. Press Fire to start!", "In het zachte mos vallen lichtjes in slaap. Vuur luidt de bel van de robot en maakt ze wakker. Druk op Vuur om te beginnen!"],
+        cam: { orbit: gbAt(7, 4, 0.02), radius: 0.45, height: 0.3, from: -20, to: 30 },
+        d: 8,
+        at: [[2.5, (ctx) => ctx.game.debug.setRobot(7, 4)], [3.2, "fire"]],
+      },
+    ],
+  };
+
   I.inkblot = {
     steps: [
       {
