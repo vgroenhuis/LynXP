@@ -34,7 +34,8 @@ extern "C" {
 //                                                  channel / signal of the AP joined, in turn
 //   192.168.0.17                                <- robot IP, largest font that fits
 //   ------------------------------------------
-//   CAM 192.168.0.99                            <- camera ("CAM" / its firmware version in turn)
+//   CAM 192.168.0.99                -78dBm     <- camera ("CAM" / its firmware version in turn)
+//                                                  and its own Wi-Fi signal
 //
 // Offline it shows the MAC instead of the IP (handy for MAC allow-lists);
 // with the setup hotspot up, the hotspot's name and the setup address.
@@ -237,7 +238,18 @@ void compose() {
     } else {
         const char *camVersion = closer_update_cam_version();
         std::snprintf(line, sizeof(line), "%s  %s", turn % 2 && camVersion[0] ? camVersion : "CAM", cam_link_get_peer_ip());
-        draw_band(s_bottomBand, u8g2_font_helvB10_tr, line, 63);
+        int rssi = cam_link_get_diagnostics().rssiDbm;
+        if (rssi == 0) {
+            draw_band(s_bottomBand, u8g2_font_helvB10_tr, line, 63);
+        } else {
+            // the camera's own signal (2.4 GHz, its antenna), right-aligned like the robot's above
+            char sig[12];
+            std::snprintf(sig, sizeof(sig), "%ddBm", rssi);
+            u8g2_SetFont(&s_u8g2, u8g2_font_helvR08_tr);
+            int sigW = u8g2_GetStrWidth(&s_u8g2, sig);
+            u8g2_DrawStr(&s_u8g2, W - sigW, 62, sig);
+            draw_band(s_bottomBand, u8g2_font_helvB08_tr, line, 62, false, W - sigW - 4);
+        }
     }
 }
 
