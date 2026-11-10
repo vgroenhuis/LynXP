@@ -855,8 +855,9 @@ Lynx.games = Lynx.games || {};
 
     // -- the cubes: towers, stacks, the home field ------------------------------------------------------------------
     let cubes = []; // this frame's: {b, gem, tile, tower}
+    let fakeBlocks = null; // (the introduction's pretend cubes, instead of the camera's)
     function readCubes(dt) {
-      const all = (layer.blocks() || []).filter((b) => !frameTags.has(b.tag));
+      const all = (fakeBlocks || layer.blocks() || []).filter((b) => !frameTags.has(b.tag));
       const real = all.filter((b) => !b.inferred);
       cubes = [];
       const stackedNow = new Set();
@@ -2110,10 +2111,23 @@ Lynx.games = Lynx.games || {};
         gems: [...gems].map(([tag, g]) => `${tag}:${g.grade > 0 ? gemName(g) : "empty"}`), cubesIgnored,
       }),
       debug: { tileWorld, sendWave,
+        // (the introduction: a level, its card closed, pretend cubes [{tag, x, y, level}] in world coordinates, walls)
+        startLevel: (n) => startLevel(n),
+        closeCard: () => (intro = null),
+        setCubes(list) {
+          fakeBlocks = list ? list.map((c) => ({ id: `fake${c.tag}`, tag: c.tag, x: c.x, y: c.y, yaw: 0, level: c.level || 0, h0: (c.level || 0) * 0.04, h1: (c.level || 0) * 0.04 + 0.04, half: 0.02, inferred: false, n: 9 })) : null;
+        },
+        wall(i, j) {
+          const k = idx(i, j);
+          if (tiles[k] === "grass") {
+            tiles[k] = "wall";
+            wallsVersion++;
+          }
+        },
         // (tests: a monster of this kind on this tile, standing still)
-        monster(type, i, j) {
+        monster(type, i, j, walking = false, hp = 100) {
           const p = tileWorld(i, j);
-          monsters.push({ type, def: MONSTERS[type], x: p.x, y: p.y, hp: 100, max: 100, to: null, jit: 0, slowT: 0, slowK: 0, poisonT: 0, poisonDps: 0, wob: Math.random() * 6, hitT: 0, dir: 0.8, frozen: true });
+          monsters.push({ type, def: MONSTERS[type], x: p.x, y: p.y, hp, max: hp, to: null, jit: 0, slowT: 0, slowK: 0, poisonT: 0, poisonDps: 0, wob: Math.random() * 6, hitT: 0, dir: 0.8, frozen: !walking });
         },
         paused: () => paused,
         toggleWall,

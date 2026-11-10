@@ -440,6 +440,79 @@ window.Lynx = window.Lynx || {};
     ],
   };
 
+  // Gem Bastion: the arena (S = 1 m, 20 x 20 tiles) lies from 0.2 m ahead of
+  // the robot; tile (row from the far end, column from the left) -> the intro's frame
+  const GB = { near: 0.2, S: 1, N: 20 };
+  const gbF = (i) => GB.near + (GB.N - 1 - i + 0.5) * (GB.S / GB.N);
+  const gbR = (j) => -GB.S / 2 + (j + 0.5) * (GB.S / GB.N);
+  const gbAt = (i, j, h = 0.04) => [gbF(i), gbR(j), h];
+  // pretend cubes on tiles: [[tag, row, col, level]...]
+  const gbCubes = (ctx, list) => {
+    const d = ctx.game.debug;
+    if (!d || !d.setCubes) return;
+    d.setCubes(list.map(([tag, i, j, level]) => ({ tag, ...d.tileWorld(i, j), level: level || 0 })));
+  };
+  const GB_L1 = [[0, 12, 8], [1, 7, 12], [2, 7, 6], [3, 3, 9]];
+  I.gems = {
+    grid: [0.1, 1.3, -0.65, 0.65],
+    start: (ctx) => {
+      const d = ctx.game.debug;
+      if (!d || !d.startLevel) return;
+      d.startLevel(0);
+      d.closeCard();
+      gbCubes(ctx, GB_L1);
+    },
+    steps: [
+      {
+        say: ["Gem Bastion: tower defense on your floor, with your own tagged cubes.", "Edelsteenbastion: torenverdediging op je vloer, met je eigen getagde kubussen."],
+        cam: { orbit: [0.7, 0, 0], radius: 1.3, height: 1.0, from: -35, to: 5 },
+      },
+      {
+        say: ["Monsters come in at the gates and follow the road to your crystal. Each one that gets there cracks it.", "Monsters komen binnen bij de poorten en volgen de weg naar je kristal. Elk monster dat er komt, laat het barsten."],
+        cam: { orbit: gbAt(10, 10, 0), radius: 0.75, height: 0.45, from: 20, to: 60 },
+        run: (ctx) => ctx.game.debug.sendWave(),
+      },
+      {
+        say: ["Every cube is a tower: a gem floats over it and shoots the monsters that come near.", "Elke kubus is een toren: er zweeft een edelsteen boven die de monsters in de buurt beschiet."],
+        cam: { orbit: gbAt(7, 6, 0.04), radius: 0.32, height: 0.2, from: -20, to: 30 },
+        run: (ctx) => ["crawler", "crawler", "runner"].forEach((t, k) => ctx.game.debug.monster(t, 5, 5 + k, true, 40)),
+      },
+      {
+        say: ["Stack two cubes and their gems merge into one: a grade higher, a new shape, more power.", "Stapel twee kubussen en hun stenen smelten samen tot één: een graad hoger, een nieuwe vorm, meer kracht."],
+        cam: { orbit: gbAt(12, 8, 0.05), radius: 0.3, height: 0.2, from: 40, to: 90 },
+        at: [[1.4, (ctx) => gbCubes(ctx, [[0, 12, 8], [1, 12, 8, 1], [2, 7, 6], [3, 3, 9]])]],
+      },
+      {
+        say: ["The emptied cube goes on the golden home field, and gets a new gem.", "De lege kubus gaat op het gouden thuisveld, en krijgt een nieuwe steen."],
+        cam: { orbit: gbAt(17, 13, 0.02), radius: 0.38, height: 0.25, from: -30, to: 10 },
+        at: [[1.0, (ctx) => gbCubes(ctx, [[0, 12, 8], [1, 17, 13], [2, 7, 6], [3, 3, 9]])]],
+      },
+      {
+        say: ["Every level brings a new kind of gem: cannons, lasers, swords, frost and storms, each fighting its own way.", "Elk level brengt een nieuwe soort steen: kanonnen, lasers, zwaarden, vorst en storm, elk met een eigen manier van vechten."],
+        cam: { orbit: gbAt(12, 9, 0.02), radius: 0.6, height: 0.38, from: -60, to: -10 },
+        run: (ctx) => {
+          const d = ctx.game.debug;
+          d.startLevel(5);
+          d.closeCard();
+          gbCubes(ctx, [[0, 11, 5], [1, 14, 14], [2, 9, 12], [3, 15, 8], [4, 12, 10], [5, 12, 7]]);
+          [["crawler", 13, 6], ["crawler", 13, 9], ["brute", 13, 11], ["runner", 14, 8], ["crawler", 10, 11], ["swarm", 11, 9], ["swarm", 11, 10], ["crawler", 15, 9]].forEach(([t, i, j]) => d.monster(t, i, j, true, 90));
+        },
+      },
+      {
+        say: ["On the open fields you build walls, to make their way to the crystal longer. Press Fire to start!", "Op de open velden bouw je muren, om hun weg naar het kristal langer te maken. Druk op Vuur om te beginnen!"],
+        cam: { orbit: [0.7, 0, 0], radius: 1.2, height: 0.95, from: 10, to: 50 },
+        run: (ctx) => {
+          const d = ctx.game.debug;
+          for (let j = 2; j <= 8; j++) d.wall(6, j);
+          for (let j = 11; j <= 17; j++) d.wall(6, j);
+          for (let i = 7; i <= 10; i++) d.wall(i, 8);
+          d.sendWave();
+        },
+        at: [[0.6, (ctx) => ctx.game.debug.wall(8, 11)], [1.2, (ctx) => ctx.game.debug.wall(8, 12)], [1.8, (ctx) => ctx.game.debug.wall(8, 13)]],
+      },
+    ],
+  };
+
   I.inkblot = {
     steps: [
       {
