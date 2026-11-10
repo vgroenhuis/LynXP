@@ -423,6 +423,23 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "gems", title: "Gem Bastion", better: "higher", format: "points" }],
     },
     {
+      id: "wisps",
+      released: "2026-11-10",
+      kind: "game",
+      name: "Wisp Hollow",
+      icon: "\u{1F3EE}",
+      blurb:
+        "A quiet puzzle at night, with your tagged cubes -- no enemies, no way to lose. Wisps drift out of a spring, and you lead them home to their shrine across a meadow laid out on the floor in front of the robot. " +
+        "Your cubes are lanterns: a wisp flies to the nearest one it can see and hasn't visited yet, so you lay a trail -- and move a visited lantern further on. Hedges hide a lantern's light; two cubes stacked make a tall lantern, seen over them and twice as far. " +
+        "A cube set in a stream is a stepping stone; a cube -- or the robot itself -- on a stone plate holds its gate open; wisps that cross the sleepy moss nod off until the robot's bell (FIRE) wakes them. " +
+        "Night-blooms open where a wisp passes: stars for getting every wisp home, opening every bloom, and doing it in good time. Six levels, each bringing a new idea. Needs internet once (the tag detector). Tags to print: /tags.html",
+      settings: [
+        { key: "wispSpeed", label: "Wisps", type: "select", def: "normal", options: [["slow", "Slow"], ["normal", "Normal"], ["fast", "Fast"]] },
+        { key: "arenaM", label: "Meadow size (20 x 20 tiles)", type: "number", unit: "m", def: 1, min: 0.6, max: 2, step: 0.1 },
+      ],
+      boards: [{ key: "wisps", title: "Wisp Hollow", better: "higher", format: "points" }],
+    },
+    {
       id: "race",
       released: "2026-09-27",
       kind: "game",
