@@ -1588,7 +1588,7 @@ Lynx.games = Lynx.games || {};
       w.fillPoly(open, null, "rgba(30,20,10,0.9)", 2);
     }
     function drawSpikes(q) {
-      w.floor(q, 0.0006, "rgba(40,36,32,0.75)", "rgba(20,16,12,0.9)");
+      w.floor(q, 0.0006, "rgba(40,36,32,0.75)", "rgba(20,16,12,0.9)", { object: true });
       const c = ar.ctx;
       const cl = w.camLocal();
       c.beginPath();
@@ -1625,7 +1625,7 @@ Lynx.games = Lynx.games || {};
       w.line3([at(i, h0 + i), at(len - i, h1 - i)], col, px, 0.01);
     }
     function drawPlate(p) {
-      w.floor(p, p.down ? 0.0008 : 0.002, p.down ? "#7a7060" : "#b0a080", "#3a3020", { width: 2 });
+      w.floor(p, p.down ? 0.0008 : 0.002, p.down ? "#7a7060" : "#b0a080", "#3a3020", { width: 2, object: true });
     }
     function queueGate(g) {
       if (g.open >= 0.99) return;
@@ -1644,7 +1644,7 @@ Lynx.games = Lynx.games || {};
       }, alongR ? w.extent(mid - 0.003, mid + 0.003, g.r0, g.r1, lift, g.h1) : w.extent(g.f0, g.f1, mid - 0.003, mid + 0.003, lift, g.h1));
     }
     function queueLever(l) {
-      w.box({ f0: l.f - 0.006, f1: l.f + 0.006, r0: l.r - 0.004, r1: l.r + 0.004 }, l.h, l.h + 0.006, DARK);
+      w.box({ f0: l.f - 0.006, f1: l.f + 0.006, r0: l.r - 0.004, r1: l.r + 0.004 }, l.h, l.h + 0.006, DARK, { object: true });
       const base = [l.f, l.r, l.h + 0.006];
       const ang = lerp(-0.7, 0.7, ease(l.t));
       const tip = [l.f + Math.sin(ang) * 0.015, l.r, l.h + 0.006 + Math.cos(ang) * 0.015];
@@ -1869,8 +1869,8 @@ Lynx.games = Lynx.games || {};
       L.spikes.forEach(drawSpikes);
       plates.forEach(drawPlate);
       L.blocks.forEach((b) => w.box(b, b.h0, b.h1, STYLES[b.style] || STONE, occludes(b, c, heroMid) ? { alpha: OCC_ALPHA } : {}));
-      movers.forEach((m) => w.box(m, m.h0, m.h1, BRONZE, occludes(m, c, heroMid) ? { alpha: OCC_ALPHA } : {}));
-      crates.forEach((k) => w.box(k, k.h0, k.h1, WOOD, { ...(occludes(k, c, heroMid) ? { alpha: OCC_ALPHA } : {}), faceDeco: crateFace }));
+      movers.forEach((m) => w.box(m, m.h0, m.h1, BRONZE, occludes(m, c, heroMid) ? { alpha: OCC_ALPHA, object: true } : { object: true }));
+      crates.forEach((k) => w.box(k, k.h0, k.h1, WOOD, { ...(occludes(k, c, heroMid) ? { alpha: OCC_ALPHA } : {}), faceDeco: crateFace, object: true }));
       gates.forEach(queueGate);
       levers.forEach(queueLever);
       checkpoints.forEach(queueFlag);

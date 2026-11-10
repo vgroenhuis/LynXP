@@ -584,7 +584,7 @@ Lynx.games = Lynx.games || {};
       const mid = toWorld((q.f0 + q.f1) / 2, (q.r0 + q.r1) / 2);
       const depth = camZ(mid.x, mid.y, (h0 + h1) / 2);
       if (!boxInFront(q, h0, h1)) return;
-      ar.queue(depth, () => {
+      ar.queue(depth, () => Lynx.asScene(ar.ctx, () => { // (scenery: at the scene's opacity)
         const faces = [];
         if (me.f < q.f0) faces.push([[q.f0, q.r0], [q.f0, q.r1], col.side]);
         if (me.f > q.f1) faces.push([[q.f1, q.r1], [q.f1, q.r0], col.side]);
@@ -636,7 +636,7 @@ Lynx.games = Lynx.games || {};
             if (detail) texFloor(q, h0, sideTex || "slab");
           }
         }
-      }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
+      }), extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
     // The outer walls: a see-through bronze grating instead of stone, so near
     // the edge of the play area the camera still shows the real room beyond
@@ -649,7 +649,7 @@ Lynx.games = Lynx.games || {};
       const mid = toWorld((q.f0 + q.f1) / 2, (q.r0 + q.r1) / 2);
       const depth = camZ(mid.x, mid.y, (h0 + h1) / 2);
       if (!boxInFront(q, h0, h1)) return;
-      ar.queue(depth, () => {
+      ar.queue(depth, () => Lynx.asScene(ar.ctx, () => { // (scenery: at the scene's opacity)
         const faces = [];
         if (me.f < q.f0) faces.push([[q.f0, q.r0], [q.f0, q.r1]]);
         if (me.f > q.f1) faces.push([[q.f1, q.r1], [q.f1, q.r0]]);
@@ -676,7 +676,7 @@ Lynx.games = Lynx.games || {};
           const railW = Math.max(3, Math.min(9, 0.009 * nearestPpm));
           [h0 + 0.01, (h0 + h1) / 2, h1].forEach((h) => line3([[a[0], a[1], h], [b[0], b[1], h]], GRATE.rail, railW, 0.1));
         });
-      }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
+      }), extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
     // Does a map cell lie on the outer ring (drawn as grating: see fence)?
     const onRim = (i, j, rows, cols) => i === 0 || j === 0 || i === rows - 1 || j === cols - 1;
@@ -1618,6 +1618,9 @@ Lynx.games = Lynx.games || {};
 
     // -- drawing ---------------------------------------------------------------------
     function drawFloor() {
+      Lynx.asScene(ar.ctx, drawFloorLines);
+    }
+    function drawFloorLines() {
       floorDetail({ f0: 0, f1: LEN, r0: -HALF_W, r1: HALF_W });
       // faint slab lines outlining the temple
       const col = "rgba(230,200,140,0.22)";

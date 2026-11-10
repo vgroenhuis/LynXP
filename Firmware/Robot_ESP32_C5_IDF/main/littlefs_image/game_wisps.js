@@ -855,7 +855,7 @@ Lynx.games = Lynx.games || {};
           else if (t === "plateP" || t === "plateQ") {
             const g = t === "plateP" ? "P" : "Q";
             floorTex(q(i, j), 0.0004, "rgba(120,116,108,1)", "wh_plate", 0.9);
-            w.floor(q(i, j, 0.003), 0.0006, rgb(GATE[g], weights[g] ? 0.45 : 0.12), rgb(GATE[g], 0.9), { width: 1.5 });
+            w.floor(q(i, j, 0.003), 0.0006, rgb(GATE[g], weights[g] ? 0.45 : 0.12), rgb(GATE[g], 0.9), { width: 1.5, object: true });
           } else if (t === "spring") {
             floorTex(q(i, j), 0.0003, "rgba(20,60,110,1)", "wh_water", 0.9);
             w.floor(q(i, j), 0.0005, `rgba(140,230,255,${0.18 + 0.1 * Math.sin(time * 3 + i + j)})`, null);
@@ -868,7 +868,7 @@ Lynx.games = Lynx.games || {};
             const g = t === "gateP" ? "P" : "Q";
             const up = 1 - gateOpen[g];
             w.floor(q(i, j), 0.0004, rgb(GATE[g], 0.15), rgb(GATE[g], 0.6));
-            if (up > 0.03) w.box(q(i, j, 0.006), 0, HEDGE_H * 1.1 * up, gateCol(g), { alpha: 0.85 });
+            if (up > 0.03) w.box(q(i, j, 0.006), 0, HEDGE_H * 1.1 * up, gateCol(g), { alpha: 0.85, object: true });
           }
         }
       }

@@ -1398,7 +1398,7 @@ Lynx.games = Lynx.games || {};
       get realSolids() { return realSolids; },
       get state() { return state; },
       time: () => time,
-      say, sfx, startPlay, placeHero, groundAt, inFoot, footDist, toB, fromB, recenter, stopRobot, zoom,
+      say, sfx, startPlay, placeHero, groundAt, inFoot, footDist, toB, fromB, recenter, stopRobot, zoom, refreshSolids,
       collideHero: () => collide(C.STEP_UP),
       setFrameFromCube: (on) => (frameFromCube = on),
       // the robot: where it is and which way it faces (the floor frame), its outline round the axle

@@ -614,6 +614,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // overlay or game listening (with the socket up it adds no requests).
     if (aimParams) subscribeToPose(() => {});
     Lynx.sfx.volume = app.general.volume;
+    setupSceneOpacity(app);
     setupModeSelect(calib, app);
     setupDriveModeButton();
     Lynx.freeDriveTags.setup(calib, app);
@@ -774,6 +775,29 @@ window.addEventListener("DOMContentLoaded", () => {
       Lynx.saveAppSettings(app)
         .catch(() => (document.getElementById("cam-status").textContent = "Couldn't save the difficulty -- is the robot reachable?"));
     };
+  }
+
+  // The Overlays panel's "Floors and walls" slider: how opaque the games'
+  // floors and walls are (Lynx.sceneOpacity, live), saved robot-side as the
+  // general sceneOpacity setting once the slider is let go.
+  function setupSceneOpacity(app) {
+    const input = document.getElementById("camSceneOpacity");
+    const val = document.getElementById("camSceneOpacityVal");
+    const show = (pct) => {
+      const p = Math.max(10, Math.min(100, Math.round(+pct || 100)));
+      input.value = p;
+      val.textContent = `${p}%`;
+      Lynx.sceneOpacity = p / 100;
+      return p;
+    };
+    show(app.general.sceneOpacity);
+    input.addEventListener("input", () => show(input.value));
+    input.addEventListener("change", () => {
+      input.blur(); // (keys back to the game)
+      app.general.sceneOpacity = show(input.value);
+      Lynx.saveAppSettings(app)
+        .catch(() => (document.getElementById("cam-status").textContent = "Couldn't save the floors' opacity -- is the robot reachable?"));
+    });
   }
 
   // Quick switch between games/apps from the Menu panel: saved robot-side

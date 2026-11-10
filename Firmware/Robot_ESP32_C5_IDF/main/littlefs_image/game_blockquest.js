@@ -823,7 +823,7 @@ Lynx.games = Lynx.games || {};
       if (floorOpacity <= 0.001) return;
       const g = ar.ctx;
       g.save();
-      g.globalAlpha *= floorOpacity; // (fx.patch draws at its own alpha times this)
+      g.globalAlpha *= floorOpacity * Lynx.sceneAlpha(); // (fx.patch draws at its own alpha times this; and the scene opacity setting)
       drawFloorPainted(l);
       g.restore();
       if (l.drawFloor) l.drawFloor(L);

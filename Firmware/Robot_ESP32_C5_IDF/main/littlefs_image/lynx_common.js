@@ -380,10 +380,10 @@ window.Lynx = window.Lynx || {};
       icon: "\u{1F5DD}\u{FE0F}",
       blurb:
         "A puzzle game on Knight on Blocks, with a new heroine: an explorer -- no fighting, no enemies. Each level appears on the floor in front of the robot, from where it stands: " +
-        "chasms, fire, spikes, ghostly bridges and gates between the explorer and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
-        "cubes 0-5: 0 Island raises ground round itself, 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
+        "water, fire, spikes, ghostly bridges and gates between the explorer and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
+        "cubes 0-5, each shown as a stone with its rune inside: 0 Island makes a palm island round itself, 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
         "4 Key in its socket opens the portal, 5 Earth sinks spikes. Every level but the last needs all six, and some need a stone twice: move it on while the explorer waits. " +
-        "No setup and no frame cube: just the cubes 0-5 at hand. Raised ground in 4 cm steps -- a cube's height -- makes the stones steps and stepping stones too. Eight levels; in the last, The River, cube 4 is a ship's helm: set it down in the river and the ship sails to it, carrying the explorer from one harbour to the other. Needs internet once (the tag detector). Tags to print: /tags.html",
+        "No setup and no frame cube: just the cubes 0-5 at hand. The stones can't be climbed; raised ground comes in 4 cm steps, one at a time. A directional Island cube (CAD Generators' AprilTag Cube, sides turned) turns its island with it. Eight levels; in the last, The River, cube 4 is a ship's helm: set it down in the river and the ship sails to it, carrying the explorer from one harbour to the other. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
         { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "cellCm", label: "Level scale: one map cell (the cubes fit in one)", type: "number", unit: "cm", def: 5, min: 3, max: 10, step: 0.5 },
@@ -572,8 +572,28 @@ window.Lynx = window.Lynx || {};
     // AprilTag cubes (Free drive's cube detection, Knight on Blocks; see tagblocks.js)
     { key: "tagFamily", label: "AprilTag family on the cubes", type: "select", def: "tag16h5", options: [["tag16h5", "tag16h5 (30 ids, big cells: far)"], ["tag36h11", "tag36h11 (587 ids)"]] },
     { key: "tagPercent", label: "Tag size (black square) as a share of a cube face", type: "number", unit: "%", def: 75, min: 30, max: 95, step: 1 },
+    // the floors and walls the games paint over the camera view: less opaque
+    // and the real room shows through (characters and game objects stay
+    // opaque); also a slider in the camera page's Overlays panel, live
+    { key: "sceneOpacity", label: "Floors and walls: opacity (less: the camera view shows through; characters and objects stay solid)", type: "number", unit: "%", def: 100, min: 10, max: 100, step: 5 },
     { key: "frameCubeMm", label: "World-frame cube size (tags 24-29)", type: "number", unit: "mm", def: 40, min: 10, max: 200, step: 1 },
   ];
+
+  // How opaque the games' floors and walls are (0.1..1; the sceneOpacity
+  // setting, live from the camera page's slider): their painters multiply
+  // their alpha by this. Characters and game objects don't.
+  Lynx.sceneOpacity = 1;
+  Lynx.sceneAlpha = () => Lynx.sceneOpacity;
+  // run fn with the canvas's alpha times the scene's
+  Lynx.asScene = (g, fn) => {
+    const old = g.globalAlpha;
+    g.globalAlpha = old * Lynx.sceneOpacity;
+    try {
+      return fn();
+    } finally {
+      g.globalAlpha = old;
+    }
+  };
 
   Lynx.findEntry = (id) => Lynx.CATALOG.find((e) => e.id === id) || Lynx.CATALOG[0];
 
