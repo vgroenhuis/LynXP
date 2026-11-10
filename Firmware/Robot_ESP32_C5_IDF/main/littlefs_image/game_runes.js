@@ -1,35 +1,38 @@
 // Rune Stones -- a puzzle game for the knight of Knight on Blocks
 // (game_knightblocks.js: its knight, the robot's drive and camera, the cube
-// finder), with no fighting and no enemies: the knight crosses a level of
-// chasms, fire, spikes, ghostly bridges and gates to a portal, and the
+// finder), with no fighting and no enemies: the explorer crosses a level of
+// water, fire, spikes, ghostly bridges and gates to a portal, and the
 // PLAYER makes the way, by setting down the six rune stones -- the tagged
 // cubes 0-5, by hand, wherever they're needed:
-//   0 Island  -- raises a square of ground round itself (over a chasm)
+//   0 Island  -- a palm island round itself, potato-shaped with low hills
+//                to walk on (in the water; a directional cube -- CAD
+//                Generators' AprilTag Cube -- turns it with itself)
 //   1 Weight  -- holds a pressure plate down: its gate opens
 //   2 Rain    -- puts out the fire near it
 //   3 Lantern -- lights the ghost bridges near it: lit, they hold the knight
 //   4 Key     -- set in the socket next to the portal, opens it
 //   5 Earth   -- sinks the spikes near it
-// A stone works wherever it stands -- on the floor in a chasm too (a pillar
-// the knight can climb, like every real cube) -- and keeps working while it
+// Each stone is drawn as a stone with its rune big inside (its tags not
+// shown), and can't be climbed. A stone works wherever it stands -- on the
+// floor in the water too -- and keeps working while it
 // stands there: one Rain stone for two fires means putting it out at one,
 // then carrying it on to the other while the knight waits. Every level needs
 // all six (but the River). Moving a stone the knight is relying on (an island it stands on,
 // the light of a bridge) drops it -- careful.
 //
 // Raised ground (as in Temple of LynXP), in 4 cm steps -- a cube's height:
-// the explorer climbs one step, not two, so a stone doubles as a step up, or
-// as a stepping stone across a gap between two ledges.
+// the explorer climbs one step, not two (the levels' own steps: the stones
+// can't be climbed).
 //
 // No setup: the level is laid out on the floor in front of the robot from
 // where it stands when the level starts (its drive axle; ahead is up the
 // level's map), and the stones count wherever the cube finder sees them --
-// the frame cube isn't used. Hazards hurt (hearts); a fall into a chasm
+// the frame cube isn't used. Hazards hurt (hearts); a fall into the water
 // costs a heart too and puts the knight back where it last stood safely;
 // no hearts left: the level again, the stones where they are.
 //
 // Light on the GPU and CPU: everything is flat colour on the 2D canvas --
-// the chasms (dark, in runs per row), a few outlines, small flames and spikes,
+// the water (with waves), a few outlines, small flames and spikes,
 // bars for the gates -- no textures, no WebGL.
 //
 // The River (the last level) is different: two shores 4 cm up, a river
@@ -61,8 +64,8 @@ Lynx.games = Lynx.games || {};
   // 4 cm steps -- the height of a tag cube (. or 0 the floor, 1 4 cm, 2 8 cm,
   // 3 12 cm). Raised ground is a column from the floor up; a raised ghost
   // bridge (~) hangs in the air, held only while lit. The explorer (3 cm)
-  // climbs 4 cm, not 8: a cube is a step, and a stepping stone over a gap
-  // between two ledges (she jumps about 6 cm). Stones only work on the floor.
+  // climbs 4 cm, not 8 (she jumps about 6 cm); the stones can't be climbed.
+  // Stones only work on the floor.
   // `riseAll`: every cell but the chasm that many steps up (water included:
   // its surface). `stones`: the only tags that count in the level, `helm`: the
   // tag that steers the ship. A level without a socket (K) has its portal open.
@@ -71,7 +74,7 @@ Lynx.games = Lynx.games || {};
       id: "first",
       name: "Six Stones",
       intro: "Every rune stone once: make the explorer's way to the portal",
-      hint: "Island in the chasm, Weight on the plate, Rain at the fire, Lantern at the ghost bridge, Earth at the spikes, Key in the socket",
+      hint: "Island in the water, Weight on the plate, Rain at the fire, Lantern at the ghost bridge, Earth at the spikes, Key in the socket",
       map: [
         "..KE...",
         "...#...",
@@ -157,7 +160,7 @@ Lynx.games = Lynx.games || {};
     {
       id: "vault",
       name: "The Rune Vault",
-      intro: "Two chasms, two ghost bridges and a fire that comes and goes",
+      intro: "Two stretches of water, two ghost bridges and a fire that comes and goes",
       hint: "The Island and the Lantern each go twice: move them on behind the explorer",
       map: [
         "..K.......",
@@ -179,15 +182,15 @@ Lynx.games = Lynx.games || {};
     {
       id: "steps",
       name: "Stepping Stones",
-      intro: "Raised ground, 4 cm a step, like the stones: hop across a stone, climb onto one",
-      hint: "A stone in the gap between the two ledges to hop across; the Weight on its plate is the step up onto the high ground",
+      intro: "Raised ground, 4 cm a step: the explorer climbs one step at a time (the stones can't be climbed)",
+      hint: "The Island in the water between the two ledges: down onto it and up the other side; the steps lead up to the high ground",
       map: [
         ".E.......",
         ".~.......",
         ".~..K....",
         ".#.......",
         ".#vA#a...",
-        ".....#...",
+        "....##...",
         ".....F...",
         ".....#...",
         ".........",
@@ -203,7 +206,7 @@ Lynx.games = Lynx.games || {};
         ".2.......",
         ".2.......",
         ".2222....",
-        ".........",
+        "....1....",
         ".........",
         ".....1...",
         ".........",
@@ -217,15 +220,15 @@ Lynx.games = Lynx.games || {};
     {
       id: "towers",
       name: "The Towers",
-      intro: "Up to the 12 cm tower: the Key is a stepping stone before it goes in its socket",
-      hint: "Island over the first chasm, Earth at the spikes; the Key between the towers to hop across, Rain at the fire up there, Weight on plate b, Lantern at the high bridge, then the Key in its socket",
+      intro: "Up to the 12 cm tower, a step at a time",
+      hint: "Island over the first water, Earth at the spikes; down and up the steps between the towers, Rain at the fire up there, Weight on plate b, Lantern at the high bridge, then the Key in its socket",
       map: [
         "......E..",
         "...K..~..",
         "....b.~..",
         "..#F#B#..",
-        ".........",
-        ".........",
+        "..#......",
+        "..#......",
         "..#......",
         "..##.....",
         "...^.....",
@@ -240,8 +243,8 @@ Lynx.games = Lynx.games || {};
         "......3..",
         "......3..",
         "..22223..",
-        ".........",
-        ".........",
+        "..1......",
+        "..1......",
         "..2......",
         "..21.....",
         ".........",
@@ -408,12 +411,42 @@ Lynx.games = Lynx.games || {};
       const s = stone(tag);
       return !!s && Math.abs(s.i - i) <= ON_SPOT && Math.abs(s.j - j) <= ON_SPOT;
     };
+    // The island: a rounded, potato-ish shape round the Island stone, turned
+    // with the cube -- by its full heading where the cube has one (its side
+    // tags each turned a quarter: tagblocks.js), else its yaw (known only to
+    // a quarter turn, as any cube's)
+    const islandYaw = (b) => (b.world && typeof b.world.heading === "number" ? w.anchor().th - b.world.heading : b.yaw);
+    const islandFrame = (b) => ({ ...b, yaw: islandYaw(b) });
+    const ISLAND_R = ISLAND_HALF * CELL * 1.08;
+    const islandR = (a) => ISLAND_R * (1 + 0.13 * Math.cos(2 * a) + 0.07 * Math.sin(3 * a + 0.6) - 0.06 * Math.cos(a));
     function onIsland(f, r) {
       const s = stone(0);
-      if (!s) return false;
-      const [u, v] = api.toB(s.b, f, r);
-      const h = ISLAND_HALF * CELL;
-      return Math.abs(u) <= h && Math.abs(v) <= h;
+      if (!s || waterAt(s.b.cf, s.b.cr)) return false;
+      const [u, v] = api.toB(islandFrame(s.b), f, r);
+      return Math.hypot(u, v) <= islandR(Math.atan2(v, u));
+    }
+    // its hills: low mounds the explorer walks up (two tiers, each a step she
+    // takes in her stride), away from the palm in the middle
+    const HILLS = [{ u: 0.95, v: 0.45, r: 0.55 }, { u: -0.75, v: -0.7, r: 0.48 }, { u: -0.55, v: 0.95, r: 0.36 }];
+    const HILL_STEP = 0.003; // m (under her step up)
+    function islandHills() {
+      const s = stone(0);
+      if (!s || waterAt(s.b.cf, s.b.cr)) return [];
+      const fb = islandFrame(s.b);
+      const out = [];
+      HILLS.forEach((hl, k) => {
+        const [cf, cr] = api.fromB(fb, hl.u * CELL, hl.v * CELL);
+        out.push({ id: `hill${k}a`, cf, cr, yaw: fb.yaw, half: hl.r * CELL * 0.8, h0: 0, h1: HILL_STEP, hill: hl });
+        out.push({ id: `hill${k}b`, cf, cr, yaw: fb.yaw, half: hl.r * CELL * 0.45, h0: 0, h1: 2 * HILL_STEP, hill: hl });
+      });
+      return out;
+    }
+    // The stones can't be climbed (else a stone is a step over any gap): an
+    // invisible column stands on each, too high to step or reach up to.
+    function stoneColumns() {
+      return api.realSolids
+        .filter((b) => !b.inferred && !waterAt(b.cf, b.cr))
+        .map((b) => ({ id: `col${b.id}`, cf: b.cf, cr: b.cr, yaw: b.yaw, half: b.half, h0: b.h1, h1: b.h1 + 0.3 }));
     }
     const lit = (i, j) => near(3, i, j, REACH);
     const doused = (i, j) => near(2, i, j, REACH);
@@ -554,10 +587,10 @@ Lynx.games = Lynx.games || {};
           G.hearts = Math.max(0, G.hearts - 1);
           if (G.hearts <= 0) {
             respawn();
-            return lose(G.fellInWater ? "The explorer fell into the river" : "The explorer fell into the chasm");
+            return lose(G.fellInWater ? "The explorer fell into the river" : "The explorer fell into the water");
           }
           respawn();
-          say(G.fellInWater ? "Splash! Into the river -- back to the shore" : "Into the chasm! Back to firm ground", "#ff9080");
+          say(G.fellInWater ? "Splash! Into the river -- back to the shore" : "Splash! Into the water -- back to firm ground", "#ff9080");
         }
         return;
       }
@@ -727,6 +760,9 @@ Lynx.games = Lynx.games || {};
       const [sf, sr] = cellCenterFR(si, sj);
       G.start = { f: sf, r: sr };
       G.safe = null;
+      // (the level's raised ground made solid first: else she'd start on the
+      // floor, inside a raised start -- the River's shore)
+      if (api.refreshSolids) api.refreshSolids();
       api.placeHero(sf, sr, G.O.th);
       api.recenter();
       resetShip();
@@ -797,21 +833,26 @@ Lynx.games = Lynx.games || {};
       const [u1, v1] = [MAP_AHEAD_M + (G.O.H - i0 - inset) * CELL, (j1 - (G.O.W - 1) / 2 + 0.5 - inset) * CELL];
       return [[u0, v0], [u1, v0], [u1, v1], [u0, v1]].map(([u, v]) => [...toFR(u, v), h]);
     }
+    // (off the whole canvas -- not just the camera's picture, which is only
+    // part of the window: the floor goes on beside it)
     function offView(s, m) {
-      const v = ar.view;
-      return s.every((p) => p.x < v.x - m) || s.every((p) => p.x > v.x + v.w + m) || s.every((p) => p.y < v.y - m) || s.every((p) => p.y > v.y + v.h + m);
+      const cv = ar.ctx.canvas;
+      return s.every((p) => p.x < -m) || s.every((p) => p.x > cv.width + m) || s.every((p) => p.y < -m) || s.every((p) => p.y > cv.height + m);
+    }
+    // Past the calibrated lens's edge (beside the picture) the lens gives no
+    // point: there the plain pinhole projection draws the floor on.
+    const wp = Lynx.world3d(ar, { textures: false });
+    function projectAll(pts) {
+      const a = w.anchor();
+      wp.setAnchor(a);
+      const lens = pts.map((p) => w.project(p[0], p[1], p[2]));
+      if (lens.every(Boolean)) return lens;
+      const pin = pts.map((p) => wp.project(p[0], p[1], p[2]));
+      return pin.every(Boolean) ? pin : null;
     }
     // a floor quad (4 points [f, r, h]) into `path` (a list of screen quads)
     function addQuad(path, pts, depth = 0) {
-      let s = [];
-      for (const p of pts) {
-        const q = w.project(p[0], p[1], p[2]);
-        if (!q) {
-          s = null;
-          break;
-        }
-        s.push(q);
-      }
+      const s = projectAll(pts);
       if (s) {
         if (offView(s, 4)) return;
         const size = Math.max(Math.abs(s[0].x - s[2].x), Math.abs(s[0].y - s[2].y), Math.abs(s[1].x - s[3].x), Math.abs(s[1].y - s[3].y));
@@ -890,6 +931,16 @@ Lynx.games = Lynx.games || {};
       w.line3(pts, color, width, 0.02);
       if (dash) g.setLineDash([]);
     }
+    // the island's shape (scaled), filled: a fan of small pieces round its middle
+    function addPotato(path, fb, scale, n = 24) {
+      for (let k = 0; k < n; k++) {
+        const a0 = (k / n) * Math.PI * 2;
+        const a1 = ((k + 1) / n) * Math.PI * 2;
+        const p = (a, s2) => [...api.fromB(fb, Math.cos(a) * islandR(a) * scale * s2, Math.sin(a) * islandR(a) * scale * s2), 0];
+        addQuad(path, [p(a0, 0.5), p(a0, 1), p(a1, 1), p(a1, 0.5)]);
+        addQuad(path, [p(0, 0), p(a0, 0.5), p((a0 + a1) / 2, 0.5), p(a1, 0.5)]);
+      }
+    }
     // a disc on the floor, filled: a fan of small pieces (only those that project)
     function addDisc(path, f, r, rad, n = 16) {
       for (let k = 0; k < n; k++) {
@@ -903,7 +954,7 @@ Lynx.games = Lynx.games || {};
 
     const PAD = 2; // chasm drawn this many cells round the map (it's all chasm out there)
     const LOOK = {
-      chasm: "rgba(6,5,18,0.84)",
+      chasm: "rgba(22,74,128,0.86)", // the gaps: deep water (it's water an island can stand in)
       path: "rgba(226,198,138,0.66)", // the walkable stones
       grout: "rgba(70,48,22,0.8)",
       bridge: "rgba(150,235,255,0.5)",
@@ -960,6 +1011,34 @@ Lynx.games = Lynx.games || {};
       }
     }
 
+    // waves on the water in the gaps: pale crests drifting and swelling, one per
+    // other cell, each its own phase
+    function drawWaves(cells) {
+      const t = G.time;
+      const g = ar.ctx;
+      g.save();
+      g.lineCap = "round";
+      for (const [i, j] of cells) {
+        const [u, v] = cellUV(i, j);
+        const k = (t * 0.22 + i * 0.37 + j * 0.61) % 1;
+        const a = Math.sin(k * Math.PI);
+        const du = (k - 0.5) * CELL * 0.9;
+        const pts = [];
+        for (let n = 0; n <= 6; n++) {
+          const s2 = n / 6 - 0.5;
+          pts.push([...toFR(u + du + Math.sin(s2 * Math.PI * 2 + t * 2 + j) * CELL * 0.05, v + s2 * CELL * 0.8), 0.0005]);
+        }
+        const sp = projectAll(pts);
+        if (!sp) continue;
+        g.strokeStyle = `rgba(190,230,255,${(0.6 * a).toFixed(2)})`;
+        g.lineWidth = 1.6;
+        g.beginPath();
+        sp.forEach((q, n) => (n ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+        g.stroke();
+      }
+      g.restore();
+    }
+
     function drawFloor() {
       if (!G.O || G.phase === "menu") return;
       const o = G.O;
@@ -973,6 +1052,7 @@ Lynx.games = Lynx.games || {};
       const spikes = [];
       const water = [];
       const waterSide = [];
+      const waveCells = [];
       const cam = w.camLocal();
       for (let i = -PAD; i < o.H + PAD; i++) {
         for (let j = -PAD; j < o.W + PAD; j++) {
@@ -1002,25 +1082,32 @@ Lynx.games = Lynx.games || {};
           }
           if (ch === "." || (ch === "~" && !lit(i, j))) {
             addQuad(chasm, cellQuad(i, j, i, j, 0, -0.02)); // (a hair bigger: no seams)
+            if ((i + j) % 2 === 0) waveCells.push([i, j]);
             if (ch === "~") addQuad(ghosts, cellQuad(i, j, i, j, 0, 0.08));
             continue;
           }
           if (ch === "~") {
-            addQuad(bridges, cellQuad(i, j, i, j, 0, 0.05));
+            addQuad(bridges, cellQuad(i, j, i, j, 0, -0.01));
             continue;
           }
           if (!walkTile(ch)) continue;
-          addQuad(path, cellQuad(i, j, i, j, 0, 0.05));
+          // (one path, filled once, a hair bigger than the cell: seamless, no borders)
+          addQuad(path, cellQuad(i, j, i, j, 0, -0.01));
           if (ch === "F" || ch === "f") addQuad(doused(i, j) ? wet : fires, cellQuad(i, j, i, j, 0, 0.12));
           else if (ch === "^" || ch === "v") addQuad(spikes, cellQuad(i, j, i, j, 0, 0.12));
         }
       }
-      fillPath(chasm, LOOK.chasm, null);
-      fillPath(waterSide, WATER.side, null);
-      fillPath(water, WATER.top, null);
-      if (water.length) drawRipples();
-      fillPath(path, LOOK.path, LOOK.grout, 1.2);
-      fillPath(bridges, LOOK.bridge, LOOK.bridgeLine, 1.5);
+      // the ground and the water: scenery, at the scene's opacity (the
+      // camera view through it: the setting); fire, spikes, marks: solid
+      Lynx.asScene(ar.ctx, () => {
+        fillPath(chasm, LOOK.chasm, null);
+        drawWaves(waveCells);
+        fillPath(waterSide, WATER.side, null);
+        fillPath(water, WATER.top, null);
+        if (water.length) drawRipples();
+        fillPath(path, LOOK.path, null);
+        fillPath(bridges, LOOK.bridge, null);
+      });
       const g = ar.ctx;
       g.setLineDash([4, 4]);
       fillPath(ghosts, null, LOOK.ghost, 1);
@@ -1039,16 +1126,22 @@ Lynx.games = Lynx.games || {};
         const st = STONES[tag];
         const { cf, cr } = s.b;
         if (tag === 0) {
-          // the island: a sandy beach round a grassy middle
+          if (waterAt(cf, cr)) return;
+          // the island: a sandy beach round a grassy middle, a foam line round it
+          const fb = islandFrame(s.b);
           const sand = [];
           const grass = [];
-          addSquare(sand, s.b, ISLAND_HALF * CELL, 4);
-          addSquare(grass, s.b, ISLAND_HALF * CELL * 0.7, 3);
+          addPotato(sand, fb, 1);
+          addPotato(grass, fb, 0.74);
           fillPath(sand, LOOK.sand, null);
           fillPath(grass, LOOK.grass, null);
-          const h = ISLAND_HALF * CELL;
-          const edge = [[h, h], [h, -h], [-h, -h], [-h, h], [h, h]].map(([u, v]) => [...api.fromB(s.b, u, v), 0]);
-          w.line3(edge, "rgba(120,90,40,0.95)", 2, 0.02);
+          const edge = [];
+          for (let k = 0; k <= 36; k++) {
+            const a = (k / 36) * Math.PI * 2;
+            const rr = islandR(a) * (1.04 + 0.03 * Math.sin(G.time * 2 + k));
+            edge.push([...api.fromB(fb, Math.cos(a) * rr, Math.sin(a) * rr), 0.0004]);
+          }
+          w.line3(edge, "rgba(235,248,255,0.8)", 2, 0.02);
         } else if (tag === 2) {
           const wetDisc = [];
           addDisc(wetDisc, cf, cr, REACH * CELL);
@@ -1092,6 +1185,7 @@ Lynx.games = Lynx.games || {};
       side: "rgba(150,110,62,0.97)",
       sideDark: "rgba(112,80,44,0.97)",
       line: "rgba(60,40,18,0.9)",
+      course: "rgba(70,48,22,0.55)",
     };
     function queueRaised() {
       const o = G.O;
@@ -1125,6 +1219,8 @@ Lynx.games = Lynx.games || {};
             // the sides that face the camera, down to the lower neighbour (or the floor)
             const sides = [];
             const dark = [];
+            const rims = []; // the top's edges where the ground drops: the only lines (no tile borders)
+            const courses = []; // a face's 4 cm courses: a line between each
             const nb = [[0, -1], [-1, 0], [0, 1], [1, 0]]; // corner k -> k+1: left, far, right, near
             for (let k = 0; k < 4; k++) {
               const a = top[k];
@@ -1133,6 +1229,7 @@ Lynx.games = Lynx.games || {};
               const nc = tileAt(ni, nj);
               const nh = bridge ? (baseAt(ni, nj) >= h - 1e-6 && (nc !== "~" || lit(ni, nj)) ? h : h0) : nc === "~" ? 0 : isWater(nc) ? Math.min(h, baseAt(ni, nj)) : baseAt(ni, nj);
               if (nh >= h - 1e-6) continue;
+              rims.push([a, b]);
               const mf = (a[0] + b[0]) / 2;
               const mr = (a[1] + b[1]) / 2;
               if ((cam.f - mf) * (mf - cf) + (cam.r - mr) * (mr - cr) <= 0) continue; // (faces away)
@@ -1140,23 +1237,35 @@ Lynx.games = Lynx.games || {};
               for (let lo = nh; lo < h - 1e-6; lo += bridge ? SLAB : RISE) {
                 const hi = Math.min(h, lo + (bridge ? SLAB : RISE));
                 addQuad(out, [[a[0], a[1], lo], [b[0], b[1], lo], [b[0], b[1], hi], [a[0], a[1], hi]]);
+                if (lo > nh + 1e-6) courses.push([[a[0], a[1], lo], [b[0], b[1], lo]]);
               }
             }
-            fillPath(sides, bridge ? LOOK.bridge : RAISED.side, RAISED.line, 1);
-            fillPath(dark, bridge ? LOOK.bridge : RAISED.sideDark, RAISED.line, 1);
-            if (cam.h <= h) return;
+            const g = ar.ctx;
+            const ga = g.globalAlpha;
+            g.globalAlpha = ga * Lynx.sceneAlpha(); // (scenery: see Lynx.sceneOpacity)
+            fillPath(sides, bridge ? LOOK.bridge : RAISED.side, null);
+            fillPath(dark, bridge ? LOOK.bridge : RAISED.sideDark, null);
+            for (const c of courses) w.line3(c, RAISED.course, 1, 0.01);
+            const rim = () => rims.forEach(([a, b]) => w.line3([[a[0], a[1], h], [b[0], b[1], h]], RAISED.line, 1.2, 0.01));
+            if (cam.h <= h) {
+              rim();
+              g.globalAlpha = ga;
+              return;
+            }
             const tp = [];
-            addQuad(tp, top);
+            addQuad(tp, bridge ? top : cellQuad(i, j, i, j, h, -0.01)); // (a hair bigger: seamless)
             if (bridge) fillPath(tp, LOOK.bridge, LOOK.bridgeLine, 1.5);
             else if (ch === "H") {
               // a harbour's pier: wooden planks
-              fillPath(tp, "rgba(150,100,56,0.97)", RAISED.line, 1.2);
+              fillPath(tp, "rgba(150,100,56,0.97)", null);
               for (let k = 1; k < 4; k++) {
                 const q = cellQuad(i, j, i, j, h + 0.0005);
                 const lerp2 = (a, b, x) => [a[0] + (b[0] - a[0]) * x, a[1] + (b[1] - a[1]) * x, a[2]];
                 w.line3([lerp2(q[0], q[1], k / 4), lerp2(q[3], q[2], k / 4)], "rgba(70,44,20,0.85)", 1.2, 0.01);
               }
-            } else fillPath(tp, RAISED.top[clamp(Math.round(h / RISE) - 1, 0, 2)], RAISED.line, 1.2);
+            } else fillPath(tp, RAISED.top[clamp(Math.round(h / RISE) - 1, 0, 2)], null);
+            if (!bridge) rim();
+            g.globalAlpha = ga;
             const inner = [];
             if (ch === "F" || ch === "f") addQuad(inner, cellQuad(i, j, i, j, h, 0.12));
             else if (ch === "^" || ch === "v") addQuad(inner, cellQuad(i, j, i, j, h, 0.12));
@@ -1169,7 +1278,7 @@ Lynx.games = Lynx.games || {};
 
     // -- the stones' looks -------------------------------------------------------------------------------------------
     const LANTERN_H = 0.13; // m above the floor
-    const CLOUD_H = 0.16;
+    const CLOUD_H = 0.075; // (low: in view with the stone)
     function hull(pts) {
       const p = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
       const cr = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
@@ -1365,10 +1474,11 @@ Lynx.games = Lynx.games || {};
       g.restore();
     }
     // a palm tree on the island, by a corner
-    function queuePalm(b) {
+    function queuePalm(b0) {
+      const b = islandFrame(b0);
       const h = ISLAND_HALF * CELL;
-      const [bf, br] = api.fromB(b, h * 0.55, -h * 0.55);
-      const [lf, lr] = api.fromB(b, h * 0.75, -h * 0.85); // the way it leans
+      const [bf, br] = api.fromB(b, 0, 0); // (in the middle: the cube under it)
+      const [lf, lr] = api.fromB(b, h * 0.22, -h * 0.12); // the way it leans
       const baseZ = w.camZ(bf, br, 0.04);
       if (baseZ < w.near) return;
       ar.queue(baseZ, () => {
@@ -1592,6 +1702,102 @@ Lynx.games = Lynx.games || {};
       });
     }
 
+    // the island's hills: grassy mounds, a tier at a time (each as its solid: see islandHills)
+    function queueHills() {
+      islandHills().forEach((hb) => {
+        const top = hb.h1;
+        const R = hb.half * 1.12; // (round, a little past the square it stands on)
+        const ringAt = (h, k = 1) => {
+          const pts = [];
+          for (let n = 0; n < 16; n++) {
+            const a = (n / 16) * Math.PI * 2;
+            const rr = R * k * (1 + 0.08 * Math.sin(3 * a + hb.half * 400));
+            pts.push([hb.cf + Math.cos(a) * rr, hb.cr + Math.sin(a) * rr, h]);
+          }
+          return pts;
+        };
+        const m = w.project(hb.cf, hb.cr, top);
+        if (!m) return;
+        ar.queue(m.depth, () => {
+          const lo = ringAt(0).map((p) => w.project(...p));
+          const hi = ringAt(top).map((p) => w.project(...p));
+          if (lo.some((q) => !q) || hi.some((q) => !q)) return;
+          const g = ar.ctx;
+          const side = hull(lo.concat(hi));
+          g.beginPath();
+          side.forEach((q, n) => (n ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+          g.closePath();
+          g.fillStyle = "rgba(70,128,44,0.97)";
+          g.fill();
+          g.beginPath();
+          hi.forEach((q, n) => (n ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+          g.closePath();
+          g.fillStyle = hb.id.endsWith("b") ? "rgba(132,196,86,0.98)" : "rgba(112,180,70,0.98)";
+          g.fill();
+          g.strokeStyle = "rgba(40,80,24,0.55)";
+          g.lineWidth = 1;
+          g.stroke();
+        }, w.extent(hb.cf - R, hb.cf + R, hb.cr - R, hb.cr + R, 0, top));
+      });
+    }
+
+    // A real cube as a rune stone: dark carved stone at the back, its rune
+    // large inside, the front faces like clouded glass so the rune shows
+    // through -- the tag never shows. (No rune: a plain stone.)
+    function queueStoneCube(b, st) {
+      const cs = [];
+      for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) cs.push(api.fromB(b, u * b.half, v * b.half));
+      const mid = w.project(b.cf, b.cr, (b.h0 + b.h1) / 2);
+      if (!mid) return;
+      const fs = cs.map((c) => c[0]);
+      const rs = cs.map((c) => c[1]);
+      const col = st ? st.color : [150, 150, 160];
+      ar.queue(mid.depth, () => {
+        const c = w.camLocal();
+        const g = ar.ctx;
+        const front = [];
+        const back = [];
+        for (let k = 0; k < 4; k++) {
+          const a = cs[k];
+          const e = cs[(k + 1) % 4];
+          const mf = (a[0] + e[0]) / 2;
+          const mr = (a[1] + e[1]) / 2;
+          const q = [[a[0], a[1], b.h0], [e[0], e[1], b.h0], [e[0], e[1], b.h1], [a[0], a[1], b.h1]];
+          ((c.f - mf) * (mf - b.cf) + (c.r - mr) * (mr - b.cr) > 0 ? front : back).push(q);
+        }
+        const face = (q, fill, stroke, width = 1) => {
+          const p = w.polyScreen(q, 1);
+          if (p) w.fillPoly(p, fill, stroke, width);
+        };
+        // the back: solid stone, a little lit by the rune
+        back.forEach((q) => face(q, `rgba(${(52 + col[0] * 0.12) | 0},${(54 + col[1] * 0.12) | 0},${(66 + col[2] * 0.12) | 0},0.97)`, null));
+        face(cs.map(([f, r]) => [f, r, b.h0 + 0.0005]), "rgba(30,30,38,0.95)", null);
+        // the rune, large, in the middle of the cube
+        const top = w.project(b.cf, b.cr, b.h1);
+        const bot = w.project(b.cf, b.cr, b.h0);
+        if (top && bot) {
+          const hpx = Math.max(10, Math.hypot(top.x - bot.x, top.y - bot.y));
+          const glow = g.createRadialGradient(mid.x, mid.y, 0, mid.x, mid.y, hpx * 0.75);
+          glow.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${st ? 0.55 + 0.15 * Math.sin(G.time * 3 + b.tag) : 0.15})`);
+          glow.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+          g.fillStyle = glow;
+          g.fillRect(mid.x - hpx, mid.y - hpx, 2 * hpx, 2 * hpx);
+          if (st && b.tag === 1) weightOver(b);
+          else if (st) {
+            g.save();
+            g.font = `${Math.round(hpx * 0.9)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+            g.textAlign = "center";
+            g.textBaseline = "middle";
+            g.fillText(st.icon, mid.x, mid.y + hpx * 0.04);
+            g.restore();
+          }
+        }
+        // the front: clouded glass with the stone's edges, then the top
+        front.forEach((q) => face(q, `rgba(${(170 + col[0] * 0.2) | 0},${(175 + col[1] * 0.2) | 0},${(190 + col[2] * 0.2) | 0},0.26)`, `rgba(${col[0]},${col[1]},${col[2]},0.9)`, 1.5));
+        if (c.h > b.h1) face(cs.map(([f, r]) => [f, r, b.h1]), "rgba(200,205,220,0.3)", `rgba(${col[0]},${col[1]},${col[2]},0.9)`, 1.5);
+      }, w.extent(Math.min(...fs), Math.max(...fs), Math.min(...rs), Math.max(...rs), b.h0, b.h1, cs));
+    }
+
     // the things that stand up: queued, so the explorer and the cubes go in front / behind right
     function drawStanding() {
       if (!G.O || G.phase === "menu") return;
@@ -1602,9 +1808,20 @@ Lynx.games = Lynx.games || {};
       queueShip();
       G.stones.forEach((s, tag) => {
         if (!s) return;
-        if (tag === 0) queuePalm(s.b);
-        else if (tag === 2) queueRain(s.b);
+        if (tag === 0) {
+          if (!waterAt(s.b.cf, s.b.cr)) {
+            queuePalm(s.b);
+            queueHills();
+          }
+        } else if (tag === 2) queueRain(s.b);
         else if (tag === 3) queueLantern(s.b);
+      });
+      // every real cube: a rune stone (the island's is under its palm, the river's under the water)
+      api.realSolids.forEach((b) => {
+        if (b.inferred || waterAt(b.cf, b.cr)) return;
+        const st = G.stones[b.tag];
+        if (b.tag === 0 && st && st.b === b) return;
+        queueStoneCube(b, st && st.b === b ? stoneInfo(b.tag) : null);
       });
       for (let i = 0; i < o.H; i++) {
         for (let j = 0; j < o.W; j++) {
@@ -1672,9 +1889,12 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- the explorer: a new character on the knight's skeleton (same cartoon style, no armour, no sword) -------------
+    // An adventurer of the classic kind: a long braid, a sleeveless tank top,
+    // shorts, knee-high boots, a utility belt with thigh straps, fingerless
+    // gloves and a small backpack. Drawn opaque.
     const EXPLORER = {
-      outline: "rgba(15,12,10,0.85)", skin: "#eab48e", hair: "#b4502a", tie: "#f2c14e", tunic: "#2a9d8f", skirt: "#1f7f72",
-      belt: "#7a4a1e", legs: "#3d3552", boots: "#6b4226", eye: "#1a1410", satchel: "#9a6a34",
+      outline: "rgba(15,12,10,0.9)", skin: "#e0a67e", hair: "#3b2416", hairTie: "#1c120a", top: "#2a9a98", topDark: "#1d7472",
+      shorts: "#8a6a44", belt: "#2e2016", strap: "#3a2a1c", boots: "#4a2c18", bootCuff: "#5e3a20", gloves: "#2a2420", pack: "#6b5236", eye: "#1a1410", lips: "#b8584e",
     };
     function explorerPrims(J, P) {
       const L = EXPLORER;
@@ -1686,55 +1906,66 @@ Lynx.games = Lynx.games || {};
       const back = V.mul(fwd, -1);
       const speed = Math.hypot(hero.vf, hero.vr) / api.S;
       const flow = Math.min(0.006, speed * 0.05);
-      for (const s of [-1, 1]) {
-        seg(J.hip[s], J.knee[s], 0.0022, L.legs);
-        seg(J.knee[s], J.ankle[s], 0.0019, L.legs);
-        seg(J.ankle[s], J.toe[s], 0.0019, L.boots);
+      const lerp3 = (a, b, t) => V.add(a, V.mul(V.add(b, V.mul(a, -1)), t));
+      // legs: bare thighs and knees, knee-high boots, a holster-like strap round each thigh
+      for (const s2 of [-1, 1]) {
+        const mid = lerp3(J.hip[s2], J.knee[s2], 0.45);
+        seg(J.hip[s2], J.knee[s2], 0.0021, L.skin);
+        seg(lerp3(J.knee[s2], J.ankle[s2], 0.12), J.ankle[s2], 0.002, L.boots);
+        seg(lerp3(J.knee[s2], J.ankle[s2], 0.12), lerp3(J.knee[s2], J.ankle[s2], 0.22), 0.0022, L.bootCuff);
+        seg(J.ankle[s2], J.toe[s2], 0.0019, L.boots);
+        seg(V.add(mid, [0, 0, 0.0005]), V.add(mid, [0, 0, -0.0005]), 0.0024, L.strap);
       }
-      // the skirt of the tunic: from the waist to above the knees, flaring
-      const waist = V.add(J.pelvis, V.mul(J.up, 0.004));
-      const hemC = V.add(V.add(J.pelvis, V.mul(J.up, -0.0085)), V.mul(back, flow * 0.6));
+      // the shorts: from the waist to the top of the thighs
+      const waist = V.add(J.pelvis, V.mul(J.up, 0.003));
+      const hem = V.add(J.pelvis, V.mul(J.up, -0.0045));
       out.push({
         k: "poly",
-        pts: [P(V.add(waist, V.mul(right, -0.0052))), P(V.add(waist, V.mul(right, 0.0052))), P(V.add(hemC, V.mul(right, 0.0095))), P(V.add(hemC, V.mul(right, -0.0095)))],
-        color: L.skirt,
-        lines: [[P(V.add(waist, V.mul(right, -0.0015))), P(V.add(hemC, V.mul(right, -0.0024)))], [P(V.add(waist, V.mul(right, 0.0015))), P(V.add(hemC, V.mul(right, 0.0024)))]],
-        lineColor: "rgba(0,40,36,0.5)",
+        pts: [P(V.add(waist, V.mul(right, -0.0052))), P(V.add(waist, V.mul(right, 0.0052))), P(V.add(hem, V.mul(right, 0.0066))), P(V.add(hem, V.mul(right, -0.0066)))],
+        color: L.shorts,
+        lines: [[P(V.add(hem, V.mul(right, 0))), P(V.add(waist, V.mul(right, 0)))]],
+        lineColor: "rgba(40,28,14,0.5)",
       });
-      seg(V.add(J.pelvis, V.mul(J.up, 0.003)), J.chest, 0.0045, L.tunic);
-      seg(V.add(J.pelvis, V.mul(J.up, 0.0035)), V.add(J.pelvis, V.mul(J.up, 0.0055)), 0.0049, L.belt);
-      ball(V.add(V.add(J.pelvis, V.mul(right, 0.0058)), V.mul(J.up, 0.001)), 0.0024, L.satchel); // a satchel at the hip
-      seg(J.sh[-1], J.sh[1], 0.0024, L.tunic);
-      seg(V.add(J.chest, V.mul(V.add(J.neck, V.mul(J.chest, -1)), 0.35)), J.neck, 0.0019, L.skin);
-      for (const s of [-1, 1]) {
-        seg(J.sh[s], J.elbow[s], 0.0017, L.tunic);
-        seg(J.elbow[s], J.hand[s], 0.0013, L.skin);
-        ball(J.hand[s], 0.0015, L.skin);
+      // the tank top (sleeveless: bare shoulders and arms), the belt, the backpack
+      seg(V.add(J.pelvis, V.mul(J.up, 0.003)), J.chest, 0.0043, L.top);
+      seg(V.add(J.pelvis, V.mul(J.up, 0.0026)), V.add(J.pelvis, V.mul(J.up, 0.0042)), 0.0047, L.belt);
+      ball(V.add(V.add(J.pelvis, V.mul(right, 0.0048)), V.mul(J.up, 0.0034)), 0.0014, L.strap); // a pouch on the belt
+      ball(V.add(V.add(J.pelvis, V.mul(right, -0.0048)), V.mul(J.up, 0.0034)), 0.0014, L.strap);
+      const packC = V.add(V.add(lerp3(J.pelvis, J.chest, 0.7), V.mul(back, 0.0042)), [0, 0, 0]);
+      seg(V.add(packC, [0, 0, 0.0022]), V.add(packC, [0, 0, -0.0022]), 0.003, L.pack);
+      seg(J.sh[-1], J.sh[1], 0.0018, L.skin);
+      for (const s2 of [-1, 1]) seg(V.add(J.sh[s2], V.mul(right, -s2 * 0.0012)), lerp3(J.pelvis, J.chest, 0.75), 0.0011, L.topDark); // the top's straps
+      seg(V.add(J.chest, V.mul(V.add(J.neck, V.mul(J.chest, -1)), 0.35)), J.neck, 0.0018, L.skin);
+      for (const s2 of [-1, 1]) {
+        seg(J.sh[s2], J.elbow[s2], 0.0015, L.skin);
+        seg(J.elbow[s2], J.hand[s2], 0.0013, L.skin);
+        ball(J.hand[s2], 0.0015, L.gloves);
       }
-      // the head: face, hair (a cap a little behind and above: the face covers
-      // it from the front), a fringe, and a ponytail swinging behind
-      // long hair down both sides, to the shoulders (behind the face from the front)
-      for (const s of [-1, 1]) {
-        const top = V.add(V.add(J.head, V.mul(right, s * 0.0036)), V.add(V.mul(fwd, -0.0012), [0, 0, 0.0012]));
-        const low = V.add(V.add(J.head, V.mul(right, s * 0.0046)), V.add(V.mul(fwd, -0.0016), [0, 0, -0.0068]));
-        seg(top, low, 0.0024, L.hair);
+      // the head: hair swept back over the top, the face, a long braid down the back
+      ball(V.add(J.head, V.add(V.mul(fwd, -0.0016), [0, 0, 0.0011])), 0.0056, L.hair);
+      ball(J.head, 0.0052, L.skin);
+      ball(V.add(J.head, V.add(V.mul(fwd, 0.0012), [0, 0, 0.0038])), 0.0034, L.hair); // (the hairline over the forehead)
+      for (const s2 of [-1, 1]) ball(V.add(V.add(J.head, V.mul(fwd, 0.005)), V.add(V.mul(right, s2 * 0.0018), [0, 0, 0.0004])), 0.0007, L.eye);
+      ball(V.add(J.head, V.add(V.mul(fwd, 0.0051), [0, 0, -0.0021])), 0.0007, L.lips);
+      const nape = V.add(V.add(J.head, V.mul(back, 0.0048)), [0, 0, -0.0012]);
+      const swing = Math.sin(G.time * 7 + hero.phase) * 0.0014 * Math.min(1, speed * 20);
+      let prev = nape;
+      for (let k = 1; k <= 4; k++) {
+        const t = k / 4;
+        const p = V.add(V.add(nape, V.mul(back, (0.0016 + flow) * t)), V.add(V.mul(right, swing * t * t), [0, 0, -0.011 * t + flow * 0.4 * t]));
+        seg(prev, p, 0.0017 - 0.0003 * t, L.hair);
+        ball(p, 0.0017 - 0.0003 * t, L.hair); // (a braid: its plaits)
+        prev = p;
       }
-      ball(J.head, 0.0055, L.skin);
-      ball(V.add(J.head, V.add(V.mul(fwd, -0.0014), [0, 0, 0.0013])), 0.0055, L.hair);
-      ball(V.add(J.head, V.add(V.mul(fwd, 0.003), [0, 0, 0.0036])), 0.0027, L.hair);
-      for (const s of [-1, 1]) ball(V.add(V.add(J.head, V.mul(fwd, 0.0052)), V.add(V.mul(right, s * 0.0019), [0, 0, 0.0004])), 0.0008, L.eye);
-      ball(V.add(J.head, V.add(V.mul(fwd, 0.0053), [0, 0, -0.0021])), 0.0007, "#c0504a"); // the mouth
-      const tieP = V.add(V.add(J.head, V.mul(back, 0.0046)), [0, 0, 0.0022]);
-      const swing = Math.sin(G.time * 7 + hero.phase) * 0.0012 * Math.min(1, speed * 20);
-      const tailEnd = V.add(V.add(tieP, V.mul(back, 0.0035 + flow)), V.add(V.mul(right, swing), [0, 0, -0.0085 + flow * 0.5]));
-      seg(tieP, tailEnd, 0.0021, L.hair);
-      ball(tieP, 0.0016, L.tie);
+      ball(prev, 0.0011, L.hairTie);
       return out;
     }
-    function drawExplorer(J, alpha) {
+    // (opaque: only a fall or a hurt's blink makes her see-through -- not the camera's nearness)
+    function drawExplorer(J) {
       const K = api.K;
       const prims = explorerPrims(J, K.placer(hero.f, hero.r, hero.z, hero.yaw, api.S));
       prims.forEach((p) => p.rad && (p.rad *= api.S));
+      const alpha = G.fallT > 0 ? clamp(1 - G.fallT / FALL_S, 0, 1) : G.inv > 0.3 && G.inv < INV_S - 0.2 ? (Math.sin(G.time * 36) > 0 ? 0.45 : 1) : 1;
       K.drawPrims(w, prims, ar, EXPLORER.outline, alpha);
       return true;
     }
@@ -1753,13 +1984,7 @@ Lynx.games = Lynx.games || {};
           }),
         );
       }
-      G.stones.forEach((s, tag) => {
-        if (!s) return;
-        const st = stoneInfo(tag);
-        const p = w.project(s.b.cf, s.b.cr, s.b.h1 + 0.012);
-        if (!p) return;
-        ar.text(`${st.icon} ${T(st.name)}`, p.x, p.y, { size: 12, align: "center", color: rgba(st.color, 1) });
-      });
+      // (the stones need no labels: each shows its rune inside, large)
     }
 
     function wrapText(text, width, size) {
@@ -1925,7 +2150,7 @@ Lynx.games = Lynx.games || {};
     return {
       actionLabel: "▶ OK",
       frozen: () => G.phase !== "play" || G.fallT > 0 || !!(G.ship && G.ship.aboard),
-      solids: () => (G.phase === "menu" || !G.O ? [] : gateSolids().concat(platSolids())),
+      solids: () => (G.phase === "menu" || !G.O ? [] : gateSolids().concat(platSolids(), stoneColumns(), islandHills())),
       drawFloor,
       draw() {
         drawStanding();
@@ -1971,17 +2196,23 @@ Lynx.games = Lynx.games || {};
       },
       // Jump (Space / gamepad A) does the same outside play: start, go on, try again
       onJump(state) {
-        if (G.phase === "play") return false;
+        // (on the River, A boards / goes ashore where it can, as the hint says -- else it jumps)
+        if (G.phase === "play") {
+          if (G.ship && (G.ship.aboard || canBoard())) {
+            boardOrLeave();
+            return true;
+          }
+          return false;
+        }
         confirm(state);
         return true;
       },
       unarmed: true,
       // a real cube in the river is under the water (a cube's height deep): not shown at all
-      hideBlock: (b) => !!G.O && G.phase !== "menu" && waterAt(b.cf, b.cr),
+      // every real cube in play is drawn by the game (a rune stone, the palm's
+      // island, under the river) -- its tags never show
+      hideBlock: (b) => !!G.O && G.phase !== "menu",
       drawHero: drawExplorer,
-      blockOver(b) {
-        if (b.tag === 1 && G.phase !== "menu") weightOver(b);
-      },
       onWeapon(wpn) {
         if (G.phase !== "menu") return false;
         if (wpn === "next") choose(1);

@@ -59,6 +59,11 @@
           <span class="cam-toggle-slider"></span>
           Waypoints
         </label>
+        <label class="cam-range" title="How opaque the games' floors and walls are: lower, and the camera view shows through (characters and game objects stay solid)">
+          <span>Floors and walls</span>
+          <input type="range" id="camSceneOpacity" min="10" max="100" step="5" value="100">
+          <span id="camSceneOpacityVal">100%</span>
+        </label>
         <button id="camSetHomeBtn" class="cam-overlay-btn">Set position as home</button>
       </div>
     </details>

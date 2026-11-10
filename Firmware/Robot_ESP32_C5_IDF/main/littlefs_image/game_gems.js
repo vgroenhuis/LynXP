@@ -1272,7 +1272,7 @@ Lynx.games = Lynx.games || {};
         if (!at || L.road || state !== "playing") continue;
         const t = tiles[idx(at.i, at.j)];
         const ok = t === "grass" || t === "wall";
-        w.floor(q(at.i, at.j), 0.0008, ok ? "rgba(120,255,160,0.25)" : "rgba(255,100,100,0.2)", ok ? "rgba(160,255,190,0.95)" : "rgba(255,120,120,0.9)", { width: 2 });
+        w.floor(q(at.i, at.j), 0.0008, ok ? "rgba(120,255,160,0.25)" : "rgba(255,100,100,0.2)", ok ? "rgba(160,255,190,0.95)" : "rgba(255,120,120,0.9)", { width: 2, object: true });
       }
       for (let i = 0; i < N; i++) {
         for (let j = 0; j < N; j++) {
@@ -1597,7 +1597,7 @@ Lynx.games = Lynx.games || {};
       });
       // its ring on the floor (a tower: the reach, when the camera points at it)
       if (c.tower) {
-        w.floor(footQ(b), 0.0009, null, rgb(col, 0.9), { width: 2 });
+        w.floor(footQ(b), 0.0009, null, rgb(col, 0.9), { width: 2, object: true });
         // its reach: all shown (R / the button), aimed at, or moved in the last RANGE_AFTER_S
         const aimedAt = aimTile && c.tile && Math.abs(aimTile.i - c.tile.i) <= 1 && Math.abs(aimTile.j - c.tile.j) <= 1;
         const moved = g.movedAt !== undefined && wall - g.movedAt < RANGE_AFTER_S;

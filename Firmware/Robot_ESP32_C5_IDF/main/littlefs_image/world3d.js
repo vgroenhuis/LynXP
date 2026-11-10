@@ -21,7 +21,8 @@
 // }
 // col: {top, side, dark, line, tex (a full stone texture, Lynx.texture) or
 // detail (an overlay over the flat colors: "slab", "marble")}.
-// box opts: {alpha} (see-through, e.g. between the camera and the player),
+// box/floor opts: {alpha} (see-through, e.g. between the camera and the
+// player), object (a game object: not faded with the scene, Lynx.sceneAlpha),
 // faceDeco(a, b, h0, h1) / topDeco(h): extra drawing on each face drawn
 // (e.g. a crate's planks), in the same queue item.
 
@@ -249,7 +250,11 @@ window.Lynx = window.Lynx || {};
         const c = camLocal();
         const g = ar.ctx;
         const old = g.globalAlpha;
-        if (o.alpha !== undefined) g.globalAlpha = old * o.alpha;
+        // (scenery: times the scene's opacity -- o.object: a game object, not)
+        const sa = o.object || !Lynx.sceneAlpha ? 1 : Lynx.sceneAlpha();
+        const a = (o.alpha !== undefined ? o.alpha : 1) * sa;
+        const seeThru = o.alpha !== undefined || sa < 0.999;
+        if (a < 1) g.globalAlpha = old * a;
         const img = texturesOn && col.tex ? Lynx.texture(col.tex) : null;
         const detail = texturesOn && !img && col.detail ? Lynx.texture(col.detail) : null;
         const faces = [];
@@ -262,7 +267,7 @@ window.Lynx = window.Lynx || {};
           if (!p) return;
           // (see-through and textured: the texture alone -- the flat colour
           // under it as well would add up to nearly opaque)
-          if (!(img && o.alpha !== undefined)) fillPoly(p, fill, null);
+          if (!(img && seeThru)) fillPoly(p, fill, null);
           if (img || detail) {
             texFace(a, b, h0, h1, img || detail);
             if (img) fillPoly(p, `rgba(20,12,4,${fill === col.dark ? 0.3 : 0.1})`, null);
@@ -273,7 +278,7 @@ window.Lynx = window.Lynx || {};
         const top = (h, fill) => {
           const p = polyScreen([[q.f0, q.r0, h], [q.f1, q.r0, h], [q.f1, q.r1, h], [q.f0, q.r1, h]]);
           if (!p) return;
-          if (!(img && o.alpha !== undefined)) fillPoly(p, fill, null);
+          if (!(img && seeThru)) fillPoly(p, fill, null);
           if (img) texFloor(q, h, col.topTex || "flagstone");
           else if (detail) texFloor(q, h, col.detail);
           fillPoly(p, null, col.line, 1);
@@ -290,9 +295,14 @@ window.Lynx = window.Lynx || {};
     function floor(q, h, fill, stroke, o = {}) {
       const p = polyScreen([[q.f0, q.r0, h], [q.f1, q.r0, h], [q.f1, q.r1, h], [q.f0, q.r1, h]]);
       if (!p) return;
+      // (scenery: times the scene's opacity -- o.object: a game object's mark, not)
+      const g = ar.ctx;
+      const old = g.globalAlpha;
+      if (!o.object && Lynx.sceneAlpha) g.globalAlpha = old * Lynx.sceneAlpha();
       if (fill) fillPoly(p, fill, null);
       if (o.detail) texFloor(q, h, o.detail, o.alpha === undefined ? 0.5 : o.alpha);
       if (stroke) fillPoly(p, null, stroke, o.width || 1);
+      g.globalAlpha = old;
     }
 
     return {

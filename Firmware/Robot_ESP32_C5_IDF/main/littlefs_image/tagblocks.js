@@ -67,7 +67,8 @@
 //
 // Lynx.tagBlocks(ar, {family, tagRatio, persist, fixedSizes, onStill}) ->
 //   {start(), stop(), clear(), blocks() -> [{id, tag, x, y, yaw, level, h0,
-//   h1, half, inferred, n, seen}], transform(cx, cy, alpha), pause(ms),
+//   h1, half, inferred, n, seen, heading (a directional cube's full heading,
+//   from how its side tags are turned -- see observe(); else null)}], transform(cx, cy, alpha), pause(ms),
 //   state {ready, error, fps, detectMs, tags, stable, lastDetections,
 //   ids: [{id, cm, sure, count}]}}
 // onStill(observations, snap): every still picture's sightings (world;
@@ -94,6 +95,8 @@ window.Lynx = window.Lynx || {};
   const CONF_MED = 0.4;
   const CONF_LOW = 0.25;
   const MISS_N = 4; // still pictures running without a block that should be in them: it's gone
+  const GONE_S = 10; // ... or any pictures (moving too), this long and at least GONE_N of them
+  const GONE_N = 5;
   // ...in them: a tag this big at least (smaller ones are often missed), this near
   const EXPECT_MIN_PX = 28;
   const EXPECT_MAX_M = 0.75;
@@ -415,6 +418,7 @@ window.Lynx = window.Lynx || {};
       state.lastDetections = m.detections.map((d) => ({ id: d.id, corners: d.corners, w: pending.snap.w, h: pending.snap.hgt, at: now }));
       // the map only learns from pictures taken with the camera still (no blur, no lag)
       if (pending.snap.still && now >= pausedUntil) integrate(m.detections, pending.snap, now);
+      if (now >= pausedUntil) goneByTime(m.detections, pending.snap, now);
       persist(now);
       // faint one-offs that never got a second look
       for (const info of ids.values()) info.blocks = info.blocks.filter((b) => b.ok || now - b.seen < FORGET_UNCONFIRMED_MS);
@@ -484,6 +488,7 @@ window.Lynx = window.Lynx || {};
       let yaw;
       let ux = 0;
       let uy = 0;
+      let heading = null;
       if (face === "top") {
         const e = F.toWorld(p.r1);
         yaw = Math.atan2(e[1], e[0]);
@@ -492,6 +497,18 @@ window.Lynx = window.Lynx || {};
         ux = nw[0] / l;
         uy = nw[1] / l;
         yaw = Math.atan2(uy, ux);
+        // A directional cube (CAD Generators' AprilTag Cube, "rotate sides"):
+        // each side's tag turned a further quarter counterclockwise, seen
+        // from outside -- upright on +X, its top to the left on +Y, upside
+        // down on -X, to the right on -Y. How this tag is turned on its face
+        // says which face it is, so the cube's full heading (its +X face's
+        // outward direction). (Meaningless for a cube with upright tags all
+        // round: the games that use it ask for it by tag.)
+        const upT = F.toWorld(p.r2); // the tag's own "up" edge direction
+        const left = [-uy, ux, 0]; // seen from outside, to the left: n x z
+        const roll = Math.atan2(upT[0] * left[0] + upT[1] * left[1], upT[2]);
+        const turn = ((Math.round(roll / (Math.PI / 2)) % 4) + 4) % 4;
+        heading = yaw - (turn * Math.PI) / 2;
       }
       const place = () => {
         x = pos[0] - ux * half;
@@ -517,7 +534,7 @@ window.Lynx = window.Lynx || {};
       }
       // a vote for this ID's size: only from blocks on the floor (that's what the estimate assumes)
       const vote = cm0 >= MIN_CM && cm0 <= MAX_CM && level === 0 ? cm0 : 0;
-      return { id, tag: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN, det: d };
+      return { id, tag: d.id, x, y, h: ch, level, yaw: modQuarter(yaw), normalYaw: face === "side" ? yaw : null, heading, face, B, vote, strong: typeof d.margin !== "number" || d.margin >= STRONG_MARGIN, det: d };
     }
 
     const near = (b, o, B, k = 0.75) => Math.hypot(b.x - o.x, b.y - o.y) < k * B && Math.abs(b.h - o.h) < 0.5 * B;
@@ -1180,6 +1197,14 @@ window.Lynx = window.Lynx || {};
       const c4 = (1 - a) * Math.cos(4 * b.yaw) + a * Math.cos(4 * o.yaw);
       const s4 = (1 - a) * Math.sin(4 * b.yaw) + a * Math.sin(4 * o.yaw);
       b.yaw = Math.atan2(s4, c4) / 4;
+      // the full heading (a directional cube's), averaged as a direction
+      if (typeof o.heading === "number") {
+        if (typeof b.heading !== "number") b.heading = o.heading;
+        else {
+          const k = Math.max(0.2, a);
+          b.heading = Math.atan2((1 - k) * Math.sin(b.heading) + k * Math.sin(o.heading), (1 - k) * Math.cos(b.heading) + k * Math.cos(o.heading));
+        }
+      }
       b.n++;
       b.ok = b.ok || o.strong || b.n >= CONFIRM_N;
       b.seen = now;
@@ -1200,6 +1225,35 @@ window.Lynx = window.Lynx || {};
         });
       }
       return out;
+    }
+
+    // Gone, by time: a block whose place is in plain view (expectVisible) in
+    // pictures -- still or not: the robot driving round takes few still ones
+    // -- but whose tag isn't in any of them for GONE_S (and GONE_N such
+    // pictures) is gone from there, as with MISS_N still pictures in a row.
+    function goneByTime(dets, snap, now) {
+      const idOf = (d) => (alias.has(d.id) ? alias.get(d.id) : d.id);
+      const inPicture = new Set(dets.map(idOf));
+      for (const I of ids.values()) {
+        const B = (I.cm || I.guess || 0) / 100;
+        I.blocks.forEach((b) => {
+          if (inPicture.has(b.id) || !b.present) {
+            b.unseenSince = null;
+            b.unseenN = 0;
+            return;
+          }
+          if (!b.ok || !B || !expectVisible(b, B, snap, dets)) return;
+          if (!b.unseenSince) b.unseenSince = now;
+          b.unseenN = (b.unseenN || 0) + 1;
+          if (now - b.unseenSince >= GONE_S * 1000 && b.unseenN >= GONE_N) {
+            b.present = false;
+            b.move = null;
+            b.miss = 0;
+            b.unseenSince = null;
+            b.unseenN = 0;
+          }
+        });
+      }
     }
 
     // Would this block's tag be found in this picture? Some face with a tag
@@ -1320,7 +1374,7 @@ window.Lynx = window.Lynx || {};
     function list() {
       const out = present().map((b) => ({
         id: b.uid, tag: b.id, x: b.x, y: b.y, yaw: b.yaw, level: b.level, h0: bottomOf(b, b.B), h1: bottomOf(b, b.B) + b.B, half: b.B / 2,
-        inferred: false, n: b.n, seen: b.seen,
+        inferred: false, n: b.n, seen: b.seen, heading: typeof b.heading === "number" ? b.heading : null,
       }));
       // what the ones up a level stand on: right under them, a block lower each (as big, presumably)
       const real = out.slice();
@@ -1346,6 +1400,7 @@ window.Lynx = window.Lynx || {};
           b.x = dx * c + dy * s;
           b.y = -dx * s + dy * c;
           b.yaw = modQuarter(b.yaw - alpha);
+          if (typeof b.heading === "number") b.heading -= alpha;
           b.move = null;
         });
       }
