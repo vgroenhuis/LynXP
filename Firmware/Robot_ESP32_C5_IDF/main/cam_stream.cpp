@@ -153,6 +153,9 @@ void cam_stream_start() {
 }
 
 int cam_stream_json(char *out, size_t len) {
+    if (s_lock == nullptr) { // cam_stream_start() not called (CAM_LINK_VIDEO off)
+        return std::snprintf(out, len, "{\"viewers\":0,\"viewersTotal\":0,\"framesSent\":0,\"sendFps\":0.0,\"bytesSent\":0}");
+    }
     xSemaphoreTake(s_lock, portMAX_DELAY);
     int n = std::snprintf(out, len, "{\"viewers\":%d,\"viewersTotal\":%lu,\"framesSent\":%lu,\"sendFps\":%.1f,\"bytesSent\":%llu}",
                           s_viewers, (unsigned long) s_viewersTotal, (unsigned long) s_framesSent, (double) s_sendFps,

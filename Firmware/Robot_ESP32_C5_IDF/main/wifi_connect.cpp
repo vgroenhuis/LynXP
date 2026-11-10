@@ -437,7 +437,7 @@ void do_scan() {
     cfg.scan_time.passive = debugMode == 1 ? 400 : SCAN_PASSIVE_MS;
     cfg.home_chan_dwell_time = WIFI_SCAN_HOME_CHANNEL_DWELL_DEFAULT_TIME;
 
-    WifiScanEntry merged[SCAN_MAX];
+    static EXT_RAM_BSS_ATTR WifiScanEntry merged[SCAN_MAX]; // only this task scans; static keeps ~1.5 KB off its stack
     size_t mergedCount = 0;
     static EXT_RAM_BSS_ATTR WifiApEntry aps[SCAN_APS_MAX]; // only this task scans; static keeps ~1.2 KB off its stack
     size_t apCount = 0;
@@ -898,7 +898,7 @@ void wifi_connect_start() {
     // moved. Costs some battery; the camera board runs this way too.
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
-    xTaskCreate(manager_task, "wifi_mgr", 3072, nullptr, tskIDLE_PRIORITY + 1, nullptr);
+    xTaskCreate(manager_task, "wifi_mgr", 4096, nullptr, tskIDLE_PRIORITY + 1, nullptr);
 
     ESP_ERROR_CHECK(mdns_init());
     ESP_ERROR_CHECK(mdns_hostname_set(HOSTNAME));
