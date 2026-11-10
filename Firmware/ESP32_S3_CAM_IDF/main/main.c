@@ -146,6 +146,12 @@ static const char *reset_reason_str(esp_reset_reason_t reason) {
 #define CAM_WIFI_MAX 10
 #define WIFI_CONNECT_TIMEOUT_MS 15000
 #define WIFI_RETRY_INTERVAL_MS 3000
+// Roaming (1.4.1): while the signal is below ROAM_WEAK_DBM, look every ROAM_CHECK_MS for an access
+// point of the same network that is ROAM_BETTER_DB stronger, and move to it. The scan stalls the
+// picture for a moment, so it only runs while weak, and less often after finding nothing better.
+#define ROAM_WEAK_DBM   -70
+#define ROAM_BETTER_DB  10
+#define ROAM_CHECK_MS   60000
 
 typedef struct {
     char ssid[33];
@@ -302,6 +308,10 @@ static bool wifi_attempt(const char *ssid) {
     copy_field(wifi_cfg.sta.ssid, sizeof(wifi_cfg.sta.ssid), net.ssid);
     copy_field(wifi_cfg.sta.password, sizeof(wifi_cfg.sta.password), net.pass);
     wifi_cfg.sta.threshold.authmode = net.pass[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+    // All channels, then the strongest access point of the network (1.4.1). The default fast scan
+    // joined the first one found from channel 1 up: on iotroam a far one at -80 dBm, with -60 next door.
+    wifi_cfg.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    wifi_cfg.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
 
     xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAILED_BIT);
     if (esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg) != ESP_OK || esp_wifi_connect() != ESP_OK) return false;
@@ -357,7 +367,40 @@ static void scan_and_report(void) {
     ESP_LOGI(TAG, "Reported %d network(s) to the robot", sent);
 }
 
+// While weakly connected: the strongest access point of the same network, if it's clearly better.
+// Fills bssid/channel and returns true to move there.
+static bool roam_target(uint8_t bssid[6], uint8_t *channel) {
+    wifi_ap_record_t cur;
+    if (esp_wifi_sta_get_ap_info(&cur) != ESP_OK || cur.rssi >= ROAM_WEAK_DBM) return false;
+    char ssid[33] = "";
+    copy_str(ssid, sizeof(ssid), s_connected_ssid);
+    wifi_scan_config_t cfg = SCAN_CFG;
+    cfg.ssid = (uint8_t *) ssid;
+    bool found = false;
+    if (esp_wifi_scan_start(&cfg, true) == ESP_OK) {
+        uint16_t n = 20;
+        wifi_ap_record_t *records = malloc(n * sizeof(wifi_ap_record_t));
+        if (records && esp_wifi_scan_get_ap_records(&n, records) == ESP_OK) {
+            for (int i = 0; i < n; i++) {   // (strongest first)
+                if (strcmp((const char *) records[i].ssid, ssid) != 0) continue;
+                if (memcmp(records[i].bssid, cur.bssid, 6) != 0 && records[i].rssi >= cur.rssi + ROAM_BETTER_DB) {
+                    memcpy(bssid, records[i].bssid, 6);
+                    *channel = records[i].primary;
+                    found = true;
+                    ESP_LOGI(TAG, "Roaming: %d dBm on ch %d, %d dBm on ch %d", cur.rssi, cur.primary,
+                             records[i].rssi, records[i].primary);
+                }
+                break;
+            }
+        }
+        free(records);
+        esp_wifi_clear_ap_list();
+    }
+    return found;
+}
+
 static void wifi_task(void *arg) {
+    int64_t next_roam_check_us = 0;
     while (true) {
         if (!s_wifi_connected) {
             char target[33] = "";
@@ -395,8 +438,35 @@ static void wifi_task(void *arg) {
         }
 
         EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group, WIFI_FAILED_BIT | WIFI_PUSH_BIT | WIFI_SCAN_BIT,
-                                               pdTRUE, pdFALSE, portMAX_DELAY);
+                                               pdTRUE, pdFALSE, pdMS_TO_TICKS(10000));
         if (bits & WIFI_SCAN_BIT) scan_and_report();
+        if (bits == 0 && s_wifi_connected && esp_timer_get_time() >= next_roam_check_us) {
+            uint8_t bssid[6];
+            uint8_t channel = 0;
+            if (roam_target(bssid, &channel)) {
+                wifi_config_t cfg = {0};
+                if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK) {
+                    memcpy(cfg.sta.bssid, bssid, 6);
+                    cfg.sta.bssid_set = true;
+                    cfg.sta.channel = channel;
+                    esp_wifi_disconnect();
+                    xEventGroupWaitBits(s_wifi_event_group, WIFI_FAILED_BIT, pdTRUE, pdFALSE, pdMS_TO_TICKS(3000));
+                    s_wifi_connected = false;
+                    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAILED_BIT);
+                    bool ok = esp_wifi_set_config(WIFI_IF_STA, &cfg) == ESP_OK && esp_wifi_connect() == ESP_OK;
+                    EventBits_t r = ok ? xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAILED_BIT,
+                                                             pdFALSE, pdFALSE, pdMS_TO_TICKS(WIFI_CONNECT_TIMEOUT_MS)) : 0;
+                    if (!(r & WIFI_CONNECTED_BIT)) {
+                        ESP_LOGW(TAG, "Roaming failed; joining the network afresh");
+                        esp_wifi_disconnect();
+                    }
+                    // (the next wifi_attempt() sets a config without the BSSID: strongest again)
+                }
+                next_roam_check_us = esp_timer_get_time() + 2LL * ROAM_CHECK_MS * 1000;
+            } else {
+                next_roam_check_us = esp_timer_get_time() + (int64_t) ROAM_CHECK_MS * 1000;
+            }
+        }
         if ((bits & WIFI_PUSH_BIT) && s_wifi_connected) {
             // The robot is on a different network -- follow it.
             esp_wifi_disconnect();
@@ -1028,14 +1098,17 @@ static esp_err_t control_handler(httpd_req_t *req) {
 // (e.g. off the rover, direct to a phone hotspot) where the robot link has
 // nothing on the other end to read it.
 static esp_err_t diag_handler(httpd_req_t *req) {
-    wifi_ap_record_t ap_info;
+    wifi_ap_record_t ap_info = {0};
     int rssi = (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) ? ap_info.rssi : 0;
+    char bssid[18];
+    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x", ap_info.bssid[0], ap_info.bssid[1],
+             ap_info.bssid[2], ap_info.bssid[3], ap_info.bssid[4], ap_info.bssid[5]);
 
     char rx_hex[2 * sizeof(s_link_last_rx) + 1];
     for (size_t i = 0; i < sizeof(s_link_last_rx); i++) sprintf(rx_hex + 2 * i, "%02x", s_link_last_rx[i]);
-    char json[700];
+    char json[800];
     int len = snprintf(json, sizeof(json),
-        "{\"mac\":\"%s\",\"ip\":\"%s\",\"rssiDbm\":%d,\"uptimeS\":%lld,"
+        "{\"mac\":\"%s\",\"ip\":\"%s\",\"rssiDbm\":%d,\"bssid\":\"%s\",\"channel\":%d,\"uptimeS\":%lld,"
         "\"freeHeapBytes\":%u,\"minFreeHeapBytes\":%u,\"camFailCount\":%lu,"
         "\"rebootCount\":%lu,\"clients\":%d,\"resetReason\":\"%s\","
         "\"frameCount\":%lu,\"lastFrameIntervalMs\":%lu,\"maxFrameIntervalMs\":%lu,"
@@ -1043,7 +1116,7 @@ static esp_err_t diag_handler(httpd_req_t *req) {
         "\"lastSendMs\":%lu,\"maxSendMs\":%lu,\"slowSendCount\":%lu,"
         "\"link\":{\"transfers\":%lu,\"short\":%lu,\"lastBits\":%lu,\"framesGood\":%lu,\"framesBad\":%lu,\"lastRx16\":\"%s\","
         "\"videoFps\":%d,\"videoFrames\":%lu,\"videoChunks\":%lu,\"videoMissed\":%lu}}",
-        s_mac_str, s_ip_str, rssi, (long long) (esp_timer_get_time() / 1000000),
+        s_mac_str, s_ip_str, rssi, bssid, (int) ap_info.primary, (long long) (esp_timer_get_time() / 1000000),
         (unsigned) esp_get_free_heap_size(), (unsigned) esp_get_minimum_free_heap_size(),
         (unsigned long) s_cam_fail_count, (unsigned long) s_reboot_count,
         get_active_clients(), reset_reason_str(esp_reset_reason()),
