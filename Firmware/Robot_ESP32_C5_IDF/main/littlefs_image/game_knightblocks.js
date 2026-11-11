@@ -222,14 +222,18 @@ Lynx.games = Lynx.games || {};
       const [c, s] = rot(b);
       return [du * c - dv * s, du * s + dv * c];
     };
+    // (a block's half size along its own u and v: hu / hv for a long one, a
+    // beam -- else half, a cube's)
+    const hu = (b) => (b.hu === undefined ? b.half : b.hu);
+    const hv = (b) => (b.hv === undefined ? b.half : b.hv);
     const inFoot = (b, f, r, m = 0) => {
       const [u, v] = toB(b, f, r);
-      return Math.abs(u) <= b.half + m && Math.abs(v) <= b.half + m;
+      return Math.abs(u) <= hu(b) + m && Math.abs(v) <= hv(b) + m;
     };
     // distance from a floor point to a block's footprint (0 inside)
     const footDist = (b, f, r) => {
       const [u, v] = toB(b, f, r);
-      return Math.hypot(Math.max(0, Math.abs(u) - b.half), Math.max(0, Math.abs(v) - b.half));
+      return Math.hypot(Math.max(0, Math.abs(u) - hu(b)), Math.max(0, Math.abs(v) - hv(b)));
     };
 
     function groundAt(f, r, z, up = C.STEP_UP) {
@@ -397,9 +401,10 @@ Lynx.games = Lynx.games || {};
         for (const b of solids) {
           if (b.h1 <= p.z + C.AIR_STEP_UP || b.h0 >= p.z + C.BODY_H - 0.004 * S) continue;
           const [u, v] = toB(b, p.f, p.r);
-          const e = b.half + C.BODY_R;
-          if (Math.abs(u) >= e || Math.abs(v) >= e) continue;
-          const pen = [[e - u, 1, 0], [e + u, -1, 0], [e - v, 0, 1], [e + v, 0, -1]].sort((x, y) => x[0] - y[0]);
+          const eu = hu(b) + C.BODY_R;
+          const ev = hv(b) + C.BODY_R;
+          if (Math.abs(u) >= eu || Math.abs(v) >= ev) continue;
+          const pen = [[eu - u, 1, 0], [eu + u, -1, 0], [ev - v, 0, 1], [ev + v, 0, -1]].sort((x, y) => x[0] - y[0]);
           const [d, nu, nv] = pen[0];
           [p.f, p.r] = fromB(b, u + nu * d, v + nv * d);
           const [nf, nr] = dirFromB(b, nu, nv);
@@ -428,12 +433,13 @@ Lynx.games = Lynx.games || {};
             path.push([p.f, p.r, p.z]);
             // the edge of the top it catches: the side the knight comes from
             const [u, v] = toB(b, p.f, p.r);
-            const onU = Math.abs(u) - b.half >= Math.abs(v) - b.half;
-            const L = Math.min(C.BODY_R * 1.8, b.half);
-            const along = clamp(onU ? v : u, -b.half + L, b.half - L);
+            const onU = Math.abs(u) - hu(b) >= Math.abs(v) - hv(b);
+            const side = onU ? hv(b) : hu(b); // (the edge's half length)
+            const L = Math.min(C.BODY_R * 1.8, side);
+            const along = clamp(onU ? v : u, -side + L, side - L);
             const edge = onU
-              ? [fromB(b, Math.sign(u) * b.half, along - L), fromB(b, Math.sign(u) * b.half, along + L)]
-              : [fromB(b, along - L, Math.sign(v) * b.half), fromB(b, along + L, Math.sign(v) * b.half)];
+              ? [fromB(b, Math.sign(u) * hu(b), along - L), fromB(b, Math.sign(u) * hu(b), along + L)]
+              : [fromB(b, along - L, Math.sign(v) * hv(b)), fromB(b, along + L, Math.sign(v) * hv(b))];
             return { f: pf, r: pr, h: b.h1, on: b.id, grab: true, edge, path };
           }
         }
@@ -493,9 +499,10 @@ Lynx.games = Lynx.games || {};
       for (const b of solids) {
         if (b.h1 <= h.z + up || b.h0 >= h.z + C.BODY_H - 0.004 * S) continue;
         const [u, v] = toB(b, h.f, h.r);
-        const e = b.half + C.BODY_R;
-        if (Math.abs(u) >= e || Math.abs(v) >= e) continue;
-        const pen = [[e - u, 1, 0], [e + u, -1, 0], [e - v, 0, 1], [e + v, 0, -1]];
+        const eu = hu(b) + C.BODY_R;
+        const ev = hv(b) + C.BODY_R;
+        if (Math.abs(u) >= eu || Math.abs(v) >= ev) continue;
+        const pen = [[eu - u, 1, 0], [eu + u, -1, 0], [ev - v, 0, 1], [ev + v, 0, -1]];
         pen.sort((a, c) => a[0] - c[0]);
         const [d, nu, nv] = pen[0];
         const [f, r] = fromB(b, u + nu * d, v + nv * d);
@@ -527,16 +534,17 @@ Lynx.games = Lynx.games || {};
         const lu = fx * c + fy * s; // facing, in the block's frame
         const lv = -fx * s + fy * c;
         const faces = [];
-        if (u >= b.half) faces.push([1, 0]);
-        if (u <= -b.half) faces.push([-1, 0]);
-        if (v >= b.half) faces.push([0, 1]);
-        if (v <= -b.half) faces.push([0, -1]);
+        if (u >= hu(b)) faces.push([1, 0]);
+        if (u <= -hu(b)) faces.push([-1, 0]);
+        if (v >= hv(b)) faces.push([0, 1]);
+        if (v <= -hv(b)) faces.push([0, -1]);
         if (!faces.length) continue;
         faces.sort((a, d) => a[0] * lu + a[1] * lv - (d[0] * lu + d[1] * lv));
         const [nu, nv] = faces[0];
         if (nu * lu + nv * lv > -0.4) continue;
-        const out = b.half + C.BODY_R + 0.0008 * S;
-        const along = clamp(nu ? v : u, -b.half + 0.004 * S, b.half - 0.004 * S);
+        const out = (nu ? hu(b) : hv(b)) + C.BODY_R + 0.0008 * S;
+        const lim = nu ? hv(b) : hu(b);
+        const along = clamp(nu ? v : u, -lim + 0.004 * S, lim - 0.004 * S);
         const [f, r] = nu ? fromB(b, nu * out, along) : fromB(b, along, nv * out);
         h.f = f;
         h.r = r;
@@ -583,11 +591,12 @@ Lynx.games = Lynx.games || {};
       if (Math.abs(side) > 0.3) {
         // the edge's coordinate runs along (-nv, nu) in the block's frame
         const sgn = g.nu ? g.nu : -g.nv;
-        g.along = clamp(g.along + Math.sign(side) * sgn * C.SHIMMY_V * dt, -b.half + 0.004 * S, b.half - 0.004 * S);
+        const lim = g.nu ? hv(b) : hu(b);
+        g.along = clamp(g.along + Math.sign(side) * sgn * C.SHIMMY_V * dt, -lim + 0.004 * S, lim - 0.004 * S);
         h.phase += dt * 6;
       }
       // follow the block (its estimate can still shift)
-      const out = b.half + C.BODY_R + 0.0008 * S;
+      const out = (g.nu ? hu(b) : hv(b)) + C.BODY_R + 0.0008 * S;
       const [f, r] = g.nu ? fromB(b, g.nu * out, g.along) : fromB(b, g.along, g.nv * out);
       h.f = f;
       h.r = r;
