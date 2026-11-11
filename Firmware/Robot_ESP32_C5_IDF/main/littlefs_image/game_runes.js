@@ -16,8 +16,10 @@
 // shown), and can't be climbed. A stone works wherever it stands -- on the
 // floor in the water too -- and keeps working while it
 // stands there: one Rain stone for two fires means putting it out at one,
-// then carrying it on to the other while the knight waits. Every level needs
-// all six (but the River). Moving a stone the knight is relying on (an island it stands on,
+// then carrying it on to the other while the knight waits. The first two
+// levels start with one stone, then three; each level counts only the
+// stones it needs (`stones`). The Island floats only on open water, never in
+// the ravine or on fire, spikes or a ghost bridge. Moving a stone the knight is relying on (an island it stands on,
 // the light of a bridge) drops it -- careful.
 //
 // Raised ground (as in Temple of LynXP), in 4 cm steps -- a cube's height:
@@ -27,7 +29,7 @@
 // No setup: the level is laid out on the floor in front of the robot from
 // where it stands when the level starts (its drive axle; ahead is up the
 // level's map), and the stones count wherever the cube finder sees them --
-// the frame cube isn't used. Hazards hurt (hearts); a fall into the water
+// the frame cube isn't used. Hazards hurt (hearts); a fall into the water or the ravine
 // costs a heart too and puts the knight back where it last stood safely;
 // no hearts left: the level again, the stones where they are.
 //
@@ -54,7 +56,9 @@ Lynx.games = Lynx.games || {};
 
   // The level maps, far end first (the first string is the row furthest from
   // the robot), one character per cell (cfg.cellCm, 5 cm):
-  //   .  chasm           #  ground          S  start         E  portal
+  //   .  open water (the Island floats there)   :  the ravine (bottomless:
+  //      the Island doesn't float there; round the map it's all ravine)
+  //   #  ground          S  start         E  portal
   //   K  the Key stone's socket              ~  ghost bridge (needs light)
   //   F  fire            f  fire, on and off (cross between bursts)
   //   ^  spikes          v  spikes, up and down
@@ -66,29 +70,75 @@ Lynx.games = Lynx.games || {};
   // bridge (~) hangs in the air, held only while lit. The explorer (3 cm)
   // climbs 4 cm, not 8 (she jumps about 6 cm); the stones can't be climbed.
   // Stones only work on the floor.
-  // `riseAll`: every cell but the chasm that many steps up (water included:
+  // Every obstacle is at least two cells deep (the explorer's running jump
+  // clears one) with the ravine on both sides (no Island round it), so each
+  // stone is needed where it's meant to go (tools/runes_check.js checks: no
+  // level can be won with one of its stones left out).
+  // `riseAll`: every cell but the gaps that many steps up (water included:
   // its surface). `stones`: the only tags that count in the level, `helm`: the
   // tag that steers the ship. A level without a socket (K) has its portal open.
   const LEVELS = [
+    {
+      id: "island",
+      name: "The Island",
+      intro: "One stone to start with: the Island (cube 0). Set it down in the water and walk across",
+      hint: "Put cube 0 in the middle of the water: an island rises round it",
+      stones: [0],
+      map: [
+        ":::E:::",
+        ":::#:::",
+        "::###::",
+        "::###::",
+        "::...::",
+        "::...::",
+        "::###::",
+        "::###::",
+        ":::S:::",
+      ],
+    },
+    {
+      id: "three",
+      name: "Three Stones",
+      intro: "Three stones: the Island for the water, Rain for the fire, the Key for the portal",
+      hint: "Island in the water, Rain beside the fire, the Key in the socket next to the portal",
+      stones: [0, 2, 4],
+      map: [
+        "::KE:::",
+        ":::#:::",
+        "::###::",
+        "::FFF::",
+        "::FFF::",
+        "::###::",
+        "::###::",
+        "::...::",
+        "::...::",
+        "::###::",
+        ":::S:::",
+      ],
+    },
     {
       id: "first",
       name: "Six Stones",
       intro: "Every rune stone once: make the explorer's way to the portal",
       hint: "Island in the water, Weight on the plate, Rain at the fire, Lantern at the ghost bridge, Earth at the spikes, Key in the socket",
       map: [
-        "..KE...",
-        "...#...",
-        "..^^^..",
-        "..###..",
-        "..~~~..",
-        "..###..",
-        "..FFF..",
-        "..###..",
-        "..AAA.a",
-        "..###..",
-        ".......",
-        ".......",
-        "..#S#..",
+        "::KE:::::",
+        ":::#:::::",
+        "::^^^::::",
+        "::^^^::::",
+        "::###::::",
+        "::~~~::::",
+        "::~~~::::",
+        "::###::::",
+        "::FFF::::",
+        "::FFF::::",
+        "::###::::",
+        "::AAA:::a",
+        "::###::::",
+        "::...::::",
+        "::...::::",
+        "::###::::",
+        ":::S:::::",
       ],
     },
     {
@@ -96,43 +146,44 @@ Lynx.games = Lynx.games || {};
       name: "Fire Twice",
       intro: "Two fires, one Rain stone: carry it on while the explorer waits",
       hint: "Put out the first fire, walk past it, then move the Rain stone to the second fire",
+      stones: [2, 4],
       map: [
-        ".E.......",
-        ".#K......",
-        "~~~......",
-        "###FF####",
-        "........#",
-        "........^",
-        "........#",
-        "###FFF###",
-        "#........",
-        "A...a....",
-        "#........",
-        ".........",
-        ".........",
-        "S........",
+        "::KE:::",
+        ":::#:::",
+        "::###::",
+        "::FFF::",
+        "::FFF::",
+        "::###::",
+        "::#####",
+        "::::::#",
+        "::#####",
+        "::###::",
+        "::FFF::",
+        "::FFF::",
+        "::###::",
+        ":::S:::",
       ],
     },
     {
       id: "causeway",
       name: "The Dark Causeway",
-      intro: "Two ghost bridges, one Lantern: wait on the stone between them",
+      intro: "Two ghost bridges over the ravine, one Lantern: wait on the ground between them",
       hint: "Light the first bridge, cross to the ground between the two, then move the Lantern on",
+      stones: [3, 4],
       map: [
-        "E~~~#~~~#",
-        "K.......#",
-        "........^",
-        "........^",
-        "........#",
-        "........f",
-        "........F",
-        "........#",
-        "........A",
-        "......a.#",
-        "........#",
-        ".........",
-        ".........",
-        "........S",
+        "::KE:::",
+        ":::#:::",
+        "::~~~::",
+        "::~~~::",
+        "::~~~::",
+        "::###::",
+        "::###::",
+        "::###::",
+        "::~~~::",
+        "::~~~::",
+        "::~~~::",
+        "::###::",
+        ":::S:::",
       ],
     },
     {
@@ -140,21 +191,18 @@ Lynx.games = Lynx.games || {};
       name: "Two Gates",
       intro: "Two gates, one Weight: the first gate may close behind the explorer",
       hint: "Weight on plate a, through gate A, then move the Weight to plate b",
+      stones: [1, 4],
       map: [
-        "E~~#.....",
-        "K..#.....",
-        "...B..b..",
-        "...#.....",
-        "...^.....",
-        "...^.....",
-        "...#FF#A#",
-        "........#",
-        "....a...#",
-        "........#",
-        "........#",
-        ".........",
-        ".........",
-        "........S",
+        "::KE:::::",
+        ":::#:::::",
+        "::BBB::::",
+        "::###:::b",
+        "::###::::",
+        "::###::::",
+        "::AAA::::",
+        "::###:::a",
+        "::###::::",
+        ":::S:::::",
       ],
     },
     {
@@ -162,97 +210,102 @@ Lynx.games = Lynx.games || {};
       name: "The Rune Vault",
       intro: "Two stretches of water, two ghost bridges and a fire that comes and goes",
       hint: "The Island and the Lantern each go twice: move them on behind the explorer",
+      stones: [0, 3, 4],
       map: [
-        "..K.......",
-        "..E.......",
-        "..#.......",
-        "..#.......",
-        "..~.......",
-        "..#.......",
-        "..#..#f#^#",
-        ".........~",
-        ".........~",
-        ".........~",
-        ".#FF#vv#A#",
-        "..........",
-        ".......a..",
-        ".S........",
+        "::KE:::",
+        ":::#:::",
+        "::~~~::",
+        "::~~~::",
+        "::###::",
+        "::...::",
+        "::...::",
+        "::#f#::",
+        "::~~~::",
+        "::~~~::",
+        "::###::",
+        "::...::",
+        "::...::",
+        "::###::",
+        ":::S:::",
       ],
     },
     {
       id: "steps",
-      name: "Stepping Stones",
+      name: "Up and Down",
       intro: "Raised ground, 4 cm a step: the explorer climbs one step at a time (the stones can't be climbed)",
-      hint: "The Island in the water between the two ledges: down onto it and up the other side; the steps lead up to the high ground",
+      hint: "Down onto the Island in the water between the two ledges, up the other side, then Rain at the fire up on the high ground",
+      stones: [0, 2, 4],
       map: [
-        ".E.......",
-        ".~.......",
-        ".~..K....",
-        ".#.......",
-        ".#vA#a...",
-        "....##...",
-        ".....F...",
-        ".....#...",
-        ".........",
-        ".........",
-        ".....#...",
-        ".....#...",
-        ".....#...",
-        ".....S...",
+        "::KE:::",
+        ":::#:::",
+        "::###::",
+        "::FFF::",
+        "::FFF::",
+        "::###::",
+        "::###::",
+        "::...::",
+        "::...::",
+        "::###::",
+        "::###::",
+        "::###::",
+        ":::S:::",
       ],
       rise: [
-        ".2.......",
-        ".2.......",
-        ".2.......",
-        ".2.......",
-        ".2222....",
-        "....1....",
-        ".........",
-        ".....1...",
-        ".........",
-        ".........",
-        ".....1...",
-        ".........",
-        ".........",
-        ".........",
+        "...2...",
+        "...2...",
+        "..222..",
+        "..222..",
+        "..222..",
+        "..222..",
+        "..111..",
+        ".......",
+        ".......",
+        "..111..",
+        "..111..",
+        ".......",
+        ".......",
       ],
     },
     {
       id: "towers",
       name: "The Towers",
-      intro: "Up to the 12 cm tower, a step at a time",
-      hint: "Island over the first water, Earth at the spikes; down and up the steps between the towers, Rain at the fire up there, Weight on plate b, Lantern at the high bridge, then the Key in its socket",
+      intro: "Up to the 12 cm tower, a step at a time, every stone on the way",
+      hint: "Island in the water, Earth at the spikes, Weight on plate a, Rain at the fire up there, Lantern at the high bridge, then the Key in its socket",
       map: [
-        "......E..",
-        "...K..~..",
-        "....b.~..",
-        "..#F#B#..",
-        "..#......",
-        "..#......",
-        "..#......",
-        "..##.....",
-        "...^.....",
-        "...#.....",
-        ".........",
-        ".........",
-        "...#.....",
-        "...S.....",
+        "::KE::::",
+        "::~~~:::",
+        "::~~~:::",
+        "::###:::",
+        "::FFF:::",
+        "::FFF:::",
+        "::###:::",
+        "::AAA::a",
+        "::###:::",
+        "::###:::",
+        "::^^^:::",
+        "::^^^:::",
+        "::###:::",
+        "::...:::",
+        "::...:::",
+        ":::S::::",
       ],
       rise: [
-        "......3..",
-        "......3..",
-        "......3..",
-        "..22223..",
-        "..1......",
-        "..1......",
-        "..2......",
-        "..21.....",
-        ".........",
-        ".........",
-        ".........",
-        ".........",
-        ".........",
-        ".........",
+        "...3....",
+        "..333...",
+        "..333...",
+        "..333...",
+        "..333...",
+        "..333...",
+        "..333...",
+        "..222...",
+        "..222...",
+        "..111...",
+        "........",
+        "........",
+        "........",
+        "........",
+        "........",
+        "........",
       ],
     },
     {
@@ -283,7 +336,7 @@ Lynx.games = Lynx.games || {};
   ];
 
   const STONES = [
-    { tag: 0, name: "Island", icon: "\u{1F3DD}", color: [120, 200, 90], tip: "ground round it" },
+    { tag: 0, name: "Island", icon: "\u{1F3DD}", color: [120, 200, 90], tip: "an island (only in water)" },
     { tag: 1, name: "Weight", icon: "\u{2693}", color: [190, 190, 200], tip: "holds a plate down" },
     { tag: 2, name: "Rain", icon: "\u{1F327}", color: [90, 160, 255], tip: "puts out fire" },
     { tag: 3, name: "Lantern", icon: "\u{1F3EE}", color: [255, 210, 90], tip: "lights ghost bridges" },
@@ -378,9 +431,12 @@ Lynx.games = Lynx.games || {};
       const [u, v] = toUV(f, r);
       return [G.O.H - 1 + 0.5 - (u - MAP_AHEAD_M) / CELL, v / CELL + (G.O.W - 1) / 2];
     }
-    const tileAt = (i, j) => (i < 0 || j < 0 || i >= G.O.H || j >= G.O.W ? "." : G.O.rows[i][j]);
+    // (round the map: the ravine)
+    const tileAt = (i, j) => (i < 0 || j < 0 || i >= G.O.H || j >= G.O.W ? ":" : G.O.rows[i][j]);
+    // a gap: open water (.: the Island floats there) or the ravine (:, bottomless: it doesn't)
+    const isGap = (ch) => ch === "." || ch === ":";
     // a cell's raised height (m; 0 on the floor, and for a chasm)
-    const baseAt = (i, j) => (i < 0 || j < 0 || i >= G.O.H || j >= G.O.W || G.O.rows[i][j] === "." ? 0 : G.O.base[i][j]);
+    const baseAt = (i, j) => (i < 0 || j < 0 || i >= G.O.H || j >= G.O.W || isGap(G.O.rows[i][j]) ? 0 : G.O.base[i][j]);
     const cellCenterFR = (i, j) => toFR(...cellUV(i, j));
     const isWater = (ch) => ch === "w" || ch === "h";
     const waterAt = (f, r) => {
@@ -418,10 +474,14 @@ Lynx.games = Lynx.games || {};
     const islandYaw = (b) => (b.world && typeof b.world.heading === "number" ? w.anchor().th - b.world.heading : b.yaw);
     const islandFrame = (b) => ({ ...b, yaw: islandYaw(b) });
     const ISLAND_R = ISLAND_HALF * CELL * 1.08;
+    // The Island floats only on open water (.): not in the ravine, not on
+    // the ground, fire, spikes or a ghost bridge -- so it never stands in for
+    // another stone. On anything else it's just a stone.
+    const islandWorks = (s) => !!s && tileAt(Math.round(s.i), Math.round(s.j)) === ".";
     const islandR = (a) => ISLAND_R * (1 + 0.13 * Math.cos(2 * a) + 0.07 * Math.sin(3 * a + 0.6) - 0.06 * Math.cos(a));
     function onIsland(f, r) {
       const s = stone(0);
-      if (!s || waterAt(s.b.cf, s.b.cr)) return false;
+      if (!islandWorks(s)) return false;
       const [u, v] = api.toB(islandFrame(s.b), f, r);
       return Math.hypot(u, v) <= islandR(Math.atan2(v, u));
     }
@@ -431,11 +491,13 @@ Lynx.games = Lynx.games || {};
     const HILL_STEP = 0.003; // m (under her step up)
     function islandHills() {
       const s = stone(0);
-      if (!s || waterAt(s.b.cf, s.b.cr)) return [];
+      if (!islandWorks(s)) return [];
       const fb = islandFrame(s.b);
       const out = [];
       HILLS.forEach((hl, k) => {
         const [cf, cr] = api.fromB(fb, hl.u * CELL, hl.v * CELL);
+        const [hi, hj] = cellAt(cf, cr);
+        if (tileAt(Math.round(hi), Math.round(hj)) !== ".") return; // (only over the water: never a way over the ravine)
         out.push({ id: `hill${k}a`, cf, cr, yaw: fb.yaw, half: hl.r * CELL * 0.8, h0: 0, h1: HILL_STEP, hill: hl });
         out.push({ id: `hill${k}b`, cf, cr, yaw: fb.yaw, half: hl.r * CELL * 0.45, h0: 0, h1: 2 * HILL_STEP, hill: hl });
       });
@@ -456,12 +518,12 @@ Lynx.games = Lynx.games || {};
 
     // Can the knight stand on the floor here? (on a real cube's top it always can)
     function floorAt(f, r) {
-      if (onIsland(f, r)) return "island";
       const [ci, cj] = cellAt(f, r);
       const i = Math.round(ci);
       const j = Math.round(cj);
       const ch = tileAt(i, j);
-      if (ch === "." || isWater(ch)) return null;
+      if (ch === ".") return onIsland(f, r) ? "island" : null; // (the island: only over open water)
+      if (ch === ":" || isWater(ch)) return null;
       if (ch === "~") return lit(i, j) && !baseAt(i, j) ? "bridge" : null; // (under a raised bridge: the chasm)
       return ch;
     }
@@ -471,8 +533,9 @@ Lynx.games = Lynx.games || {};
     function groundCell() {
       if (hero.mode !== "move" || !hero.onGround || G.fallT > 0) return null;
       const s = hero.standOn;
-      if (s === null ? hero.z >= 0.003 : !(typeof s === "string" && s.startsWith("plat"))) return null;
-      if (s !== null) return s.slice(4).split("_").map(Number); // (the column she stands on)
+      const hill = typeof s === "string" && s.startsWith("hill"); // (an island's hill: the ground under it counts)
+      if (s === null ? hero.z >= 0.003 : !hill && !(typeof s === "string" && s.startsWith("plat"))) return null;
+      if (s !== null && !hill) return s.slice(4).split("_").map(Number); // (the column she stands on)
       const [ci, cj] = cellAt(hero.f, hero.r);
       return [Math.round(ci), Math.round(cj)];
     }
@@ -565,6 +628,8 @@ Lynx.games = Lynx.games || {};
     function startFall() {
       G.fallT = 0.001;
       G.fellInWater = waterAt(hero.f, hero.r);
+      const [fi, fj] = cellAt(hero.f, hero.r);
+      G.fellInRavine = tileAt(Math.round(fi), Math.round(fj)) !== "."; // (the ravine, an unlit bridge)
       hero.vf *= 0.3;
       hero.vr *= 0.3;
       sfx("die");
@@ -587,10 +652,10 @@ Lynx.games = Lynx.games || {};
           G.hearts = Math.max(0, G.hearts - 1);
           if (G.hearts <= 0) {
             respawn();
-            return lose(G.fellInWater ? "The explorer fell into the river" : "The explorer fell into the water");
+            return lose(G.fellInWater ? "The explorer fell into the river" : G.fellInRavine ? "The explorer fell into the ravine" : "The explorer fell into the water");
           }
           respawn();
-          say(G.fellInWater ? "Splash! Into the river -- back to the shore" : "Splash! Into the water -- back to firm ground", "#ff9080");
+          say(G.fellInWater ? "Splash! Into the river -- back to the shore" : G.fellInRavine ? "Down into the ravine! Back to firm ground" : "Splash! Into the water -- back to firm ground", "#ff9080");
         }
         return;
       }
@@ -745,8 +810,8 @@ Lynx.games = Lynx.games || {};
       // the map in front of the robot, from where it stands now
       const ch = api.chassis();
       G.O = { f: ch.f, r: ch.r, th: ch.th, rows: lv.map, H: lv.map.length, W: Math.max(...lv.map.map((s) => s.length)) };
-      G.O.rows = lv.map.map((s) => s.padEnd(G.O.W, "."));
-      G.O.base = G.O.rows.map((row, i) => [...row].map((c, j) => clamp(+((lv.rise && lv.rise[i] && lv.rise[i][j]) || (lv.riseAll && c !== "." ? lv.riseAll : 0)) || 0, 0, 9) * RISE));
+      G.O.rows = lv.map.map((s) => s.padEnd(G.O.W, ":"));
+      G.O.base = G.O.rows.map((row, i) => [...row].map((c, j) => clamp(+((lv.rise && lv.rise[i] && lv.rise[i][j]) || (lv.riseAll && c !== "." && c !== ":" ? lv.riseAll : 0)) || 0, 0, 9) * RISE));
       G.O.hasKey = G.O.rows.some((row) => row.includes("K"));
       G.portalOpen = !G.O.hasKey;
       G.gates = {};
@@ -954,7 +1019,9 @@ Lynx.games = Lynx.games || {};
 
     const PAD = 2; // chasm drawn this many cells round the map (it's all chasm out there)
     const LOOK = {
-      chasm: "rgba(22,74,128,0.86)", // the gaps: deep water (it's water an island can stand in)
+      chasm: "rgba(22,74,128,0.86)", // open water (.: the Island floats there)
+      ravine: "rgba(16,14,26,0.9)", // the ravine (:): bottomless and dark
+      ravineEdge: "rgba(90,80,120,0.5)",
       path: "rgba(226,198,138,0.66)", // the walkable stones
       grout: "rgba(70,48,22,0.8)",
       bridge: "rgba(150,235,255,0.5)",
@@ -1044,6 +1111,7 @@ Lynx.games = Lynx.games || {};
       const o = G.O;
       const t = G.time;
       const chasm = [];
+      const ravine = [];
       const path = [];
       const bridges = [];
       const ghosts = [];
@@ -1065,7 +1133,7 @@ Lynx.games = Lynx.games || {};
             const nb = [[0, -1], [-1, 0], [0, 1], [1, 0]];
             const [cf, cr] = cellCenterFR(i, j);
             for (let k = 0; k < 4; k++) {
-              if (tileAt(i + nb[k][0], j + nb[k][1]) !== ".") continue;
+              if (!isGap(tileAt(i + nb[k][0], j + nb[k][1]))) continue;
               const a = top[k];
               const b = top[(k + 1) % 4];
               const mf = (a[0] + b[0]) / 2;
@@ -1076,13 +1144,17 @@ Lynx.games = Lynx.games || {};
             continue;
           }
           if (baseAt(i, j)) {
-            // raised: drawn standing (queued); under a raised bridge, the chasm
-            if (ch === "~") addQuad(chasm, cellQuad(i, j, i, j, 0, -0.02));
+            // raised: drawn standing (queued); under a raised bridge, the ravine
+            if (ch === "~") addQuad(ravine, cellQuad(i, j, i, j, 0, -0.02));
             continue;
           }
-          if (ch === "." || (ch === "~" && !lit(i, j))) {
+          if (ch === ".") {
             addQuad(chasm, cellQuad(i, j, i, j, 0, -0.02)); // (a hair bigger: no seams)
             if ((i + j) % 2 === 0) waveCells.push([i, j]);
+            continue;
+          }
+          if (ch === ":" || (ch === "~" && !lit(i, j))) {
+            addQuad(ravine, cellQuad(i, j, i, j, 0, -0.02));
             if (ch === "~") addQuad(ghosts, cellQuad(i, j, i, j, 0, 0.08));
             continue;
           }
@@ -1100,6 +1172,7 @@ Lynx.games = Lynx.games || {};
       // the ground and the water: scenery, at the scene's opacity (the
       // camera view through it: the setting); fire, spikes, marks: solid
       Lynx.asScene(ar.ctx, () => {
+        fillPath(ravine, LOOK.ravine, null);
         fillPath(chasm, LOOK.chasm, null);
         drawWaves(waveCells);
         fillPath(waterSide, WATER.side, null);
@@ -1126,9 +1199,21 @@ Lynx.games = Lynx.games || {};
         const st = STONES[tag];
         const { cf, cr } = s.b;
         if (tag === 0) {
-          if (waterAt(cf, cr)) return;
-          // the island: a sandy beach round a grassy middle, a foam line round it
+          if (!islandWorks(s)) return;
+          // the island: a sandy beach round a grassy middle, a foam line round
+          // it -- none of it over the ravine (it isn't ground there)
           const fb = islandFrame(s.b);
+          const g = ar.ctx;
+          const clip = [];
+          for (let i = Math.floor(s.i) - 3; i <= Math.ceil(s.i) + 3; i++) for (let j = Math.floor(s.j) - 3; j <= Math.ceil(s.j) + 3; j++) if (tileAt(i, j) !== ":") addQuad(clip, cellQuad(i, j, i, j, 0, -0.01));
+          g.save();
+          g.beginPath();
+          for (const q of clip) {
+            g.moveTo(q[0].x, q[0].y);
+            for (let k = 1; k < q.length; k++) g.lineTo(q[k].x, q[k].y);
+            g.closePath();
+          }
+          g.clip();
           const sand = [];
           const grass = [];
           addPotato(sand, fb, 1);
@@ -1142,6 +1227,7 @@ Lynx.games = Lynx.games || {};
             edge.push([...api.fromB(fb, Math.cos(a) * rr, Math.sin(a) * rr), 0.0004]);
           }
           w.line3(edge, "rgba(235,248,255,0.8)", 2, 0.02);
+          g.restore();
         } else if (tag === 2) {
           const wetDisc = [];
           addDisc(wetDisc, cf, cr, REACH * CELL);
@@ -1809,7 +1895,7 @@ Lynx.games = Lynx.games || {};
       G.stones.forEach((s, tag) => {
         if (!s) return;
         if (tag === 0) {
-          if (!waterAt(s.b.cf, s.b.cr)) {
+          if (islandWorks(s)) {
             queuePalm(s.b);
             queueHills();
           }
@@ -1820,7 +1906,7 @@ Lynx.games = Lynx.games || {};
       api.realSolids.forEach((b) => {
         if (b.inferred || waterAt(b.cf, b.cr)) return;
         const st = G.stones[b.tag];
-        if (b.tag === 0 && st && st.b === b) return;
+        if (b.tag === 0 && st && st.b === b && islandWorks(st)) return; // (the island's: under its palm; out of the water, a stone)
         queueStoneCube(b, st && st.b === b ? stoneInfo(b.tag) : null);
       });
       for (let i = 0; i < o.H; i++) {
@@ -2094,7 +2180,7 @@ Lynx.games = Lynx.games || {};
         });
       }
       ar.text(
-        small ? "Tap a level · tap it again (or ▶): start" : `The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-${LEVELS.length}: choose · Fire / A: start`,
+        small ? "Tap a level · tap it again (or ▶): start" : `The level appears in front of the robot · click a level, again to start · LB / RB, Tab, 1-${Math.min(9, LEVELS.length)}: choose · Fire / A: start`,
         v.cx, v.y + v.h - 22, { size: small ? 11 : 12, align: "center", color: "#ffe9a8" },
       );
     }
