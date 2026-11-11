@@ -475,6 +475,7 @@ window.addEventListener("DOMContentLoaded", () => {
     blockquest: [...KNIGHT_BLOCKS, "blockquest_fx.js", "blockquest_gl.js", "blockquest_figures.js",
       "blockquest_actors.js", "game_blockquest.js", "blockquest_levels.js"],
     runes: [...KNIGHT_BLOCKS, "game_runes.js"],
+    nano: [...KNIGHT_BLOCKS, "game_nano.js"],
     race: ["game_race.js"],
     detect: ["detect.js"],
     scavenger: ["detect.js"],

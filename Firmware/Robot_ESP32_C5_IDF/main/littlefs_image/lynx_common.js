@@ -423,6 +423,31 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "gems", title: "Gem Bastion", better: "higher", format: "points" }],
     },
     {
+      id: "nano",
+      released: "2026-11-11",
+      kind: "game",
+      name: "Inside the Chip",
+      icon: "\u{269B}\u{FE0F}",
+      blurb:
+        "A parkour through a chip at the nanometre scale, on Knight on Blocks: a technician in a cleanroom suit, shrunk to 15 nanometres, runs, jumps and climbs through what's inside a modern chip, laid out on the floor in front of the robot. " +
+        "The copper wiring on its layers, with vias between them and the void below; down the stack over signal pulses racing along the wires; a FinFET transistor -- fins, gates too tall to climb, source and drain -- that you switch on at its gate's contact to open its channel; and the newest gate-all-around nanosheets, climbed like a ladder. " +
+        "Electrons to collect, and nano facts at the info points: how small it all is, and how it's made (EUV light). Real cubes the camera finds are specks of dust -- boulders at this scale. Four levels. Needs internet once (the tag detector, for the dust).",
+      settings: [
+        { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
+        { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
+        { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
+        { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
+        { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
+        { key: "driveSpeedCmS", label: "Manual drive: top speed", type: "number", unit: "cm/s", def: 16, min: 3, max: 35, step: 1 },
+        { key: "turnSpeedDeg", label: "Manual drive: top turning speed", type: "number", unit: "deg/s", def: 60, min: 10, max: 150, step: 5 },
+        { key: "camSpeedDeg", label: "Camera turning speed", type: "number", unit: "deg/s", def: 40, min: 2, max: 40, step: 1 },
+        { key: "camDeadzoneDeg", label: "Camera dead zone, left / right", type: "number", unit: "deg", def: 12, min: 0, max: 30, step: 1 },
+        { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
+        { key: "showBlocks", label: "Show detected blocks (cyan outlines)", type: "checkbox", def: false },
+        { key: "showTags", label: "Show tag detections (violet outlines)", type: "checkbox", def: false },
+      ],
+    },
+    {
       id: "chips",
       released: "2026-11-11",
       kind: "game",
