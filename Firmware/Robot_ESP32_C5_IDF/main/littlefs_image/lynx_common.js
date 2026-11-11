@@ -423,6 +423,23 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "gems", title: "Gem Bastion", better: "higher", format: "points" }],
     },
     {
+      id: "chips",
+      released: "2026-11-11",
+      kind: "game",
+      name: "Chip Foundry",
+      icon: "\u{1F52C}",
+      blurb:
+        "Logic puzzles on a silicon die, with your tagged cubes. The floor in front of the robot becomes a chip under the microscope: bond pads and gold bond wires, power rails, metal traces on two layers -- and empty cells. " +
+        "Each cube is a chip, drawn as a little 7400-series package: 0 NOT, 1 AND, 2 OR, 3 XOR, 4 NAND, 5 NOR. Set one in a cell and it becomes that gate; a cube stacked on top inverts its output. " +
+        "Signals run along the traces as glowing electrons, the test vectors step through the inputs, and a logic analyzer shows every output against what it should be. When they all match, the chip is taped out -- " +
+        "with stars for using as few transistors as possible. Eight levels: an inverter, AND, XOR, a half adder, NAND with the AND chip sold out, a majority vote, a multiplexer and a latch that remembers a bit. Needs internet once (the tag detector). Tags to print: /tags.html",
+      settings: [
+        { key: "cellCm", label: "Die scale: one tile (a cube fits in one)", type: "number", unit: "cm", def: 5, min: 4, max: 8, step: 0.5 },
+        { key: "stepS", label: "Test vector step", type: "number", unit: "s", def: 1, min: 0.4, max: 3, step: 0.1 },
+      ],
+      boards: [{ key: "chips", title: "Chip Foundry", better: "higher", format: "points" }],
+    },
+    {
       id: "wisps",
       released: "2026-11-10",
       kind: "game",

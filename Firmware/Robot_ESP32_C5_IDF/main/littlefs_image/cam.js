@@ -466,6 +466,7 @@ window.addEventListener("DOMContentLoaded", () => {
     inkblot: ["game_inkblot.js"],
     gems: ["game_gems.js"],
     wisps: ["game_wisps.js"],
+    chips: ["game_chips.js"],
     prisma: ["prisma_core.js", "prisma_levels.js", "game_prisma.js"],
     temple: ["game_temple.js", "game_temple_sanctum.js", "game_temple_labyrinth.js", "game_temple_kit.js",
       "game_temple_sky.js", "game_temple_cistern.js", "game_temple_mirrors.js", "game_temple_vault.js"],
