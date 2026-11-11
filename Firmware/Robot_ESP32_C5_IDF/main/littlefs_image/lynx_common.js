@@ -434,6 +434,7 @@ window.Lynx = window.Lynx || {};
         "Electrons to collect, and nano facts at the info points: how small it all is, and how it's made (EUV light). Real cubes the camera finds are specks of dust -- boulders at this scale. Four levels. Needs internet once (the tag detector, for the dust).",
       settings: [
         { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
+        { key: "textures", label: "Textures (off: flat colours, lighter for an old phone)", type: "checkbox", def: true },
         { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
         { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
         { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
@@ -461,6 +462,7 @@ window.Lynx = window.Lynx || {};
       settings: [
         { key: "cellCm", label: "Die scale: one tile (a cube fits in one)", type: "number", unit: "cm", def: 5, min: 4, max: 8, step: 0.5 },
         { key: "stepS", label: "Test vector step", type: "number", unit: "s", def: 1, min: 0.4, max: 3, step: 0.1 },
+        { key: "textures", label: "Textures (off: flat colours, lighter for an old phone)", type: "checkbox", def: true },
       ],
       boards: [{ key: "chips", title: "Chip Foundry", better: "higher", format: "points" }],
     },

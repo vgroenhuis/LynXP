@@ -277,6 +277,38 @@ window.Lynx = window.Lynx || {};
     g.putImageData(img, 0, 0);
     return c;
   }
+  // A texture painted in the browser: paint(g, rnd, wrap, size) on a size x
+  // size canvas -- rnd a seeded random (the same picture every time), wrap(x,
+  // y, r, fn) calls fn at (x, y) and its copies across the edges, so a shape
+  // there tiles; noise(amount) after: a per-pixel grain. For registerTexture.
+  Lynx.paintedTexture = (seed, paint, size = 128) => () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    const g = c.getContext("2d");
+    let t = seed;
+    const rnd = () => {
+      t = (t + 0x6d2b79f5) | 0;
+      let x = Math.imul(t ^ (t >>> 15), 1 | t);
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+    const wrap = (x, y, r, fn) => {
+      for (const dx of [-size, 0, size]) for (const dy of [-size, 0, size]) if (x + dx > -r && x + dx < size + r && y + dy > -r && y + dy < size + r) fn(x + dx, y + dy);
+    };
+    const noise = (amount) => {
+      const img = g.getImageData(0, 0, size, size);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const n = (rnd() - 0.5) * 2 * amount;
+        d[i] = Math.max(0, Math.min(255, d[i] + n));
+        d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
+        d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+      }
+      g.putImageData(img, 0, 0);
+    };
+    paint(g, rnd, wrap, size, noise);
+    return c;
+  };
   // A game's own textures: Lynx.registerTexture(name, () => canvas) -- made
   // the first time it's asked for (128 x 128 px = 0.3 m on a floor, tiling).
   const customTextures = new Map();
@@ -599,6 +631,14 @@ window.Lynx = window.Lynx || {};
       ctx.drawImage(img, 0, 0);
       ctx.restore();
     }
+    // The same for a quad already on the screen (points {x, y}, e.g. from a
+    // lens-aware world3d's project): false if a corner is missing.
+    ar.texturedQuadScreen = (s, img, uv) => {
+      if (!img || s.some((p) => !p)) return false;
+      texTriangle(img, s[0], s[1], s[2], uv[0], uv[1], uv[2]);
+      texTriangle(img, s[0], s[2], s[3], uv[0], uv[2], uv[3]);
+      return true;
+    };
     ar.texturedQuad = (pts, img, uv) => {
       const s = pts.map((p) => ar.project(p[0], p[1], p[2]));
       if (s.some((p) => !p)) return false;

@@ -23,7 +23,11 @@
 // The world: boxes in the level's frame (u forward from where the robot
 // stood at the start, v to the right, h up; meters), solid for the hero as
 // long blocks (game_knightblocks.js: hu / hv), drawn in short pieces, depth
-// sorted with the hero (ar.queue, world3d extents).
+// sorted with the hero (ar.queue, world3d extents) -- near the camera
+// textured (painted here, 128 px = 4 cm: polished copper, tungsten, silicon
+// with its atom lattice, the gate's metal, nitride, faceted epitaxial
+// silicon, the oxide's glass, the porous void), further away flat colour;
+// the setting "textures" off: flat colour everywhere.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -38,18 +42,197 @@ Lynx.games = Lynx.games || {};
 
   // -- the looks: top, the two sides (lit along u, darker along v), the edges ------------------------------
   const STYLES = {
-    copper: { top: "#c87a4a", side: "#9c5832", dark: "#713d20", line: "rgba(40,18,6,0.85)", shine: "rgba(255,226,190,0.55)", name: "copper" },
-    copperTop: { top: "#b8703f", side: "#8e4f2b", dark: "#66361b", line: "rgba(40,18,6,0.85)", shine: "rgba(255,220,180,0.5)" },
-    via: { top: "#bfc6ce", side: "#8f97a1", dark: "#676e78", line: "rgba(20,24,30,0.85)", shine: "rgba(255,255,255,0.6)" },
-    pad: { top: "#d9dee4", side: "#a8b0b9", dark: "#7c848e", line: "rgba(30,34,40,0.8)" },
-    fin: { top: "#9d92b6", side: "#776b91", dark: "#564b70", line: "rgba(20,14,34,0.8)" },
-    sheet: { top: "#a69bc0", side: "#7d7198", dark: "#5c5076", line: "rgba(20,14,34,0.8)" },
-    gate: { top: "#5f74c0", side: "#4659a3", dark: "#34437e", line: "rgba(10,14,40,0.85)" },
-    spacer: { top: "rgba(232,237,241,0.8)", side: "rgba(205,213,221,0.62)", dark: "rgba(170,181,192,0.62)", line: "rgba(40,50,60,0.5)" }, // (see-through a little: the gate behind)
-    epiN: { top: "#74c890", side: "#539f6c", dark: "#3c7a51", line: "rgba(10,40,20,0.8)" },
-    epiP: { top: "#e08cb4", side: "#b5668b", dark: "#8a4a69", line: "rgba(50,10,30,0.8)" },
-    contact: { top: "#c4c9ce", side: "#9399a1", dark: "#6b7179", line: "rgba(20,24,30,0.85)" },
+    copper: { tex: "nn_copper", top: "#c87a4a", side: "#9c5832", dark: "#713d20", line: "rgba(40,18,6,0.85)", shine: "rgba(255,226,190,0.55)", name: "copper" },
+    copperTop: { tex: "nn_copper", top: "#b8703f", side: "#8e4f2b", dark: "#66361b", line: "rgba(40,18,6,0.85)", shine: "rgba(255,220,180,0.5)" },
+    via: { tex: "nn_tungsten", top: "#bfc6ce", side: "#8f97a1", dark: "#676e78", line: "rgba(20,24,30,0.85)", shine: "rgba(255,255,255,0.6)" },
+    pad: { tex: "nn_pad", top: "#d9dee4", side: "#a8b0b9", dark: "#7c848e", line: "rgba(30,34,40,0.8)" },
+    fin: { tex: "nn_silicon", top: "#9d92b6", side: "#776b91", dark: "#564b70", line: "rgba(20,14,34,0.8)" },
+    sheet: { tex: "nn_silicon", top: "#a69bc0", side: "#7d7198", dark: "#5c5076", line: "rgba(20,14,34,0.8)" },
+    gate: { tex: "nn_gate", top: "#5f74c0", side: "#4659a3", dark: "#34437e", line: "rgba(10,14,40,0.85)" },
+    spacer: { tex: "nn_nitride", top: "rgba(232,237,241,0.8)", side: "rgba(205,213,221,0.62)", dark: "rgba(170,181,192,0.62)", line: "rgba(40,50,60,0.5)" }, // (see-through a little: the gate behind)
+    epiN: { tex: "nn_epiN", top: "#74c890", side: "#539f6c", dark: "#3c7a51", line: "rgba(10,40,20,0.8)" },
+    epiP: { tex: "nn_epiP", top: "#e08cb4", side: "#b5668b", dark: "#8a4a69", line: "rgba(50,10,30,0.8)" },
+    contact: { tex: "nn_tungsten", top: "#c4c9ce", side: "#9399a1", dark: "#6b7179", line: "rgba(20,24,30,0.85)" },
   };
+
+  // -- the textures: painted here (128 px = 4 cm), materials as they are in a chip ----------------------------------
+  const streaks = (g, rnd, wrap, n, light, dark, lenMin, lenMax, wMax = 1.2) => {
+    for (let k = 0; k < n; k++) {
+      const x = rnd() * 128;
+      const y = rnd() * 128;
+      const l = lenMin + rnd() * (lenMax - lenMin);
+      const a = 0.04 + rnd() * 0.1;
+      g.strokeStyle = rnd() < 0.55 ? light.replace("A", a.toFixed(3)) : dark.replace("A", a.toFixed(3));
+      g.lineWidth = 0.5 + rnd() * wMax;
+      wrap(x, y, l, (px, py) => {
+        g.beginPath();
+        g.moveTo(px, py);
+        g.lineTo(px + l, py + (rnd() - 0.5) * 1.5);
+        g.stroke();
+      });
+    }
+  };
+  const blobs = (g, rnd, wrap, n, rMin, rMax, light, dark) => {
+    for (let k = 0; k < n; k++) {
+      const x = rnd() * 128;
+      const y = rnd() * 128;
+      const r = rMin + rnd() * (rMax - rMin);
+      g.fillStyle = (rnd() < 0.5 ? light : dark).replace("A", (0.04 + rnd() * 0.08).toFixed(3));
+      wrap(x, y, r, (px, py) => {
+        g.beginPath();
+        g.arc(px, py, r, 0, 2 * Math.PI);
+        g.fill();
+      });
+    }
+  };
+  const faceted = (base) => (g, rnd, wrap, size, noise) => {
+    g.fillStyle = base;
+    g.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 4; j++) {
+        const x = j * 32;
+        const y = i * 32;
+        for (const tri of [[[x, y], [x + 32, y], [x, y + 32]], [[x + 32, y], [x + 32, y + 32], [x, y + 32]]]) {
+          const l = rnd();
+          g.fillStyle = l < 0.5 ? `rgba(255,255,255,${(0.04 + l * 0.18).toFixed(3)})` : `rgba(0,0,0,${(0.04 + (l - 0.5) * 0.25).toFixed(3)})`;
+          g.beginPath();
+          tri.forEach(([a, b], n) => (n ? g.lineTo(a, b) : g.moveTo(a, b)));
+          g.closePath();
+          g.fill();
+          g.strokeStyle = "rgba(255,255,255,0.18)";
+          g.lineWidth = 0.8;
+          g.stroke();
+        }
+      }
+    }
+    noise(7);
+  };
+  const TEXTURES = {
+    nn_copper: Lynx.paintedTexture(301, (g, rnd, wrap, size, noise) => {
+      // polished copper: warm and bright, fine grains, faint polishing marks (not wood: no dark streaks)
+      const gr = g.createLinearGradient(0, 0, 128, 128);
+      gr.addColorStop(0, "#c9784a");
+      gr.addColorStop(0.5, "#d98d5c");
+      gr.addColorStop(1, "#c9784a");
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 60, 3, 9, "rgba(255,205,160,A)", "rgba(150,70,35,A)"); // (the grains)
+      streaks(g, rnd, wrap, 140, "rgba(255,236,210,A)", "rgba(255,236,210,A)", 4, 22, 0.6); // (polished)
+      for (let k = 0; k < 5; k++) {
+        const y = rnd() * 128;
+        g.strokeStyle = "rgba(255,240,220,0.22)";
+        g.lineWidth = 0.6;
+        g.beginPath();
+        g.moveTo(0, y);
+        g.lineTo(128, y + (rnd() - 0.5) * 20);
+        g.stroke();
+      }
+      noise(6);
+    }),
+    nn_tungsten: Lynx.paintedTexture(303, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#9da3aa";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 600, 0.8, 3, "rgba(255,255,255,A)", "rgba(0,0,0,A)");
+      noise(12);
+    }),
+    nn_gate: Lynx.paintedTexture(305, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#5266aa";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 40, 6, 18, "rgba(200,215,255,A)", "rgba(10,20,60,A)");
+      streaks(g, rnd, wrap, 200, "rgba(210,225,255,A)", "rgba(10,20,60,A)", 6, 40);
+      noise(7);
+    }),
+    nn_silicon: Lynx.paintedTexture(307, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#948bab";
+      g.fillRect(0, 0, 128, 128);
+      noise(7);
+      // the crystal: rows of atoms and the bonds between them
+      g.strokeStyle = "rgba(220,212,240,0.22)";
+      g.lineWidth = 0.8;
+      for (let r = 0; r < 16; r++) {
+        for (let c = 0; c < 16; c++) {
+          const x = c * 8 + (r % 2) * 4;
+          const y = r * 8 + 4;
+          g.beginPath();
+          g.moveTo(x, y);
+          g.lineTo(x + 4, y + 8);
+          g.moveTo(x, y);
+          g.lineTo(x - 4, y + 8);
+          g.stroke();
+        }
+      }
+      for (let r = 0; r < 16; r++) {
+        for (let c = 0; c < 16; c++) {
+          const x = c * 8 + (r % 2) * 4;
+          const y = r * 8 + 4;
+          wrap(x, y, 3, (px, py) => {
+            g.fillStyle = "rgba(40,30,70,0.35)";
+            g.beginPath();
+            g.arc(px + 0.7, py + 0.7, 1.7, 0, 2 * Math.PI);
+            g.fill();
+            g.fillStyle = "rgba(235,230,250,0.62)";
+            g.beginPath();
+            g.arc(px, py, 1.5, 0, 2 * Math.PI);
+            g.fill();
+          });
+        }
+      }
+    }),
+    nn_epiN: Lynx.paintedTexture(309, faceted("#5aa874")),
+    nn_epiP: Lynx.paintedTexture(311, faceted("#cf7fa6")),
+    nn_nitride: Lynx.paintedTexture(313, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#e2e7ec";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 160, 1, 4, "rgba(255,255,255,A)", "rgba(120,130,150,A)");
+      noise(4);
+    }),
+    nn_pad: Lynx.paintedTexture(315, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#c6ccd3";
+      g.fillRect(0, 0, 128, 128);
+      streaks(g, rnd, wrap, 240, "rgba(255,255,255,A)", "rgba(40,50,60,A)", 10, 70);
+      // probe marks
+      for (let k = 0; k < 3; k++) {
+        const x = 20 + rnd() * 88;
+        const y = 20 + rnd() * 88;
+        g.strokeStyle = "rgba(60,64,70,0.35)";
+        g.lineWidth = 2;
+        g.beginPath();
+        g.ellipse(x, y, 5 + rnd() * 4, 2 + rnd() * 2, rnd() * 3, 0, 2 * Math.PI);
+        g.stroke();
+      }
+      noise(6);
+    }),
+    nn_oxide: Lynx.paintedTexture(317, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#7b9bb5";
+      g.fillRect(0, 0, 128, 128);
+      blobs(g, rnd, wrap, 40, 10, 34, "rgba(220,240,255,A)", "rgba(20,40,70,A)");
+      blobs(g, rnd, wrap, 120, 0.6, 1.4, "rgba(255,255,255,A)", "rgba(255,255,255,A)");
+      noise(4);
+    }),
+    nn_void: Lynx.paintedTexture(319, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#0b1020";
+      g.fillRect(0, 0, 128, 128);
+      // the porous glass's pores
+      for (let k = 0; k < 280; k++) {
+        const x = rnd() * 128;
+        const y = rnd() * 128;
+        const r = 0.8 + rnd() * 2.4;
+        wrap(x, y, r + 1, (px, py) => {
+          g.fillStyle = "rgba(0,0,0,0.55)";
+          g.beginPath();
+          g.arc(px, py, r, 0, 2 * Math.PI);
+          g.fill();
+          g.strokeStyle = "rgba(90,110,170,0.2)";
+          g.lineWidth = 0.6;
+          g.stroke();
+        });
+      }
+      noise(4);
+    }),
+  };
+  if (Lynx.registerTexture) Object.keys(TEXTURES).forEach((k) => Lynx.registerTexture(k, TEXTURES[k]));
+  const TEX_PX_CM = 32; // texture pixels per cm (128 px = 4 cm)
+  const TEX_NEAR = 0.65; // m: nearer than this, textured (further: flat colour)
 
   // -- the levels -----------------------------------------------------------------------------------------
   // Built by code (in cm): boxes {u0, u1, v0, v1, h0, h1, style}, solid
@@ -556,7 +739,18 @@ Lynx.games = Lynx.games || {};
         for (let u = 8; u < 108; u += 4) {
           for (let v = -24; v < 24; v += 4) {
             const ox = onOxide(u + 2, v + 2);
-            const s = polyFill([P(u, v, 0), P(u + 4, v, 0), P(u + 4, v + 4, 0), P(u, v + 4, 0)], ox ? "rgba(120,160,200,0.42)" : "rgba(8,12,24,0.88)", null);
+            const q = [P(u, v, 0), P(u + 4, v, 0), P(u + 4, v + 4, 0), P(u, v + 4, 0)];
+            const mid = P(u + 2, v + 2, 0);
+            if (texOn && w.camZ(mid[0], mid[1], 0) < TEX_NEAR) {
+              // (near: the material -- the oxide's glass, see-through; the void's porous dark)
+              const c = g();
+              const a0 = c.globalAlpha;
+              c.globalAlpha = a0 * (ox ? 0.55 : 0.92);
+              const done = texRect(q, 4, 4, Lynx.texture(ox ? "nn_oxide" : "nn_void"));
+              c.globalAlpha = a0;
+              if (done) continue;
+            }
+            const s = polyFill(q, ox ? "rgba(120,160,200,0.42)" : "rgba(8,12,24,0.88)", null);
             if (s && ox) {
               // the oxide's grain: a dot at each corner
               const c = g();
@@ -569,7 +763,14 @@ Lynx.games = Lynx.games || {};
       // the deco: lower layers far below, drawn flat (no depth: the bottom of everything)
       G.pieces.forEach((p) => {
         if (!p.deco) return;
-        polyFill([P(p.u0, p.v0, p.h1), P(p.u1, p.v0, p.h1), P(p.u1, p.v1, p.h1), P(p.u0, p.v1, p.h1)], "rgba(130,80,50,0.35)", null);
+        const q = [P(p.u0, p.v0, p.h1), P(p.u1, p.v0, p.h1), P(p.u1, p.v1, p.h1), P(p.u0, p.v1, p.h1)];
+        const mid = P((p.u0 + p.u1) / 2, (p.v0 + p.v1) / 2, p.h1);
+        const c = g();
+        const a0 = c.globalAlpha;
+        c.globalAlpha = a0 * 0.5;
+        const done = texOn && w.camZ(mid[0], mid[1], mid[2]) < TEX_NEAR && texRect(q, p.u1 - p.u0, p.v1 - p.v0, Lynx.texture("nn_copper"));
+        c.globalAlpha = a0;
+        polyFill(q, done ? "rgba(0,0,10,0.45)" : "rgba(130,80,50,0.35)", null); // (far below: in the dark)
       });
       // the switches' pads on the floor, and the wires to their gates
       G.lv.switches.forEach((s) => {
@@ -601,6 +802,49 @@ Lynx.games = Lynx.games || {};
       if (p) ar.queue(p.depth, () => ar.text(on ? `ON ${Math.ceil(G.on[s.gate])} s` : "GATE", p.x, p.y, { size: Math.max(10, Math.min(16, 0.01 * p.ppm)), align: "center", color: on ? "#a8ffd8" : "#ffe08a" }));
     }
 
+    // A flat rectangle (4 points [f, r, h]: a0, b0, b1, a1 -- lenA cm from a
+    // to b, lenB from 0 to 1) textured, in pieces of at most 4 cm (one
+    // texture's width each). False: some of it isn't in front of the lens.
+    const texOn = api.cfg.textures !== false && !!ar.texturedQuadScreen && !!Lynx.texture;
+    function texRect(q, lenA, lenB, img) {
+      const nA = Math.max(1, Math.ceil(lenA / 4 - 1e-6));
+      const nB = Math.max(1, Math.ceil(lenB / 4 - 1e-6));
+      const at = (x, y) => {
+        // (bilinear over the corners: a flat rectangle)
+        const lo = q[0].map((v, i) => v + (q[1][i] - v) * x);
+        const hi = q[3].map((v, i) => v + (q[2][i] - v) * x);
+        return lo.map((v, i) => v + (hi[i] - v) * y);
+      };
+      const grid = [];
+      for (let j = 0; j <= nB; j++) {
+        const row = [];
+        for (let i = 0; i <= nA; i++) row.push(w.project(...at(i / nA, j / nB)));
+        grid.push(row);
+      }
+      if (grid.some((row) => row.some((pt) => !pt))) return false;
+      const ua = (lenA / nA) * TEX_PX_CM;
+      const ub = (lenB / nB) * TEX_PX_CM;
+      const uv = [{ u: 0, v: ub }, { u: ua, v: ub }, { u: ua, v: 0 }, { u: 0, v: 0 }];
+      for (let j = 0; j < nB; j++) for (let i = 0; i < nA; i++) ar.texturedQuadScreen([grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]], img, uv);
+      return true;
+    }
+    // a face's sheen: lit along its top edge, shadowed toward the bottom (a polished solid, not paper)
+    function sheen(quad) {
+      const top = w.project(...quad[3].map((v, i) => (v + quad[2][i]) / 2));
+      const bot = w.project(...quad[0].map((v, i) => (v + quad[1][i]) / 2));
+      const s = w.polyScreen(quad, 1);
+      if (!top || !bot || !s) return;
+      const c = g();
+      const gr = c.createLinearGradient(top.x, top.y, bot.x, bot.y);
+      gr.addColorStop(0, "rgba(255,245,230,0.22)");
+      gr.addColorStop(0.18, "rgba(255,245,230,0.04)");
+      gr.addColorStop(1, "rgba(0,0,0,0.25)");
+      c.fillStyle = gr;
+      c.beginPath();
+      s.forEach((p, i) => (i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)));
+      c.closePath();
+      c.fill();
+    }
     // a straight edge (both ends in front of the lens)
     function line(a, b, color) {
       const pa = w.project(...a);
@@ -624,7 +868,11 @@ Lynx.games = Lynx.games || {};
       if (z < w.near && fr.every(([f, r]) => w.camZ(f, r, p.h1 * CM) < w.near && w.camZ(f, r, p.h0 * CM) < w.near)) return;
       const [cu, cv] = toUV(cam.f, cam.r).map((x) => x / CM);
       const ch = cam.h / CM;
+      const tex = texOn && st.tex && z < TEX_NEAR ? Lynx.texture(st.tex) : null;
       ar.queue(z, () => {
+        const c0 = g();
+        const alpha0 = c0.globalAlpha;
+        if (p.style === "spacer") c0.globalAlpha = alpha0 * 0.8; // (see-through a little: the gate behind)
         // (faces: 0 -v, 1 +u, 2 +v, 3 -u -- corner k to k+1)
         const normals = [[0, -1], [1, 0], [0, 1], [-1, 0]];
         for (let k = 0; k < 4; k++) {
@@ -636,7 +884,13 @@ Lynx.games = Lynx.games || {};
           const mu = (a[0] + b[0]) / 2;
           const mv = (a[1] + b[1]) / 2;
           if ((cu - mu) * nu + (cv - mv) * nv <= 0) continue;
-          polyFill([P(a[0], a[1], p.h0), P(b[0], b[1], p.h0), P(b[0], b[1], p.h1), P(a[0], a[1], p.h1)], nu ? st.side : st.dark, null);
+          const quad = [P(a[0], a[1], p.h0), P(b[0], b[1], p.h0), P(b[0], b[1], p.h1), P(a[0], a[1], p.h1)];
+          // textured (near): the material, then the face's shade over it; else flat
+          if (!(tex && texRect(quad, Math.hypot(b[0] - a[0], b[1] - a[1]), p.h1 - p.h0, tex))) polyFill(quad, nu ? st.side : st.dark, null);
+          else {
+            polyFill(quad, nu ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.32)", null);
+            sheen(quad);
+          }
           // its outline: top and bottom, and the upright edges only where the box ends (no seams between pieces)
           const endFace = p.alongU ? !!nu : !!nv;
           line(P(a[0], a[1], p.h0), P(b[0], b[1], p.h0), st.line);
@@ -647,7 +901,9 @@ Lynx.games = Lynx.games || {};
           if (stopEnd) line(P(b[0], b[1], p.h0), P(b[0], b[1], p.h1), st.line);
         }
         if (ch > p.h1) {
-          polyFill(corners.map(([u, v]) => P(u, v, p.h1)), st.top, null);
+          const topQ = corners.map(([u, v]) => P(u, v, p.h1));
+          if (!(tex && texRect(topQ, p.u1 - p.u0, p.v1 - p.v0, tex))) polyFill(topQ, st.top, null);
+          else if (p.style === "copperTop") polyFill(topQ, "rgba(0,0,0,0.08)", null);
           // the edges where the faces end (not between the pieces of one box)
           const c = g();
           c.strokeStyle = st.line;
@@ -680,6 +936,7 @@ Lynx.games = Lynx.games || {};
             w.line3(s, st.shine, 1.5, 0.01);
           }
         } else if (ch < p.h0 && p.h0 > 0.05) polyFill(corners.map(([u, v]) => P(u, v, p.h0)), st.dark, st.line);
+        c0.globalAlpha = alpha0;
       }, extentOf(p));
     }
 
