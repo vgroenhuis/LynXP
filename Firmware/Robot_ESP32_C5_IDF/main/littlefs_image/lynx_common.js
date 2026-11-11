@@ -380,10 +380,10 @@ window.Lynx = window.Lynx || {};
       icon: "\u{1F5DD}\u{FE0F}",
       blurb:
         "A puzzle game on Knight on Blocks, with a new heroine: an explorer -- no fighting, no enemies. Each level appears on the floor in front of the robot, from where it stands: " +
-        "water, fire, spikes, ghostly bridges and gates between the explorer and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
-        "cubes 0-5, each shown as a stone with its rune inside: 0 Island makes a palm island round itself, 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
-        "4 Key in its socket opens the portal, 5 Earth sinks spikes. Every level but the last needs all six, and some need a stone twice: move it on while the explorer waits. " +
-        "No setup and no frame cube: just the cubes 0-5 at hand. The stones can't be climbed; raised ground comes in 4 cm steps, one at a time. A directional Island cube (CAD Generators' AprilTag Cube, sides turned) turns its island with it. Eight levels; in the last, The River, cube 4 is a ship's helm: set it down in the river and the ship sails to it, carrying the explorer from one harbour to the other. Needs internet once (the tag detector). Tags to print: /tags.html",
+        "water, dark ravines, fire, spikes, ghostly bridges and gates between the explorer and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
+        "cubes 0-5, each shown as a stone with its rune inside: 0 Island makes a palm island round itself (in water only), 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
+        "4 Key in its socket opens the portal, 5 Earth sinks spikes. The first level has just the Island, the second three stones; later levels use the stones they need, and some need a stone twice: move it on while the explorer waits. " +
+        "No setup and no frame cube: just the cubes 0-5 at hand. The stones can't be climbed; raised ground comes in 4 cm steps, one at a time. A directional Island cube (CAD Generators' AprilTag Cube, sides turned) turns its island with it. Ten levels; in the last, The River, cube 4 is a ship's helm: set it down in the river and the ship sails to it, carrying the explorer from one harbour to the other. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
         { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "cellCm", label: "Level scale: one map cell (the cubes fit in one)", type: "number", unit: "cm", def: 5, min: 3, max: 10, step: 0.5 },

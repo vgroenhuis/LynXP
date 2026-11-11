@@ -872,54 +872,56 @@ window.Lynx = window.Lynx || {};
     ],
   };
 
-  // Rune Stones, level 1 ("Six Stones"): the stones where they solve it.
-  // Its cells: row i (0 = far end, 13 rows), column j (7): f = 0.12 + (12.5 - i) * 0.05, r = (j - 3) * 0.05
-  const RS = (tag, i, j) => ({ tag, f: 0.12 + (12.5 - i) * 0.05, r: (j - 3) * 0.05 });
-  const RUNES_1 = [RS(0, 10.5, 4.4), RS(1, 8, 6)];
-  const RUNES_2 = RUNES_1.concat([RS(2, 6, 1), RS(3, 4, 5), RS(5, 2, 1)]);
+  // Rune Stones, level 3 ("Six Stones", every stone once): the stones where
+  // they solve it, beside the explorer's way (column 3).
+  // Its cells: row i (0 = far end, 17 rows), column j (9): f = 0.12 + (16.5 - i) * 0.05, r = (j - 4) * 0.05
+  const RS = (tag, i, j) => ({ tag, f: 0.12 + (16.5 - i) * 0.05, r: (j - 4) * 0.05 });
+  const RUNES_1 = [RS(0, 13.5, 2.3), RS(1, 11, 8)];
+  const RUNES_2 = RUNES_1.concat([RS(2, 8.5, 2), RS(3, 5.5, 2), RS(5, 2.5, 2)]);
   const RUNES_3 = RUNES_2.concat([RS(4, 0, 2)]);
   I.runes = {
     thirdPerson: true,
     grid: [-0.4, 1.2, -0.6, 0.6],
     start: (ctx) => {
       ctx.fakeCubes([]);
-      Lynx.fireAction(); // (the level menu: Fire starts the first level)
+      Lynx.weaponAction(3); // (the level menu: level 3, every stone once)
+      Lynx.fireAction(); // (Fire starts it)
     },
     steps: [
       {
         say: ["Rune Stones: a puzzle game with no fighting. A level appears on the floor in front of the robot.", "Runenstenen: een puzzelspel zonder vechten. Op de vloer voor de robot verschijnt een level."],
-        cam: { orbit: [0.45, 0, 0], radius: 0.75, height: 0.6, from: -40, to: 10 },
+        cam: { orbit: [0.55, -0.05, 0], radius: 0.9, height: 0.7, from: -40, to: 10 },
       },
       {
-        say: ["Chasms, fire, spikes, ghostly bridges and gates stand between the explorer and the portal.", "Afgronden, vuur, spijkers, spookbruggen en hekken staan tussen de ontdekkingsreiziger en het portaal."],
-        cam: { fly: [[0.05, 0, 0.18], [0.4, 0, 0]], to: [[0.4, 0.25, 0.22], [0.7, 0, 0]] },
+        say: ["Water, ravines, fire, spikes, ghostly bridges and gates stand between the explorer and the portal.", "Water, ravijnen, vuur, spijkers, spookbruggen en hekken staan tussen de ontdekkingsreiziger en het portaal."],
+        cam: { fly: [[0.05, -0.05, 0.18], [0.5, -0.05, 0]], to: [[0.5, 0.25, 0.25], [0.9, -0.05, 0]] },
       },
       {
-        say: ["You make the way, with six rune stones: the tagged cubes 0 to 5, set down by hand. The Island raises ground; the Weight holds a plate down to open its gate.", "Jij maakt de weg vrij, met zes runenstenen: de blokjes met tag 0 tot 5, die je met de hand neerzet. Het Eiland maakt grond; het Gewicht houdt een plaat omlaag zodat het hek opengaat."],
-        cam: { orbit: [0.3, 0.05, 0], radius: 0.45, height: 0.35, from: -10, to: 30 },
+        say: ["You make the way, with six rune stones: the tagged cubes 0 to 5, set down by hand. The Island makes an island in the water; the Weight holds a plate down to open its gate.", "Jij maakt de weg vrij, met zes runenstenen: de blokjes met tag 0 tot 5, die je met de hand neerzet. Het Eiland maakt een eiland in het water; het Gewicht houdt een plaat omlaag zodat het hek opengaat."],
+        cam: { orbit: [0.3, 0, 0], radius: 0.45, height: 0.35, from: -10, to: 30 },
         run: (ctx) => ctx.fakeCubes(RUNES_1),
       },
       {
         say: ["Rain puts out the fire, the Lantern lights the ghost bridges, Earth sinks the spikes.", "Regen dooft het vuur, de Lantaarn laat de spookbruggen oplichten, Aarde laat de spijkers zakken."],
-        cam: { orbit: [0.55, 0, 0], radius: 0.45, height: 0.4, from: 30, to: 60 },
+        cam: { orbit: [0.67, -0.05, 0], radius: 0.5, height: 0.42, from: 30, to: 60 },
         run: (ctx) => ctx.fakeCubes(RUNES_2),
       },
       {
         say: ["And the Key, in its socket, opens the portal.", "En de Sleutel, in zijn sleutelgat, opent het portaal."],
-        cam: { orbit: [0.72, -0.03, 0], radius: 0.3, height: 0.25, from: 60, to: 90 },
+        cam: { orbit: [0.92, -0.08, 0], radius: 0.3, height: 0.25, from: 60, to: 90 },
         run: (ctx) => ctx.fakeCubes(RUNES_3),
         d: 3.5,
       },
       {
         say: ["Now the explorer can go: walk with the stick or W A S D, jump with A or Space.", "Nu kan de ontdekkingsreiziger op pad: lopen met de stick of W A S D, springen met A of spatie."],
         cam: { chase: hero, dist: 0.16, height: 0.09, side: 20 },
-        stick: steer(0.75, 0, 0.9),
-        d: 9,
+        stick: steer(0.95, -0.05, 0.9),
+        d: 12,
       },
       {
-        say: ["Some levels need a stone twice, raised ground makes the stones steps too, and on the river cube 4 steers a ship. Press Fire to start!", "Sommige levels hebben een steen twee keer nodig, op verhoogde grond worden de stenen ook treden, en op de rivier stuurt blokje 4 een schip. Druk op Vuur om te beginnen!"],
-        cam: { orbit: [0.45, 0, 0], radius: 0.8, height: 0.7, from: 60, to: 100 },
-        stick: steer(0.75, 0, 0.9),
+        say: ["The first level starts with just the Island, the second with three stones. Some levels need a stone twice, some have raised ground to climb, and on the river cube 4 steers a ship. Press Fire to start!", "Het eerste level begint met alleen het Eiland, het tweede met drie stenen. Sommige levels hebben een steen twee keer nodig, sommige hebben verhoogde grond om te beklimmen, en op de rivier stuurt blokje 4 een schip. Druk op Vuur om te beginnen!"],
+        cam: { orbit: [0.55, -0.05, 0], radius: 0.95, height: 0.8, from: 60, to: 100 },
+        stick: steer(0.95, -0.05, 0.9),
       },
     ],
   };
