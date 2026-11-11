@@ -1623,5 +1623,6 @@ Lynx.NL = {
 "Move: stick / WASD · Jump: Space / A (at a ledge: catch it, climb) · Robot: right stick / arrows · Hint: H · Levels: L · Center: V": "Lopen: stick / WASD · Springen: spatie / A (bij een rand: grijpen, klimmen) · Robot: rechterstick / pijltjes · Hint: H · Levels: L · Midden: V",
 "GATE": "POORT",
 "ON {} s": "AAN {} s",
-"EXIT": "UITGANG"
+"EXIT": "UITGANG",
+"Textures (off: flat colours, lighter for an old phone)": "Texturen (uit: effen kleuren, lichter voor een oude telefoon)"
 };

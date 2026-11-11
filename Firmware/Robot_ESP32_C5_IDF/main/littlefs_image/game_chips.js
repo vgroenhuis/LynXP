@@ -27,8 +27,10 @@
 // chips sold out (NAND is universal), a majority vote (a full adder's
 // carry), a multiplexer and a latch -- memory out of feedback.
 //
-// Drawing: the 2D canvas through world3d.js (lens-aware, depth sorted with
-// ar.queue): flat colour and lines, no textures.
+// Drawing: the 2D canvas through world3d.js (depth sorted with ar.queue),
+// with textures painted here (the setting "textures"; off: flat colour): the
+// die as a die photo shows it, a texture per tile (standard-cell rows,
+// gates, contacts), gold pads, silver leads, the packages' black epoxy.
 
 window.Lynx = window.Lynx || {};
 Lynx.games = Lynx.games || {};
@@ -183,6 +185,87 @@ Lynx.games = Lynx.games || {};
       "six transistors a bit. Hint: a NOR latch, and one NOR can be an OR with a cube on top."] },
   };
 
+  // -- textures, painted here: the die as a die photo shows it, gold pads, black epoxy, silver leads ----------
+  const TEXTURES = {
+    // standard-cell rows (power rails between them), transistor gates in the rows, contacts, a few wires along
+    // one tile (128 px = 5 cm): four standard-cell rows, each with its power rail, diffusion strips, the
+    // transistors' gates across them, contacts -- and a wire or two of metal 2 running along
+    cf_die: Lynx.paintedTexture(401, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#1b292f";
+      g.fillRect(0, 0, size, size);
+      for (let y = 0; y < size; y += 32) {
+        g.fillStyle = "rgba(160,182,194,0.45)";
+        g.fillRect(0, y, size, 3); // (VDD / GND, alternating)
+        let x = 0;
+        while (x < size) {
+          const wd = Math.min(size - x, 10 + Math.floor(rnd() * 26));
+          g.fillStyle = "rgba(78,116,104,0.5)";
+          g.fillRect(x + 2, y + 8, wd - 4, 6);
+          g.fillStyle = "rgba(96,104,128,0.5)";
+          g.fillRect(x + 2, y + 19, wd - 4, 6);
+          for (let gx = x + 4; gx < x + wd - 3; gx += 5) {
+            g.fillStyle = "rgba(196,150,120,0.42)"; // (polysilicon gates)
+            g.fillRect(gx, y + 6, 2, 21);
+          }
+          for (let n = 0; n < 2; n++) {
+            g.fillStyle = "rgba(225,230,238,0.55)";
+            g.fillRect(x + 3 + Math.floor(rnd() * Math.max(1, wd - 7)), y + (n ? 21 : 10), 3, 3);
+          }
+          g.fillStyle = "rgba(10,16,20,0.6)"; // (the cell's boundary)
+          g.fillRect(x + wd - 1, y + 4, 1, 26);
+          x += wd;
+        }
+      }
+      for (let k = 0; k < 3; k++) {
+        const x = 6 + Math.floor(rnd() * (size - 12));
+        g.fillStyle = "rgba(205,140,90,0.3)";
+        g.fillRect(x, 0, 3, size);
+      }
+      noise(6);
+    }),
+    cf_gold: Lynx.paintedTexture(403, (g, rnd, wrap, size, noise) => {
+      const gr = g.createLinearGradient(0, 0, size, size);
+      gr.addColorStop(0, "#d9ad4a");
+      gr.addColorStop(0.5, "#f0cf72");
+      gr.addColorStop(1, "#c99a38");
+      g.fillStyle = gr;
+      g.fillRect(0, 0, size, size);
+      for (let k = 0; k < 4; k++) {
+        g.strokeStyle = "rgba(110,80,20,0.35)";
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.ellipse(20 + rnd() * 88, 20 + rnd() * 88, 6 + rnd() * 6, 2 + rnd() * 2, rnd() * 3, 0, 2 * Math.PI);
+        g.stroke();
+      }
+      noise(10);
+    }),
+    cf_lead: Lynx.paintedTexture(405, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#c2c7ce";
+      g.fillRect(0, 0, size, size);
+      for (let k = 0; k < 200; k++) {
+        const y = rnd() * size;
+        g.strokeStyle = rnd() < 0.5 ? "rgba(255,255,255,0.12)" : "rgba(60,64,72,0.12)";
+        g.lineWidth = 0.6;
+        g.beginPath();
+        g.moveTo(rnd() * size, y);
+        g.lineTo(rnd() * size, y);
+        g.stroke();
+      }
+      noise(6);
+    }),
+    // the package's moulded epoxy: near black, a filler speckle
+    cf_epoxy: Lynx.paintedTexture(407, (g, rnd, wrap, size, noise) => {
+      g.fillStyle = "#1c1c21";
+      g.fillRect(0, 0, size, size);
+      for (let k = 0; k < 1400; k++) {
+        g.fillStyle = rnd() < 0.5 ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.2)";
+        g.fillRect(rnd() * size, rnd() * size, 1 + rnd(), 1 + rnd());
+      }
+      noise(5);
+    }),
+  };
+  if (Lynx.registerTexture) Object.keys(TEXTURES).forEach((k) => Lynx.registerTexture(k, TEXTURES[k]));
+
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const rgb = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
   const VERIFY_S = 2.2; // a working circuit, unchanged this long: taped out
@@ -271,7 +354,8 @@ Lynx.games = Lynx.games || {};
   Lynx.games.chips = (ar, cfg, app) => {
     const T = clamp((+cfg.cellCm || 5) / 100, 0.035, 0.1); // m: a tile
     const STEP_S = clamp(+cfg.stepS || 1, 0.4, 3);
-    const w = Lynx.world3d(ar, { textures: false });
+    const texOn = cfg.textures !== false && typeof Lynx.texture === "function" && !!ar.texturedQuadScreen;
+    const w = Lynx.world3d(ar, { textures: texOn });
     const layer = Lynx.cubeLayer(ar, app, {});
     const frameTags = new Set(Lynx.FRAME_CUBE_TAGS || []);
     const tr = Lynx.tr || ((t) => t);
@@ -549,7 +633,37 @@ Lynx.games = Lynx.games || {};
       const q = { f0: fOf(y0), f1: fOf(y1), r0: rOf(x0), r1: rOf(x1) };
       // the die and its standard-cell rows
       w.floor(q, 0.0002, LOOK.die, null); // (w.floor: at the scene's opacity)
-      {
+      if (texOn) {
+        // the die, textured tile by tile (sharp: a texture per tile; near the camera in 2 x 2, the
+        // pieces small on the screen, as ar.texturedQuad wants)
+        const img = Lynx.texture("cf_die");
+        Lynx.asScene(ar.ctx, () => {
+          const c = ar.ctx;
+          const a0 = c.globalAlpha;
+          c.globalAlpha = a0 * 0.85;
+          for (let y = 0; y < L.rows; y++) {
+            for (let x = 0; x < L.cols; x++) {
+              const m = w.camZ(fOf(y), rOf(x), 0);
+              if (m < 0.05 || m > 1.6) continue;
+              const n = m < 0.3 ? 2 : 1;
+              for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                  const ya = y - 0.5 + i / n;
+                  const yb = ya + 1 / n;
+                  const xa = x - 0.5 + j / n;
+                  const xb = xa + 1 / n;
+                  const pts = [[ya, xa], [ya, xb], [yb, xb], [yb, xa]].map(([yy, xx]) => w.w3(fOf(yy), rOf(xx), 0.0003));
+                  const u0 = (j / n) * 128;
+                  const v0 = 128 - ((i + 1) / n) * 128;
+                  const d = 128 / n;
+                  ar.texturedQuad(pts, img, [{ u: u0, v: v0 + d }, { u: u0 + d, v: v0 + d }, { u: u0 + d, v: v0 }, { u: u0, v: v0 }]);
+                }
+              }
+            }
+          }
+          c.globalAlpha = a0;
+        });
+      } else {
         for (let y = 0; y < L.rows; y++) {
           w.floor({ f0: fOf(y - 0.5) + T * 0.06, f1: fOf(y - 0.5) + T * 0.16, r0: q.r0 + T * 0.3, r1: q.r1 - T * 0.3 }, 0.0003, y % 2 ? LOOK.vdd.replace("0.8", "0.25") : LOOK.gnd.replace("0.8", "0.25"), null);
         }
@@ -572,7 +686,7 @@ Lynx.games = Lynx.games || {};
       // the package's leads beyond the die, bond wires up to the pads
       const lead = (row, side) => {
         const xr = side < 0 ? x0 - 0.9 : x1 + 0.9;
-        w.floor({ f0: fOf(row) - T * 0.18, f1: fOf(row) + T * 0.18, r0: rOf(xr) - T * 0.45, r1: rOf(xr) + T * 0.45 }, 0.0004, LOOK.lead, "rgba(80,80,90,0.9)", { object: true });
+        w.floor({ f0: fOf(row) - T * 0.18, f1: fOf(row) + T * 0.18, r0: rOf(xr) - T * 0.45, r1: rOf(xr) + T * 0.45 }, 0.0004, LOOK.lead, "rgba(80,80,90,0.9)", { object: true, detail: texOn ? "cf_lead" : null, alpha: 0.9 });
         const xp = side < 0 ? 0 : L.cols - 1;
         const pts = [];
         for (let k = 0; k <= 10; k++) {
@@ -603,7 +717,10 @@ Lynx.games = Lynx.games || {};
           const across = Math.abs(a[1] - b[1]) < 1e-6;
           const mid = P((a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
           const wd = px(mid[0], mid[1], 0.0032, 1.5);
-          w.line3([P(...a), P(...b)], rgb(across ? LOOK.m1 : LOOK.m2, 0.9), wd, 0.02);
+          const m = across ? LOOK.m1 : LOOK.m2;
+          w.line3([P(...a), P(...b)], "rgba(12,16,20,0.85)", wd + 2, 0.02);
+          w.line3([P(...a), P(...b)], rgb(m, 0.95), wd, 0.02);
+          w.line3([P(...a, 0.0004), P(...b, 0.0004)], rgb(m.map((x) => Math.min(255, x * 1.35 + 30)), 0.7), Math.max(1, wd * 0.3), 0.02);
           w.line3([P(...a, 0.0008), P(...b, 0.0008)], valColor(v, v === 1 ? 0.85 : 0.6), Math.max(1, wd * 0.45), 0.02);
         }
         // the vias, where it turns
@@ -646,7 +763,7 @@ Lynx.games = Lynx.games || {};
     function drawPads() {
       const pad = (x, row, name, v, wantV) => {
         const q = { f0: fOf(row) - T * 0.32, f1: fOf(row) + T * 0.32, r0: rOf(x) - T * 0.32, r1: rOf(x) + T * 0.32 };
-        w.floor(q, 0.0009, LOOK.pad, LOOK.padEdge, { width: 2, object: true });
+        w.floor(q, 0.0009, LOOK.pad, LOOK.padEdge, { width: 2, object: true, detail: texOn ? "cf_gold" : null, alpha: 0.9 });
         const p = w.project(fOf(row), rOf(x), 0.002);
         if (!p) return;
         ar.queue(p.depth, () => {
@@ -716,13 +833,16 @@ Lynx.games = Lynx.games || {};
           }
           return out;
         };
-        const fill = (pts, col, line) => {
+        const epoxy = texOn ? Lynx.texture("cf_epoxy") : null;
+        const fill = (pts, col, line, shade) => {
           const s2 = proj(pts);
           if (!s2) return null;
+          // the moulded epoxy (textured), the face's shade over it
+          const textured = epoxy && s2.length === 4 && ar.texturedQuadScreen(s2, epoxy, [{ u: 0, v: 128 }, { u: 128, v: 128 }, { u: 128, v: 0 }, { u: 0, v: 0 }]);
           g.beginPath();
           s2.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
           g.closePath();
-          g.fillStyle = col;
+          g.fillStyle = textured ? shade || "rgba(0,0,0,0)" : col;
           g.fill();
           if (line) {
             g.strokeStyle = line;
@@ -738,7 +858,7 @@ Lynx.games = Lynx.games || {};
           const mf = at((u0 + u1) / 2, (v0 + v1) / 2, 0);
           const [cf, cr] = [l.f, l.r];
           if ((cam.f - mf[0]) * (mf[0] - cf) + (cam.r - mf[1]) * (mf[1] - cr) <= 0) continue;
-          fill([at(u0, v0, h0), at(u1, v1, h0), at(u1, v1, h1), at(u0, v0, h1)], k % 2 ? "rgba(26,26,30,0.98)" : "rgba(40,40,46,0.98)", "rgba(0,0,0,0.9)");
+          fill([at(u0, v0, h0), at(u1, v1, h0), at(u1, v1, h1), at(u0, v0, h1)], k % 2 ? "rgba(26,26,30,0.98)" : "rgba(40,40,46,0.98)", "rgba(0,0,0,0.9)", k % 2 ? "rgba(0,0,0,0.38)" : "rgba(0,0,0,0.12)");
           if (k % 2 === 0) {
             // the legs: four bent silver pins
             for (let n = 0; n < 4; n++) {
