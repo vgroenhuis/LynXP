@@ -460,6 +460,7 @@ window.addEventListener("DOMContentLoaded", () => {
     coins: ["game_coins.js"],
     sonar: ["game_sonar.js"],
     echo: ["game_echo.js"],
+    codebreak: ["game_codebreak.js"],
     crossing: ["blockquest_gl.js", "game_crossing.js"],
     shepherd: ["game_shepherd.js"],
     lightwall: ["game_lightwall.js"],

@@ -157,6 +157,25 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "echo", title: "Echo", better: "higher", format: "points" }],
     },
     {
+      id: "codebreak",
+      released: "2026-11-14",
+      kind: "game",
+      name: "Code Breaker",
+      icon: "\u{1F510}",
+      blurb:
+        "Mastermind on your floor. A hidden code of coloured pegs is locked in the vault. Drive onto the coloured pads to fill a row, " +
+        "then onto CHECK in the middle to test it: black pegs are right colour and right place, white pegs right colour in the wrong place. " +
+        "Crack the code in as few guesses as you can. FIRE takes back the last peg. No time limit and nothing to shoot.",
+      settings: [
+        { key: "colors", label: "Colours", type: "number", def: 6, min: 3, max: 6, step: 1 },
+        { key: "slots", label: "Pegs per code", type: "number", def: 4, min: 3, max: 5, step: 1 },
+        { key: "guesses", label: "Guesses per code", type: "number", def: 10, min: 4, max: 16, step: 1 },
+        { key: "duplicates", label: "Colours may repeat in the code", type: "checkbox", def: true },
+        { key: "padDistM", label: "Distance from start to each pad", type: "number", unit: "m", def: 1.0, min: 0.5, max: 2.5, step: 0.1 },
+      ],
+      boards: [{ key: "codebreak", title: "Code Breaker", better: "higher", format: "points" }],
+    },
+    {
       id: "crossing",
       released: "2026-11-07",
       kind: "game",
