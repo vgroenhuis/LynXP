@@ -728,6 +728,7 @@ Lynx.games = Lynx.games || {};
     });
 
     // -- input --------------------------------------------------------------------------------------------------
+    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floors and walls more / less see-through
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title") return startLevel(menu.sel);

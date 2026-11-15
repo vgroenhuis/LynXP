@@ -499,7 +499,7 @@ Lynx.games = Lynx.games || {};
         const a = (2 * Math.PI * k) / L.wisps;
         wisps.push({
           x: springC.x + Math.cos(a) * T * 0.5, y: springC.y + Math.sin(a) * T * 0.5, anchor: { ...springC }, orbit: a, orbitR: T * (0.45 + 0.25 * (k % 3)),
-          target: null, to: null, visited: new Set(), asleep: false, awake: 0, hurry: 0, home: false, think: k * 0.05, phase: Math.random() * 6, trail: [], hue: k / L.wisps,
+          target: null, to: null, visited: new Set(), asleep: false, awake: 0, hurry: 0, home: false, think: k * 0.05, phase: Math.random() * 6, trail: [], hue: k / L.wisps, id: k,
         });
       }
       homeCount = 0;
@@ -541,6 +541,7 @@ Lynx.games = Lynx.games || {};
     });
 
     // -- input -------------------------------------------------------------------------------------------------------
+    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floor and the hedges more / less see-through
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title") return startLevel(menu.sel);
@@ -811,6 +812,38 @@ Lynx.games = Lynx.games || {};
           if (ws.trail.length > 10) ws.trail.shift();
         }
       });
+      // keep apart: wisps closer than SEP are eased away from each other (a
+      // sleeping one stays put, the others give way), never off the meadow
+      const SEP = T * 0.85;
+      for (let a = 0; a < wisps.length; a++) {
+        for (let b = a + 1; b < wisps.length; b++) {
+          const p = wisps[a];
+          const q = wisps[b];
+          if (p.home || q.home) continue;
+          let dx = q.x - p.x;
+          let dy = q.y - p.y;
+          let d = Math.hypot(dx, dy);
+          if (d >= SEP) continue;
+          if (d < 1e-5) {
+            dx = Math.cos(a * 2.4);
+            dy = Math.sin(a * 2.4);
+            d = 1;
+          }
+          const push = Math.min((SEP - d) * 0.5, 0.06 * S * dt * 8); // (gently: a few tenths of a second)
+          const ux = (dx / d) * push;
+          const uy = (dy / d) * push;
+          const wa = q.asleep ? 2 : p.asleep ? 0 : 1;
+          const wb = p.asleep ? 2 : q.asleep ? 0 : 1;
+          if (wa && tileOf(p.x - ux * wa, p.y - uy * wa)) {
+            p.x -= ux * wa;
+            p.y -= uy * wa;
+          }
+          if (wb && tileOf(q.x + ux * wb, q.y + uy * wb)) {
+            q.x += ux * wb;
+            q.y += uy * wb;
+          }
+        }
+      }
     }
 
     // -- drawing -----------------------------------------------------------------------------------------------------
@@ -944,8 +977,8 @@ Lynx.games = Lynx.games || {};
       lanterns.forEach((lan) => {
         const reach = (lan.tall ? SIGHT_TALL : SIGHT) * T;
         const col = lan.tall ? [255, 235, 170] : [255, 190, 100];
-        ar.floorCircle(lan.x, lan.y, reach, rgb(col, lan.tall ? 0.05 : 0.07), rgb(col, 0.4));
-        ar.floorCircle(lan.x, lan.y, T * 0.9, rgb(col, 0.25), null);
+        ar.floorGlow(lan.x, lan.y, reach, col, lan.tall ? 0.14 : 0.18, 0.3); // (fading out at the edge, like a spotlight)
+        ar.floorGlow(lan.x, lan.y, T * 0.9, col, 0.25, 0.2);
         const flick = 1 + 0.12 * Math.sin(time * 11 + lan.tag);
         const p = ar.project(lan.x, lan.y, lan.h1 + 0.014);
         if (!p) return;
@@ -977,6 +1010,85 @@ Lynx.games = Lynx.games || {};
       });
     }
 
+    // -- the wisps' looks: a shade of cyan, a height, a size and a face each (by number) ---------------------------------
+    const WISP_SHADES = [[120, 240, 255], [150, 255, 225], [80, 205, 255], [185, 255, 250], [95, 235, 200], [135, 215, 255]];
+    const WISP_LIFT = [0, 0.009, 0.018, 0.004, 0.013, 0.022];
+    const WISP_SIZE = [1, 0.88, 1.12, 0.94, 1.06, 0.82];
+    function drawWispFace(g, x, y, r, id, asleep, phase) {
+      const ink = "rgba(20,40,70,0.88)";
+      g.strokeStyle = ink;
+      g.fillStyle = ink;
+      g.lineWidth = Math.max(1, r * 0.14);
+      g.lineCap = "round";
+      const eyeStyle = id % 3; // 0 round dots, 1 big eyes with a glint, 2 narrow
+      const mouth = (id + 1) % 4; // 0 none, 1 smile, 2 "o", 3 grin
+      const extra = id % 5; // 0 nothing, 1 antenna, 2 ears, 3 a leaf, 4 a halo
+      // (decorations first: behind the face)
+      g.save();
+      if (extra === 1) {
+        g.beginPath();
+        g.moveTo(x, y - r * 0.9);
+        g.quadraticCurveTo(x + r * 0.2, y - r * 1.4, x + r * 0.5, y - r * 1.5);
+        g.stroke();
+        g.beginPath();
+        g.arc(x + r * 0.5, y - r * 1.5, r * 0.16, 0, 2 * Math.PI);
+        g.fill();
+      } else if (extra === 2) {
+        for (const sd of [-1, 1]) {
+          g.beginPath();
+          g.moveTo(x + sd * r * 0.55, y - r * 0.7);
+          g.lineTo(x + sd * r * 0.85, y - r * 1.5);
+          g.lineTo(x + sd * r * 0.15, y - r * 0.95);
+          g.closePath();
+          g.fill();
+        }
+      } else if (extra === 3) {
+        g.fillStyle = "#5fc86a";
+        g.beginPath();
+        g.ellipse(x + r * 0.3, y - r * 1.05, r * 0.5, r * 0.22, -0.6, 0, 2 * Math.PI);
+        g.fill();
+      } else if (extra === 4) {
+        g.strokeStyle = "rgba(255,240,170,0.9)";
+        g.beginPath();
+        g.ellipse(x, y - r * 1.15 + Math.sin(phase * 2) * r * 0.05, r * 0.55, r * 0.17, 0, 0, 2 * Math.PI);
+        g.stroke();
+      }
+      g.restore();
+      g.strokeStyle = ink;
+      g.fillStyle = ink;
+      for (const sd of [-1, 1]) {
+        const ex = x + sd * r * 0.32;
+        g.beginPath();
+        if (asleep) {
+          g.moveTo(ex - r * 0.14, y);
+          g.lineTo(ex + r * 0.14, y);
+          g.stroke();
+        } else if (eyeStyle === 1) {
+          g.arc(ex, y - r * 0.05, r * 0.2, 0, 2 * Math.PI);
+          g.fill();
+          g.fillStyle = "#fff";
+          g.beginPath();
+          g.arc(ex - r * 0.06, y - r * 0.12, r * 0.07, 0, 2 * Math.PI);
+          g.fill();
+          g.fillStyle = ink;
+        } else if (eyeStyle === 2) {
+          g.ellipse(ex, y - r * 0.05, r * 0.1, r * 0.2, 0, 0, 2 * Math.PI);
+          g.fill();
+        } else {
+          g.arc(ex, y - r * 0.05, r * 0.13, 0, 2 * Math.PI);
+          g.fill();
+        }
+      }
+      if (!asleep && mouth) {
+        g.beginPath();
+        if (mouth === 1) g.arc(x, y + r * 0.18, r * 0.2, 0.15 * Math.PI, 0.85 * Math.PI);
+        else if (mouth === 2) g.arc(x, y + r * 0.34, r * 0.1, 0, 2 * Math.PI);
+        else g.ellipse(x, y + r * 0.3, r * 0.22, r * 0.13, 0, 0, Math.PI);
+        if (mouth === 3) g.fill();
+        else g.stroke();
+      }
+    }
+
     function drawWisps() {
       wisps.forEach((ws) => {
         if (ws.home) return;
@@ -984,8 +1096,10 @@ Lynx.games = Lynx.games || {};
           const t = tileOf(ws.x, ws.y);
           return t && stones.has(idx(t.i, t.j));
         })();
-        const h = (onStone ? 0.055 : 0.022) + (ws.asleep ? -0.012 : Math.sin(ws.phase * 3) * 0.005);
-        const col = ws.asleep ? [150, 130, 200] : [150 + 60 * ws.hue, 235, 255 - 40 * ws.hue];
+        // each wisp has its own shade of cyan, height and face (so they can be told apart)
+        const id = ws.id || 0;
+        const h = (onStone ? 0.055 : 0.022) + WISP_LIFT[id % WISP_LIFT.length] + (ws.asleep ? -0.012 : Math.sin(ws.phase * 3) * 0.005);
+        const col = ws.asleep ? [150, 130, 200] : WISP_SHADES[id % WISP_SHADES.length];
         // the trail
         ws.trail.forEach((pt, n) => {
           if (n % 2 || ws.asleep) return;
@@ -996,24 +1110,10 @@ Lynx.games = Lynx.games || {};
         if (!p) return;
         ar.queue(p.depth, () => {
           const g = ar.ctx;
-          const r = Math.max(3, 0.009 * p.ppm);
+          const r = Math.max(3, 0.009 * p.ppm * WISP_SIZE[id % WISP_SIZE.length]);
           ar.floorCircle(ws.x, ws.y, 0.012, rgb(col, 0.12), null);
           ar.glow(p.x, p.y, r * (ws.asleep ? 1.6 : 2.6), [[0, `rgba(255,255,255,${ws.asleep ? 0.6 : 0.95})`], [0.3, rgb(col, ws.asleep ? 0.5 : 0.85)], [1, rgb(col, 0)]]);
-          // two little eyes (shut when asleep)
-          g.strokeStyle = "rgba(20,40,70,0.85)";
-          g.fillStyle = "rgba(20,40,70,0.85)";
-          g.lineWidth = Math.max(1, r * 0.14);
-          for (const sd of [-1, 1]) {
-            g.beginPath();
-            if (ws.asleep) {
-              g.moveTo(p.x + sd * r * 0.32 - r * 0.14, p.y);
-              g.lineTo(p.x + sd * r * 0.32 + r * 0.14, p.y);
-              g.stroke();
-            } else {
-              g.arc(p.x + sd * r * 0.32, p.y - r * 0.05, r * 0.13, 0, 2 * Math.PI);
-              g.fill();
-            }
-          }
+          drawWispFace(g, p.x, p.y, r, id, ws.asleep, ws.phase);
           if (ws.asleep) ar.text("z", p.x + r * 1.2, p.y - r * 1.2 - 3 * Math.sin(ws.phase * 2), { size: Math.max(9, r * 1.1), color: "#d8c8ff" });
         });
       });

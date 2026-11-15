@@ -175,6 +175,8 @@ Lynx.games = Lynx.games || {};
         return { id: b.id, tag: b.tag, cf: l.f, cr: l.r, yaw: a.th - b.yaw, half: b.half, h0: b.h0, h1: b.h1, inferred: b.inferred, n: b.n, world: b };
       });
       realSolids = solids;
+      // (the knight's own view of them: a game may let her walk through a cube, or give it another shape)
+      if (X && X.heroSolid) solids = solids.map((b) => X.heroSolid(b)).filter(Boolean);
       if (X && X.solids) solids = solids.concat(X.solids());
       // The block the knight stands on (or is climbing onto) moving -- its
       // estimate shifting, or the block itself pushed somewhere else (by the
@@ -1379,7 +1381,29 @@ Lynx.games = Lynx.games || {};
       if (note && note.t < 3) ar.text(note.text, v.cx, small ? v.y + v.h - 22 : v.y + 70, { size: small ? 13 : 16, align: "center", color: note.color, alpha: clamp(3 - note.t, 0, 1) });
     }
 
+    // X.lowerView: the camera sinks toward the knight's eye height as she comes
+    // close, so she is seen from a low, natural angle instead of from above (the
+    // whole scene, lifted relative to the camera: the camera feed no longer
+    // matches the drawing, which is the price)
+    const LOOK_DOWN_MAX = 0.2; // rad: the steepest we look down at her
+    let lowered = 0;
+    let loweredAt = 0;
+    function lowerView() {
+      const now = performance.now();
+      const dt = Math.min(0.1, Math.max(0, (now - loweredAt) / 1000));
+      loweredAt = now;
+      let want = 0;
+      if (X && X.lowerView && state === "playing") {
+        const c = w.camLocal();
+        const d = Math.hypot(c.f - hero.f, c.r - hero.r);
+        const eye = hero.z + 0.6 * C.BODY_H;
+        want = clamp(c.h - (eye + d * Math.tan(LOOK_DOWN_MAX)), 0, Math.max(0, c.h - eye - 0.004));
+      }
+      lowered += (want - lowered) * (1 - Math.exp(-dt * 4));
+      if (lowered > 1e-5) ar.z -= lowered;
+    }
     function draw() {
+      lowerView();
       w.beginFrame();
       if (state !== "title") {
         // on the floor, under everything: the cubes gone from where they were

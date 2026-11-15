@@ -17,6 +17,8 @@
 //   polyScreen(points [[f, r, h]...], seg), fillPoly(pts, fill, stroke, width),
 //   line3(points, color, width, stepM), extent(f0, f1, r0, r1, h0, h1),
 //   box(q {f0, f1, r0, r1}, h0, h1, col, opts), texFloor(q, h, name, alpha),
+//   slab(f, r, uf, ur, hl, ht, h0, h1, col) (a turned piece of wall),
+//   wall(x0, y0, x1, y1, halfT, h, pieceM, col) (world points; in slabs),
 //   texFace(a, b, h0, h1, img), floor(q, h, fill, stroke, opts), beginFrame(),
 // }
 // col: {top, side, dark, line, tex (a full stone texture, Lynx.texture) or
@@ -290,6 +292,62 @@ window.Lynx = window.Lynx || {};
       }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1));
     }
 
+    // A turned slab -- a piece of wall: centre (f, r), half length hl along the
+    // unit vector (uf, ur), half thickness ht, h0..h1. Its faces toward the
+    // camera and its top, in the colours of col ({top, side, dark, line,
+    // course}: the long sides side, the ends dark; course: the mortar lines of
+    // 4 cm courses), queued with its (turned) extent so it sorts exactly.
+    function slab(f, r, uf, ur, hl, ht, h0, h1, col, o = {}) {
+      const nf = -ur;
+      const nr = uf;
+      const P = (a, b) => [f + uf * a + nf * b, r + ur * a + nr * b];
+      const c = [P(-hl, -ht), P(hl, -ht), P(hl, ht), P(-hl, ht)];
+      const fs = c.map((p) => p[0]);
+      const rs = c.map((p) => p[1]);
+      const q = { f0: Math.min(...fs), f1: Math.max(...fs), r0: Math.min(...rs), r1: Math.max(...rs) };
+      if (!inFront(q, h0, h1)) return;
+      ar.queue(camZ(f, r, (h0 + h1) / 2), () => {
+        const cam = camLocal();
+        const g = ar.ctx;
+        const old = g.globalAlpha;
+        if (!o.object && Lynx.sceneAlpha) g.globalAlpha = old * Lynx.sceneAlpha();
+        for (let k = 0; k < 4; k++) {
+          const a = c[k];
+          const b = c[(k + 1) % 4];
+          const mf = (a[0] + b[0]) / 2;
+          const mr = (a[1] + b[1]) / 2;
+          if ((cam.f - mf) * (mf - f) + (cam.r - mr) * (mr - r) <= 0) continue; // (faces away)
+          const p = polyScreen([[a[0], a[1], h0], [b[0], b[1], h0], [b[0], b[1], h1], [a[0], a[1], h1]]);
+          if (!p) continue;
+          fillPoly(p, k % 2 ? col.dark : col.side, col.line, 1);
+          if (col.course) {
+            for (let h = h0 + 0.04; h < h1 - 0.005; h += 0.04) line3([[a[0], a[1], h], [b[0], b[1], h]], col.course, 1, 0.02);
+          }
+        }
+        if (cam.h > h1) {
+          const p = polyScreen(c.map((x) => [x[0], x[1], h1]));
+          if (p) fillPoly(p, col.top, col.line, 1);
+        }
+        g.globalAlpha = old;
+      }, extent(q.f0, q.f1, q.r0, q.r1, h0, h1, c));
+    }
+    // A wall from world point (x0, y0) to (x1, y1), in slabs of about pieceM
+    // (each sorts against the sprites on its own, so one in front of a long
+    // wall isn't hidden by it), halfT thick each side of the line, h tall.
+    function wall(x0, y0, x1, y1, halfT, h, pieceM, col, o = {}) {
+      const a = toLocal(x0, y0);
+      const b = toLocal(x1, y1);
+      const len = Math.hypot(b.f - a.f, b.r - a.r);
+      if (len < 1e-6) return;
+      const n = Math.max(1, Math.round(len / pieceM));
+      const uf = (b.f - a.f) / len;
+      const ur = (b.r - a.r) / len;
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        slab(a.f + (b.f - a.f) * t, a.r + (b.r - a.r) * t, uf, ur, len / n / 2 + 0.0004, halfT, 0, h, col, o);
+      }
+    }
+
     // A flat area on the floor (or at height h), drawn straight away (under
     // everything queued), with an optional detail texture.
     function floor(q, h, fill, stroke, o = {}) {
@@ -307,7 +365,7 @@ window.Lynx = window.Lynx || {};
 
     return {
       frame, setAnchor: (a) => (anchor = { ...a }), anchor: () => anchor,
-      toWorld, toLocal, w3, camLocal, camZ, project, polyScreen, fillPoly, line3, extent, box, floor, texFloor, texFace,
+      toWorld, toLocal, w3, camLocal, camZ, project, polyScreen, fillPoly, line3, extent, box, slab, wall, floor, texFloor, texFace,
       beginFrame: () => (frame.cam = camLocal()),
       near,
     };

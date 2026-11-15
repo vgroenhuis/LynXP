@@ -527,6 +527,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // keeps the browser in fullscreen -- a reloaded page can't re-enter it
   // without another tap.
   // opts: {noIntro, forceIntro} (the game's introduction: see intro.js)
+  const ROBOT_FRAME_GAMES = new Set(["wisps"]);
   function startActive(calib, app, opts = {}) {
     stopActive();
     showDifficulty(calib, app);
@@ -541,7 +542,8 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     const seq = ++startSeq;
     // the robot drive mode and the cube detection are Free-drive things (games drive and aim themselves)
-    Lynx.control.setRobotModeAllowed(app.active === "none");
+    // (games that only watch the robot, and leave the driving and aiming to the player, may use it too)
+    Lynx.control.setRobotModeAllowed(app.active === "none" || ROBOT_FRAME_GAMES.has(app.active));
     Lynx.freeDriveTags.setActive(app.active === "none");
     if (!calib || app.active === "none") return;
 
@@ -794,6 +796,14 @@ window.addEventListener("DOMContentLoaded", () => {
       return p;
     };
     show(app.general.sceneOpacity);
+    // (the shoulder buttons in the games that use them for it: Lynx.sceneOpacityBumpers)
+    Lynx.setSceneOpacityPct = (pct) => {
+      const p = show(pct);
+      showToast(`Floors and walls: ${p}% opaque`);
+      app.general.sceneOpacity = p;
+      clearTimeout(Lynx.setSceneOpacityPct.timer);
+      Lynx.setSceneOpacityPct.timer = setTimeout(() => Lynx.saveAppSettings(app).catch(() => {}), 1500);
+    };
     input.addEventListener("input", () => show(input.value));
     input.addEventListener("change", () => {
       input.blur(); // (keys back to the game)

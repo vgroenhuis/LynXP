@@ -649,6 +649,17 @@ window.Lynx = window.Lynx || {};
   // their alpha by this. Characters and game objects don't.
   Lynx.sceneOpacity = 1;
   Lynx.sceneAlpha = () => Lynx.sceneOpacity;
+  // The shoulder buttons (and Tab) as a see-through control, for a game that has
+  // no other use for them while playing: RB / Tab: floors and walls more
+  // transparent, LB: less (in steps of 10%). active() says when (not on a menu
+  // that uses them to choose).
+  Lynx.sceneOpacityBumpers = (active = () => true) => {
+    Lynx.onAction("weapon", (w) => {
+      if ((w !== "next" && w !== "prev") || !active() || !Lynx.setSceneOpacityPct) return;
+      const pct = Math.round(Lynx.sceneOpacity * 10) * 10; // (to the 10% grid)
+      Lynx.setSceneOpacityPct(Math.max(10, Math.min(100, pct + (w === "next" ? -10 : 10))));
+    });
+  };
   // run fn with the canvas's alpha times the scene's
   Lynx.asScene = (g, fn) => {
     const old = g.globalAlpha;

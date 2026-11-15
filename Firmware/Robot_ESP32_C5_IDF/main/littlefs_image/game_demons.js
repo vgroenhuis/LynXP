@@ -476,6 +476,8 @@ Lynx.games = Lynx.games || {};
     const GUN_ART = { chainsaw: CHAINSAW, ssg: SUPER_SHOTGUN, rocket: ROCKET_LAUNCHER, plasma: PLASMA_RIFLE, bfg: BFG };
     Object.keys(GUN_ART).forEach((k) => (sprites["w_" + k] = Lynx.sprite(pickupArt(GUN_ART[k]), GUN_PAL)));
     sprites.pillar = Lynx.sprite(PILLAR, STONE);
+    const w3 = Lynx.world3d(ar, { textures: false });
+    const STONE_WALL = { top: "#a4a7b0", side: "#7c7f8a", dark: "#5c5f69", line: "rgba(20,20,28,0.75)", course: "rgba(30,30,40,0.5)" };
     const PICKUP_HEIGHT = { medkit: 0.07, bullets: 0.06, shells: 0.06, armor: 0.08, chaingun: 0.06, rockets: 0.06, cells: 0.06,
       w_chainsaw: 0.05, w_ssg: 0.045, w_rocket: 0.05, w_plasma: 0.05, w_bfg: 0.06 };
 
@@ -1039,10 +1041,9 @@ Lynx.games = Lynx.games || {};
       });
 
       kit.drawWorld();
-      pillars.forEach((pl) => {
-        const rect = ar.spriteRect(sprites.pillar, pl.x, pl.y, 0, WALL_H_M);
-        if (rect) ar.queue(rect.depth, () => ar.drawSprite(sprites.pillar, rect));
-      });
+      // the cover walls: real stone slabs (a few cm thick, courses of blocks), not a row of sprites
+      w3.beginFrame();
+      walls.forEach((wl) => w3.wall(wl.x0, wl.y0, wl.x1, wl.y1, WALL_R_M, WALL_H_M, WALL_PIECE_M * 1.5, STONE_WALL));
       pickups.forEach((k) => {
         const spr = sprites[k.kind];
         const hover = 0.02 + Math.sin(k.phase) * 0.01;

@@ -165,6 +165,8 @@ Lynx.games = Lynx.games || {};
       gun: Lynx.sprite(GUN, { c: "#40b0ff", h: "rgba(255,255,255,0.55)", k: "#202020" }),
     };
     Object.keys(KIND).forEach((k) => (KIND[k].img = Lynx.sprite(POOP, POOP_PAL[k])));
+    const w3 = Lynx.world3d(ar, { textures: false });
+    const STONE_WALL = { top: "#a4a7b0", side: "#7c7f8a", dark: "#5c5f69", line: "rgba(20,20,28,0.75)", course: "rgba(30,30,40,0.5)" };
 
     let state = "title"; // title | playing | cleared | over | won
     let stateTime = 0;
@@ -630,10 +632,11 @@ Lynx.games = Lynx.games || {};
       const rect = ar.spriteRect(sprites.pillar, p.x, p.y, 0, WALL_H);
       p.rect = rect;
       if (!rect) return;
-      ar.queue(rect.depth, () => {
-        ar.floorCircle(p.x, p.y, WALL_R * 1.1, "rgba(0,0,0,0.3)");
-        ar.drawSprite(sprites.pillar, rect);
-      });
+      // (the pillar's screen rect still stops shots, see pillarCovering; the wall itself is drawn as stone slabs, drawWalls)
+    }
+    function drawWalls() {
+      w3.beginFrame();
+      walls.forEach((wl) => w3.wall(wl.x0, wl.y0, wl.x1, wl.y1, WALL_R, WALL_H, WALL_PIECE_M, STONE_WALL));
     }
 
     function drawPoop(m) {
@@ -703,6 +706,7 @@ Lynx.games = Lynx.games || {};
     function draw() {
       const v = ar.view;
       pillars.forEach(drawPillar);
+      drawWalls();
       kit.drawWorld();
       poops.forEach(drawPoop);
       loot.forEach(drawLoot);

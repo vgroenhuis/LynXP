@@ -573,23 +573,98 @@ window.Lynx = window.Lynx || {};
     // A circle lying on the floor, drawn in true perspective (so it
     // flattens into an ellipse with distance, like the floor grid).
     ar.floorCircle = (wx, wy, radiusM, fill, stroke, h = 0) => {
+      const SEG = 48; // (round: 20 corners showed)
       const pts = [];
-      for (let i = 0; i < 20; i++) {
-        const a = (i / 20) * 2 * Math.PI;
-        const p = ar.project(wx + radiusM * Math.cos(a), wy + radiusM * Math.sin(a), h);
-        if (!p) return;
-        pts.push(p);
+      for (let i = 0; i < SEG; i++) {
+        const a = (i / SEG) * 2 * Math.PI;
+        pts.push(ar.project(wx + radiusM * Math.cos(a), wy + radiusM * Math.sin(a), h));
       }
-      ctx.beginPath();
-      pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-      ctx.closePath();
-      if (fill) {
-        ctx.fillStyle = fill;
-        ctx.fill();
+      const ok = pts.filter(Boolean).length;
+      if (ok < 3) return;
+      if (ok === SEG) {
+        ctx.beginPath();
+        pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.closePath();
+        if (fill) {
+          ctx.fillStyle = fill;
+          ctx.fill();
+        }
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.stroke();
+        }
+        return;
       }
-      if (stroke) {
-        ctx.strokeStyle = stroke;
-        ctx.stroke();
+      // partly behind the lens: the part that can be drawn (each run of visible
+      // points, closed by the chord), not nothing
+      const start = pts.findIndex((p) => !p);
+      const run = [];
+      const runs = [];
+      for (let n = 1; n <= SEG; n++) {
+        const p = pts[(start + n) % SEG];
+        if (p) run.push(p);
+        else if (run.length) runs.push(run.splice(0));
+      }
+      if (run.length) runs.push(run);
+      runs.forEach((r) => {
+        if (r.length < 2) return;
+        ctx.beginPath();
+        r.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        if (fill) {
+          ctx.closePath();
+          ctx.fillStyle = fill;
+          ctx.fill();
+        }
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.stroke();
+        }
+      });
+    };
+
+    // A pool of light on the floor: a disc whose edge fades out like a
+    // spotlight's -- full strength to `core` of the radius, then smoothly to
+    // nothing at the edge -- round (48 segments), and drawn piece by piece, so
+    // a part that is out of the frame or behind the lens is just left out and
+    // the rest stays. color [r, g, b], alpha the strength at the middle.
+    const GLOW_RINGS = 18;
+    const GLOW_SEGS = 48;
+    ar.floorGlow = (wx, wy, radiusM, color, alpha, core = 0.35, h = 0, project = ar.project) => {
+      // the projected grid: ring edges 0..GLOW_RINGS (0 = the centre) x segments
+      const grid = [];
+      for (let k = 0; k <= GLOW_RINGS; k++) {
+        const r = (radiusM * k) / GLOW_RINGS;
+        const row = [];
+        for (let i = 0; i < GLOW_SEGS; i++) {
+          if (k === 0 && i) {
+            row.push(row[0]);
+            continue;
+          }
+          const a = (i / GLOW_SEGS) * 2 * Math.PI;
+          row.push(project(wx + r * Math.cos(a), wy + r * Math.sin(a), h));
+        }
+        grid.push(row);
+      }
+      const c = `${color[0]},${color[1]},${color[2]}`;
+      for (let k = 0; k < GLOW_RINGS; k++) {
+        const mid = (k + 0.5) / GLOW_RINGS; // 0..1 of the radius
+        const t = Math.max(0, Math.min(1, (mid - core) / (1 - core)));
+        const a = alpha * (1 - t * t * (3 - 2 * t)); // smoothstep down to the edge
+        if (a < 0.004) continue;
+        ctx.beginPath();
+        let any = false;
+        for (let i = 0; i < GLOW_SEGS; i++) {
+          const j = (i + 1) % GLOW_SEGS;
+          const q = [grid[k][i], grid[k][j], grid[k + 1][j], grid[k + 1][i]];
+          if (q.some((p) => !p)) continue;
+          ctx.moveTo(q[0].x, q[0].y);
+          for (let n = 1; n < 4; n++) ctx.lineTo(q[n].x, q[n].y);
+          ctx.closePath();
+          any = true;
+        }
+        if (!any) continue;
+        ctx.fillStyle = `rgba(${c},${a.toFixed(3)})`;
+        ctx.fill(); // (one fill per ring: the pieces leave no seams between them)
       }
     };
 
