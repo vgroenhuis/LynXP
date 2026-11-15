@@ -34,9 +34,9 @@
     .gt td[data-chip="first"] { color: #0b5cad; font-weight: bold; }
     .gt td[data-chip="third"] { color: #1a7f1a; font-weight: bold; }
     .gt td.empty { text-align: center; padding: 30px; }
-    .gt-legend { font-size: 0.85rem; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px 14px; }
-    .gt-legend dt { font-weight: bold; margin-top: 6px; }
-    .gt-legend dd { margin: 2px 0 0 14px; }
+    .gt-help { display: inline-block; margin-left: 5px; width: 1.35em; height: 1.35em; line-height: 1.35em; text-align: center; border-radius: 50%; background: rgba(255,255,255,0.22); font-size: 0.8em; font-weight: bold; cursor: help; }
+    .gt-help:hover, .gt-help:focus { background: #2c9aff; outline: none; }
+    .gt-tip { position: fixed; z-index: 20; max-width: 22em; background: #222; color: #fff; padding: 9px 12px; border-radius: 6px; font-size: 0.85rem; line-height: 1.4; box-shadow: 0 3px 12px rgba(0,0,0,0.4); pointer-events: none; }
   </style>
 </head>
 <body class="gametable-page">
@@ -52,7 +52,7 @@
   <main class="gt-main">
     <div class="gt-head">
       <h2>Game table</h2>
-      <p class="gt-dim">Every game side by side: when it came, how it is played and controlled, what the cube tags do, what it looks like. Click a column heading to sort; scroll sideways for more.</p>
+      <p class="gt-dim">Every game side by side: when it came, how it is played and controlled, what the cube tags do, what it looks like. Click a column heading to sort, point at a ? for what a column means; scroll sideways for more.</p>
     </div>
 
     <div class="gt-bar">
@@ -63,19 +63,8 @@
     </div>
     <div class="gt-bar" id="groups"></div>
 
-    <div class="gt-scroll"><table class="gt" id="matrix"></table></div>
+    <div class="gt-scroll" id="scroller"><table class="gt" id="matrix"></table></div>
 
-    <dl class="gt-legend">
-      <dt>Person view</dt>
-      <dd>First person: you look through the robot's camera and the game is drawn over the real floor. Third person: you steer a small character that walks on the floor in front of the robot, which films it.</dd>
-      <dt>Robot frame control</dt>
-      <dd>How the robot's body is driven. Camera frame: the left stick moves the robot toward where the camera looks. Robot frame: like a car (up and down drive, left and right turn). Automatic: the game drives the robot, e.g. after the character.</dd>
-      <dt>Level of detail</dt>
-      <dd>A rough rating from 1 (a few shapes) to 5 (lit 3D models); hover a rating for a note.</dd>
-      <dt>Last update, code size</dt>
-      <dd>From the git history and the game's own files (the shared engine is not counted for the games that ride on it). Updated with <code>tools/games_table_dates.py</code>.</dd>
-      <dd>Dates generated: <b id="generated"></b></dd>
-    </dl>
   </main>
 
   <script src="lynx_common.js"></script>

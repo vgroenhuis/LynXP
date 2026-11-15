@@ -310,6 +310,65 @@
     { id: "extras", en: "Settings and extras", nl: "Instellingen en extra's" },
   ];
   const KIND = { game: ["Game", "Spel"], app: ["App", "App"], none: ["Free driving", "Vrij rijden"] };
+  // The "?" next to a column name: what the column means (en, nl)
+  const HELP = {
+    updated: () => [
+      `From the git history of the game's own files (the shared engine is not counted for the games that ride on it). Refresh it with tools/games_table_dates.py; last run: ${dateText((window.Lynx.GAME_TABLE_DATES || {}).generated)}.`,
+      `Uit de git-geschiedenis van de eigen bestanden van het spel (de gedeelde engine telt niet mee voor de spellen die erop draaien). Vernieuwen met tools/games_table_dates.py; laatst uitgevoerd: ${dateText((window.Lynx.GAME_TABLE_DATES || {}).generated)}.`,
+    ],
+    loc: [
+      "Lines of code in the game's own files (not the shared engine under the games that ride on it).",
+      "Regels code in de eigen bestanden van het spel (niet de gedeelde engine onder de spellen die erop draaien).",
+    ],
+    view: [
+      "First person: you look through the robot's camera and the game is drawn over the real floor. Third person: you steer a small character that walks on the floor in front of the robot, which films it.",
+      "Eerste persoon: je kijkt door de camera van de robot en het spel wordt over de echte vloer getekend. Derde persoon: je bestuurt een klein personage dat op de vloer voor de robot loopt, die het filmt.",
+    ],
+    drive: [
+      "How the robot's body is driven. Camera frame: the left stick moves the robot toward where the camera looks. Robot frame: like a car (up and down drive, left and right turn). Automatic: the game drives the robot, e.g. after the character.",
+      "Hoe het lichaam van de robot wordt bestuurd. Camerabeeld: de linkerstick beweegt de robot naar waar de camera kijkt. Robotframe: als een auto (omhoog en omlaag rijden, links en rechts draaien). Automatisch: het spel rijdt de robot, bijv. achter het personage aan.",
+    ],
+    camera: [
+      "How the camera (pan and tilt) is pointed: by the player, or automatically by the game.",
+      "Hoe de camera (draaien en kantelen) wordt gericht: door de speler, of automatisch door het spel.",
+    ],
+    jump: [
+      "Virtual jumping lifts the view while the robot stays on the floor; a character jumps in its own world.",
+      "Virtueel springen tilt het beeld op terwijl de robot op de vloer blijft; een personage springt in zijn eigen wereld.",
+    ],
+    tagRole: [
+      "What the AprilTag cubes you set on the floor do in the game.",
+      "Wat de AprilTag-kubussen die je op de vloer zet in het spel doen.",
+    ],
+    levels: [
+      "The number of levels, or how the game goes on. Sorting puts endless games last.",
+      "Het aantal levels, of hoe het spel doorgaat. Bij sorteren komen eindeloze spellen laatst.",
+    ],
+    space: [
+      "How much clear floor the game needs, from where the robot stands at the start.",
+      "Hoeveel vrije vloer het spel nodig heeft, vanaf waar de robot bij de start staat.",
+    ],
+    weapons: [
+      "Weapons and tools in the fighting games (also what a cube can shoot or do).",
+      "Wapens en gereedschap in de vechtspellen (ook wat een kubus kan schieten of doen).",
+    ],
+    engine: [
+      "How the picture is made: a 2D canvas drawn over the video with the calibrated camera model, with world3d (depth-sorted 3D boxes), or WebGL2.",
+      "Hoe het beeld wordt gemaakt: een 2D-canvas over het beeld met het gekalibreerde cameramodel, met world3d (op diepte gesorteerde 3D-blokken), of WebGL2.",
+    ],
+    detail: [
+      "A rough rating from 1 (a few shapes) to 5 (lit 3D models); hover a rating for a note.",
+      "Een ruwe beoordeling van 1 (een paar vormen) tot 5 (belichte 3D-modellen); houd de muis boven een cijfer voor een toelichting.",
+    ],
+    textures: [
+      "Whether the game's settings have a switch for textures (off: flat colours, lighter for an old phone).",
+      "Of de instellingen van het spel een schakelaar voor texturen hebben (uit: effen kleuren, lichter voor een oude telefoon).",
+    ],
+    intro: [
+      "Whether the game has a spoken introduction that plays when it starts.",
+      "Of het spel een gesproken introductie heeft die bij de start wordt afgespeeld.",
+    ],
+  };
   const dateText = (iso) => {
     if (!iso) return "-";
     const d = new Date(`${iso}T12:00:00`);
@@ -362,8 +421,8 @@
   const $ = (id) => document.getElementById(id);
   const dates = (window.Lynx && Lynx.GAME_TABLE_DATES) || { games: {}, intros: [] };
   const intros = new Set(dates.intros || []);
-  const PREF = "gameTablePrefs";
-  let prefs = { hidden: [], apps: false, sort: "released", dir: "desc" };
+  const PREF = "gameTablePrefs2";
+  let prefs = { hidden: [], apps: true, sort: "released", dir: "desc" };
   try {
     prefs = Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || "{}"));
   } catch (e) {
@@ -398,8 +457,36 @@
     return (r || a.cells.name.key.localeCompare(b.cells.name.key)) * dir;
   };
 
+  // (the game's name stays whatever groups are hidden)
+  const visibleCols = () => COLS.filter((c) => c.first || !prefs.hidden.includes(c.g));
+
+  // The "?" next to a column's name: a tooltip (hover, keyboard focus, or a tap), not a title attribute
+  // -- a title is slow, and never shows on a touch screen
+  let tip = null;
+  function hideTip() {
+    if (tip) tip.remove();
+    tip = null;
+  }
+  function showTip(anchor, text) {
+    hideTip();
+    tip = document.createElement("div");
+    tip.className = "gt-tip";
+    tip.textContent = text;
+    document.body.appendChild(tip);
+    const r = anchor.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    tip.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left))}px`;
+    tip.style.top = `${r.bottom + 6}px`;
+  }
+  document.addEventListener("keydown", (e) => e.key === "Escape" && hideTip());
+  document.addEventListener("click", hideTip);
+  const helpText = (c) => {
+    const h = HELP[c.k];
+    return h ? pick(typeof h === "function" ? h() : h) : "";
+  };
+
   function render() {
-    const cols = COLS.filter((c) => !prefs.hidden.includes(c.g));
+    const cols = visibleCols();
     const table = $("matrix");
     table.replaceChildren();
     const head = table.createTHead().insertRow();
@@ -408,8 +495,25 @@
       th.scope = "col";
       th.className = `${c.first ? "first " : ""}g-${c.g} ${c.cls || ""}`;
       const on = prefs.sort === c.k;
-      th.textContent = nl ? c.nl : tr(c.en);
-      if (on) th.textContent += prefs.dir === "asc" ? " ▲" : " ▼";
+      th.textContent = (nl ? c.nl : tr(c.en)) + (on ? (prefs.dir === "asc" ? " ▲" : " ▼") : "");
+      const help = helpText(c);
+      if (help) {
+        const q = document.createElement("span");
+        q.className = "gt-help";
+        q.textContent = "?";
+        q.tabIndex = 0;
+        q.setAttribute("role", "button");
+        q.setAttribute("aria-label", help);
+        q.addEventListener("mouseenter", () => showTip(q, help));
+        q.addEventListener("mouseleave", hideTip);
+        q.addEventListener("focus", () => showTip(q, help));
+        q.addEventListener("blur", hideTip);
+        q.addEventListener("click", (e) => {
+          e.stopPropagation(); // (not a sort)
+          showTip(q, help);
+        });
+        th.appendChild(q);
+      }
       th.setAttribute("aria-sort", on ? (prefs.dir === "asc" ? "ascending" : "descending") : "none");
       th.addEventListener("click", () => {
         prefs.dir = prefs.sort === c.k && prefs.dir === "asc" ? "desc" : "asc";
@@ -445,7 +549,7 @@
   }
 
   function toCsv() {
-    const cols = COLS.filter((c) => !prefs.hidden.includes(c.g));
+    const cols = visibleCols();
     const q = (s) => `"${String(s).replace(/"/g, '""')}"`;
     const list = rows().filter(shown).sort(cmp(COLS.find((c) => c.k === prefs.sort) || COLS[2], prefs.dir === "asc" ? 1 : -1));
     return [cols.map((c) => q(nl ? c.nl : c.en)).join(","), ...list.map((r) => cols.map((c) => q(r.cells[c.k].text)).join(","))].join("\n");
@@ -466,6 +570,7 @@
       groups.appendChild(label);
     });
     $("showApps").checked = prefs.apps;
+    $("scroller").addEventListener("scroll", hideTip);
     $("showApps").addEventListener("change", () => {
       prefs.apps = $("showApps").checked;
       savePrefs();
@@ -483,8 +588,6 @@
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
-    const gen = dates.generated ? dateText(dates.generated) : "?";
-    $("generated").textContent = `${gen}`;
     render();
   }
   // (the games table only needs the catalog: the page's own script runs after lynx_common.js)
