@@ -79,6 +79,7 @@ constexpr StaticFile STATIC_FILES[] = {
     {"/cam.js", "/littlefs/cam.js", "application/javascript", 0},
     {"/wifi", "/littlefs/wifi.html", "text/html", 0},
     {"/games", "/littlefs/games.html", "text/html", 0},
+    {"/gametable", "/littlefs/gametable.html", "text/html", 0},
     {"/tags", "/littlefs/taglist.html", "text/html", 0}, // (/tags.html is the printable tags)
 };
 

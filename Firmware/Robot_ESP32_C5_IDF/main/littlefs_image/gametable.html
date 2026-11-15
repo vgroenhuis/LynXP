@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LynXP game table</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="i18n.js"></script>
+  <style>
+    body.gametable-page { align-items: stretch; }
+    .gt-main { width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; }
+    .gt-head h2 { margin: 0 0 4px; }
+    .gt-dim { opacity: 0.7; font-size: 0.9em; margin: 0; }
+    .gt-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+    .gt-bar input[type="search"] { padding: 6px 10px; border: 1px solid #aaa; border-radius: 4px; flex: 1 1 14em; max-width: 24em; min-width: 12em; font-size: 0.95rem; }
+    .gt-chip { display: inline-flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #bbb; border-radius: 14px; padding: 3px 10px; font-size: 0.85rem; cursor: pointer; user-select: none; }
+    .gt-chip:has(input:checked) { background: #dff0ff; border-color: #2c9aff; }
+    .gt-count { margin-left: auto; opacity: 0.7; font-size: 0.9em; }
+    .gt-btn { flex: none; min-width: 0; min-height: 0; padding: 6px 12px; border: 1px solid #888; background: #fff; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    .gt-btn:hover { background: #eef; }
+    .gt-scroll { overflow: auto; max-height: calc(100vh - 230px); min-height: 240px; border: 1px solid #bbb; border-radius: 6px; background: #fff; }
+    table.gt { border-collapse: separate; border-spacing: 0; font-size: 0.82rem; line-height: 1.35; }
+    .gt th, .gt td { padding: 6px 9px; border-bottom: 1px solid #e2e2e2; border-right: 1px solid #eee; vertical-align: top; text-align: left; min-width: 11em; max-width: 19em; }
+    .gt td.wide { min-width: 22em; max-width: 30em; }
+    .gt th { position: sticky; top: 0; z-index: 2; background: #333; color: #fff; cursor: pointer; white-space: nowrap; user-select: none; }
+    .gt th:hover { background: #444; }
+    .gt th.num, .gt td.num { text-align: right; min-width: 5em; }
+    .gt td.dots { white-space: nowrap; letter-spacing: 2px; color: #2c6fbf; min-width: 8em; }
+    .gt .first { position: sticky; left: 0; z-index: 1; background: #f7f9ff; font-weight: bold; white-space: nowrap; min-width: 12em; border-right: 2px solid #c4cde0; }
+    .gt th.first { z-index: 3; background: #222; }
+    .gt tbody tr:hover td { background: #fffbe0; }
+    .gt tbody tr:hover td.first { background: #fff4b8; }
+    .gt td.is-app { font-weight: normal; font-style: italic; }
+    .gt td[data-chip="first"] { color: #0b5cad; font-weight: bold; }
+    .gt td[data-chip="third"] { color: #1a7f1a; font-weight: bold; }
+    .gt td.empty { text-align: center; padding: 30px; }
+    .gt-legend { font-size: 0.85rem; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px 14px; }
+    .gt-legend dt { font-weight: bold; margin-top: 6px; }
+    .gt-legend dd { margin: 2px 0 0 14px; }
+  </style>
+</head>
+<body class="gametable-page">
+  <nav class="top-nav">
+    <a href="/" class="nav-link">Main</a>
+    <a href="/cam" class="nav-link">First-person view</a>
+    <a href="/games" class="nav-link">Games &amp; apps</a>
+    <a href="/gametable.html" class="nav-link active">Game table</a>
+    <a href="/wifi" class="nav-link">Wi-Fi</a>
+    <a href="/tags" class="nav-link">Tags</a>
+  </nav>
+
+  <main class="gt-main">
+    <div class="gt-head">
+      <h2>Game table</h2>
+      <p class="gt-dim">Every game side by side: when it came, how it is played and controlled, what the cube tags do, what it looks like. Click a column heading to sort; scroll sideways for more.</p>
+    </div>
+
+    <div class="gt-bar">
+      <input type="search" id="filter" placeholder="Filter (e.g. shooter, WebGL, lantern)" autocomplete="off">
+      <label class="gt-chip"><input type="checkbox" id="showApps"> Also apps and Free drive</label>
+      <button type="button" class="gt-btn" id="csvBtn">Download CSV</button>
+      <span class="gt-count" id="count"></span>
+    </div>
+    <div class="gt-bar" id="groups"></div>
+
+    <div class="gt-scroll"><table class="gt" id="matrix"></table></div>
+
+    <dl class="gt-legend">
+      <dt>Person view</dt>
+      <dd>First person: you look through the robot's camera and the game is drawn over the real floor. Third person: you steer a small character that walks on the floor in front of the robot, which films it.</dd>
+      <dt>Robot frame control</dt>
+      <dd>How the robot's body is driven. Camera frame: the left stick moves the robot toward where the camera looks. Robot frame: like a car (up and down drive, left and right turn). Automatic: the game drives the robot, e.g. after the character.</dd>
+      <dt>Level of detail</dt>
+      <dd>A rough rating from 1 (a few shapes) to 5 (lit 3D models); hover a rating for a note.</dd>
+      <dt>Last update, code size</dt>
+      <dd>From the git history and the game's own files (the shared engine is not counted for the games that ride on it). Updated with <code>tools/games_table_dates.py</code>.</dd>
+      <dd>Dates generated: <b id="generated"></b></dd>
+    </dl>
+  </main>
+
+  <script src="lynx_common.js"></script>
+  <script src="games_table_dates.js"></script>
+  <script src="gametable.js"></script>
+</body>
+</html>

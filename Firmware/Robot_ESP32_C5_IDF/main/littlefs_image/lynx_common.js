@@ -12,7 +12,9 @@ window.Lynx = window.Lynx || {};
   // the defaults the game itself falls back to. `boards` are its high-score
   // tables: `better` says which way is a better score, `format` how to show it.
   // `released` (YYYY-MM-DD): when it first appeared, shown and sortable on
-  // games.html -- give every new entry one.
+  // games.html -- give every new entry one. Every new game also gets a row of
+  // facts in gametable.js (the game table page) and a line in
+  // tools/games_table_dates.py's FILES (then run it: last update, code size).
   const COCO_HOME_CLASSES = [
     "person", "bottle", "cup", "chair", "couch", "potted plant", "bed", "dining table", "tv",
     "laptop", "mouse", "remote", "keyboard", "cell phone", "book", "clock", "vase", "scissors",
