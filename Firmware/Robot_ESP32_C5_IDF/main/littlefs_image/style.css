@@ -40,6 +40,9 @@ body {
 
 /* the EN / NL button (i18n.js): at the right end of the top bar */
 button.nav-link.lang-btn {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
   margin-left: auto;
   background: none;
   border: 1px solid #555;
@@ -475,6 +478,12 @@ body.cam-body {
 
   .top-nav {
     margin-bottom: 8px;
+    flex-wrap: wrap; /* (six links and the language button: on a phone, two rows) */
+  }
+
+  .nav-link {
+    padding: 6px 10px;
+    font-size: 0.85rem;
   }
 
   .container {
