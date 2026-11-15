@@ -571,7 +571,7 @@ function drawTimeSeriesGraph(canvasId, seriesList, windowSec, nowT, options) {
   for (const s of seriesList) {
     if (s.buffer.length < 2) continue;
     ctx.strokeStyle = s.color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = s.width || 2;
     ctx.setLineDash(s.dash);
     ctx.beginPath();
     s.buffer.forEach((p, i) => {
@@ -743,6 +743,40 @@ function clearGotoGraphs() {
 // much larger payloads.
 const inaVoltageSeries = makeSeries(GOTO_COLOR_LEFT, DASH_SOLID);
 const inaCurrentSeries = makeSeries(GOTO_COLOR_RIGHT, DASH_SOLID);
+// The min / max envelopes (1.5.53): the robot samples the INA260 every 5 ms and
+// sends each interval's lowest and highest reading (inaVMin...inaIMax), which
+// catches the short dips and spikes the single reading above misses. Drawn
+// filtered: an envelope jumps to a new extreme at once and relaxes back with
+// INA_ENVELOPE_TAU_S (a plain low-pass would shave a short dip down to a
+// fraction of its depth). The stats line gives the raw extremes of the window.
+const INA_ENVELOPE_TAU_S = 2;
+const inaEnvelopeSeries = {
+  vMin: makeSeries("#9ccbff", DASH_DASHED),
+  vMax: makeSeries("#9ccbff", DASH_DASHED),
+  iMin: makeSeries("#ffc28f", DASH_DASHED),
+  iMax: makeSeries("#ffc28f", DASH_DASHED),
+};
+Object.values(inaEnvelopeSeries).forEach((s) => (s.width = 1.5));
+const inaRawExtremes = []; // [{t, vMin, vMax, iMin, iMax}], the graph window's
+let inaEnvelope = null; // {t, vMin, vMax, iMin, iMax}, filtered
+
+function updateInaEnvelope(msg, t) {
+  const raw = { vMin: msg.inaVMin, vMax: msg.inaVMax, iMin: msg.inaIMin, iMax: msg.inaIMax };
+  inaRawExtremes.push({ t, ...raw });
+  while (inaRawExtremes.length && inaRawExtremes[0].t < t - GOTO_GRAPH_WINDOW_SEC * 1000) inaRawExtremes.shift();
+  if (!inaEnvelope) {
+    inaEnvelope = { t, ...raw };
+  } else {
+    const k = 1 - Math.exp(-(t - inaEnvelope.t) / 1000 / INA_ENVELOPE_TAU_S);
+    // (new extremes taken at once, then back toward the present reading slowly)
+    inaEnvelope.vMin = Math.min(raw.vMin, inaEnvelope.vMin + (raw.vMin - inaEnvelope.vMin) * k);
+    inaEnvelope.vMax = Math.max(raw.vMax, inaEnvelope.vMax + (raw.vMax - inaEnvelope.vMax) * k);
+    inaEnvelope.iMin = Math.min(raw.iMin, inaEnvelope.iMin + (raw.iMin - inaEnvelope.iMin) * k);
+    inaEnvelope.iMax = Math.max(raw.iMax, inaEnvelope.iMax + (raw.iMax - inaEnvelope.iMax) * k);
+    inaEnvelope.t = t;
+  }
+  for (const key in inaEnvelopeSeries) pushSample(inaEnvelopeSeries[key], t, inaEnvelope[key]);
+}
 
 function updateInaGraphs(msg) {
   document.getElementById("ina260-unavailable").style.display = msg.inaAvailable ? "none" : "";
@@ -754,11 +788,23 @@ function updateInaGraphs(msg) {
   const t = performance.now();
   pushSample(inaVoltageSeries, t, msg.inaVoltageV);
   pushSample(inaCurrentSeries, t, msg.inaCurrentMa);
-  drawTimeSeriesGraph("inaVoltageGraph", [inaVoltageSeries], GOTO_GRAPH_WINDOW_SEC, t, {});
-  drawTimeSeriesGraph("inaCurrentGraph", [inaCurrentSeries], GOTO_GRAPH_WINDOW_SEC, t, {});
+  const hasExtremes = typeof msg.inaVMin === "number"; // (older firmware: none)
+  if (hasExtremes) updateInaEnvelope(msg, t);
+  const E = inaEnvelopeSeries;
+  drawTimeSeriesGraph("inaVoltageGraph", hasExtremes ? [E.vMin, E.vMax, inaVoltageSeries] : [inaVoltageSeries], GOTO_GRAPH_WINDOW_SEC, t, {});
+  drawTimeSeriesGraph("inaCurrentGraph", hasExtremes ? [E.iMin, E.iMax, inaCurrentSeries] : [inaCurrentSeries], GOTO_GRAPH_WINDOW_SEC, t, {});
 
-  document.getElementById("ina260-stats").textContent =
-    `${msg.inaVoltageV.toFixed(2)} V, ${msg.inaCurrentMa.toFixed(0)} mA, ${(msg.inaPowerMw / 1000).toFixed(2)} W`;
+  let text = `${msg.inaVoltageV.toFixed(2)} V, ${msg.inaCurrentMa.toFixed(0)} mA, ${(msg.inaPowerMw / 1000).toFixed(2)} W`;
+  if (hasExtremes && inaRawExtremes.length) {
+    const lo = (key) => Math.min(...inaRawExtremes.map((e) => e[key]));
+    const hi = (key) => Math.max(...inaRawExtremes.map((e) => e[key]));
+    text +=
+      `\n${Lynx.tr ? Lynx.tr("last 10 s (every 5 ms):") : "last 10 s (every 5 ms):"} ` +
+      `${lo("vMin").toFixed(2)}–${hi("vMax").toFixed(2)} V, ${lo("iMin").toFixed(0)}–${hi("iMax").toFixed(0)} mA`;
+  }
+  const stats = document.getElementById("ina260-stats");
+  stats.style.whiteSpace = "pre-line";
+  stats.textContent = text;
 }
 
 // The S3 CAM panel used to embed a live <img> preview here, pointed straight

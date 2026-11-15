@@ -22,3 +22,9 @@ bool ina260_is_available();
 // *busVoltageV/*currentMa/*powerMw unchanged) on I2C error or if
 // ina260_init() was never called/never succeeded.
 bool ina260_read(float *busVoltageV, float *currentMa, float *powerMw);
+
+// The lowest and highest bus voltage (V) and current (mA) since the last call,
+// from a sampler task reading the INA260 every 5 ms (ina260_init starts it):
+// short dips and spikes the occasional ina260_read() would miss. Resets them;
+// false (outputs unchanged) if there was no sample since the last call.
+bool ina260_take_extremes(float *vMin, float *vMax, float *iMin, float *iMax);

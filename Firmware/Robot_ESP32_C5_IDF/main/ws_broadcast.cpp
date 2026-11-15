@@ -758,9 +758,13 @@ void ws_poll_task(void *arg) {
             // reads that flag rather than treating 0V/0mA as a real reading.
             float inaVoltageV = 0.0f, inaCurrentMa = 0.0f, inaPowerMw = 0.0f;
             bool inaOk = ina260_read(&inaVoltageV, &inaCurrentMa, &inaPowerMw);
+            // (the extremes since the last message, from 5 ms sampling: ina260.hpp)
+            float inaVMin, inaVMax, inaIMin, inaIMax;
+            bool inaExt = inaOk && ina260_take_extremes(&inaVMin, &inaVMax, &inaIMin, &inaIMax);
             float panActDeg, tiltActDeg;
             ws_broadcast_servo_actual(&panActDeg, &tiltActDeg);
-            char json[800];
+            // (static: only this task builds it, and it's too big for the stack to carry lightly)
+            static char json[1100];
             int len = snprintf(json, sizeof(json),
                 "{\"type\":\"pose\",\"t\":%lu,\"x\":%.4f,\"y\":%.4f,\"theta\":%.4f,\"controlTheta\":%.4f,"
                 "\"calibrating\":%s,\"calibratingPwm\":%d,"
@@ -774,6 +778,11 @@ void ws_poll_task(void *arg) {
                 speedCmPerSec, currentServoAngleDeg, currentTiltAngleDeg,
                 panActDeg, tiltActDeg,
                 inaOk ? "true" : "false", inaVoltageV, inaCurrentMa, inaPowerMw);
+            if (inaExt && len > 0 && (size_t) len < sizeof(json)) {
+                len += snprintf(json + len, sizeof(json) - len,
+                    ",\"inaVMin\":%.3f,\"inaVMax\":%.3f,\"inaIMin\":%.1f,\"inaIMax\":%.1f",
+                    inaVMin, inaVMax, inaIMin, inaIMax);
+            }
             if (gotoDiagnosticsEnabled && len > 0 && (size_t) len < sizeof(json)) {
                 len += snprintf(json + len, sizeof(json) - len,
                     ",\"wheelPosRev\":[%.5f,%.5f],\"wheelVelRevPerSec\":[%.5f,%.5f],"
