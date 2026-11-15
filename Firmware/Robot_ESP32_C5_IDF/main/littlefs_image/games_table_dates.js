@@ -17,6 +17,11 @@ Lynx.GAME_TABLE_DATES = {
    "loc": 1106,
    "updated": "2026-11-11"
   },
+  "codebreak": {
+   "files": 1,
+   "loc": 364,
+   "updated": "2026-11-14"
+  },
   "coins": {
    "files": 1,
    "loc": 347,

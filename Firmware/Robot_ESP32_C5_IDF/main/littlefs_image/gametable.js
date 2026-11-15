@@ -119,6 +119,15 @@
       scoring: ["Rounds completed", "Voltooide rondes"], space: ["Pads 0.8 m from the start", "Vlakken op 0,8 m van de start"], fight: NO, weapons: DASH, enemies: DASH,
       engine: ENG_2D, style: ["Four glowing coloured pads, a note each", "Vier gloeiende gekleurde vlakken, elk met een noot"], detail: 1, detailNote: ["Four pads and glows", "Vier vlakken en gloed"], net: DASH,
     },
+    codebreak: {
+      genre: ["Logic puzzle (Mastermind)", "Logicapuzzel (Mastermind)"], players: "1", view: FIRST,
+      role: ["The keyboard: you drive onto the coloured pads, then back onto CHECK", "Het toetsenbord: je rijdt op de gekleurde vlakken, dan terug op CHECK"],
+      drive: STICK_CAM, camera: CAM_STICK, jump: NO, fire: ["Start / take back the last peg", "Start / de laatste pin terugnemen"],
+      tagRole: NONE, tagIds: DASH, levelsN: null, levels: ["Endless: code after code (colours, pegs and guesses are settings)", "Eindeloos: code na code (kleuren, pinnen en pogingen zijn instellingen)"],
+      winlose: ["A limited number of guesses per code; no time limit", "Een beperkt aantal pogingen per code; geen tijdslimiet"],
+      scoring: ["Points per code cracked (fewer guesses: more)", "Punten per gekraakte code (minder pogingen: meer)"], space: ["Pads in a fan about 1 m from the start", "Vlakken in een waaier op ongeveer 1 m van de start"], fight: NO, weapons: DASH, enemies: ["The hidden code", "De verborgen code"],
+      engine: ENG_2D, style: ["Glowing coloured pads on the floor; a peg board with black and white answer pegs", "Gloeiende gekleurde vlakken op de vloer; een pinnenbord met zwarte en witte antwoordpinnen"], detail: 2, detailNote: ["Flat pads and glows, a tone per colour", "Platte vlakken en gloed, een toon per kleur"], net: DASH,
+    },
     crossing: {
       genre: ["Arcade (Frogger)", "Arcade (Frogger)"], players: "1", view: FIRST,
       role: ["The frog: cross the roads between the sidewalks", "De kikker: steek de wegen over tussen de stoepen"],

@@ -29,6 +29,7 @@ FILES = {
     "david": ["game_david.js"],
     "poop": ["game_poop.js"],
     "coins": ["game_coins.js"],
+    "codebreak": ["game_codebreak.js"],
     "sonar": ["game_sonar.js"],
     "echo": ["game_echo.js"],
     "crossing": ["game_crossing.js", "blockquest_gl.js"],
