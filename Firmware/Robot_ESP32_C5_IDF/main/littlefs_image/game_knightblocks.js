@@ -1000,7 +1000,7 @@ Lynx.games = Lynx.games || {};
       const anglesOf = (q) => {
         const P = w.toWorld(q[0], q[1]);
         const hd = Math.hypot(P.x - cw.x, P.y - cw.y);
-        const down = Math.atan2(cw.h - q[2], Math.max(hd, 0.03));
+        const down = Math.atan2(cw.h - lowered - q[2], Math.max(hd, 0.03)); // (lowered: the view's sunk height, see lowerView -- aim as if the camera sat there)
         return { yaw: Math.atan2(P.y - cw.y, P.x - cw.x), tilt: ((ar.calib.tiltRad - down) * 180) / Math.PI + cam.tiltOff, hd };
       };
       const turn = aimRate * dt;
