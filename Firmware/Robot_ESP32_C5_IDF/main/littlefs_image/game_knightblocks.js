@@ -1400,10 +1400,30 @@ Lynx.games = Lynx.games || {};
         want = clamp(c.h - (eye + d * Math.tan(LOOK_DOWN_MAX)), 0, Math.max(0, c.h - eye - 0.004));
       }
       lowered += (want - lowered) * (1 - Math.exp(-dt * 4));
-      if (lowered > 1e-5) ar.z -= lowered;
     }
     function draw() {
       lowerView();
+      // The lowered view is for the drawing only: ar.z goes back straight after
+      // it. (Left lowered, everything else that reads the camera between two
+      // frames -- the tag finder snapshotting the camera for each picture --
+      // took the camera to be that much lower, and put the cubes in the wrong
+      // place: with the hero near the robot, the stones weren't found.)
+      const z0 = ar.z;
+      const asLowered = (fn) => {
+        if (lowered > 1e-5) ar.z = z0 - lowered;
+        try {
+          fn();
+        } finally {
+          ar.z = z0;
+        }
+      };
+      asLowered(drawScene);
+      // (the tag outlines sit on the video: the real camera)
+      if (showTags || (X && X.forceTags && X.forceTags())) cubes.drawTags();
+      cubes.drawStatus();
+      asLowered(hud); // (its labels and arrows go with the drawing)
+    }
+    function drawScene() {
       w.beginFrame();
       if (state !== "title") {
         // on the floor, under everything: the cubes gone from where they were
@@ -1419,9 +1439,6 @@ Lynx.games = Lynx.games || {};
         if (heroShown && showJumpHint) queueJumpHint();
         ar.flush();
       }
-      if (showTags || (X && X.forceTags && X.forceTags())) cubes.drawTags();
-      cubes.drawStatus();
-      hud();
     }
 
     // What an extension gets to work with
