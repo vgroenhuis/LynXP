@@ -143,6 +143,12 @@ struct NetAps {
     uint32_t ch5;
 };
 NetAps g_netAps[NET_APS_MAX] = {};
+// The last connection attempts (see wifi_get_attempts()): a ring, oldest
+// overwritten. g_attemptReason is set by the event handler while one runs.
+constexpr size_t ATTEMPTS_MAX = 10;
+WifiAttempt g_attempts[ATTEMPTS_MAX] = {};
+size_t g_attemptTotal = 0;
+volatile uint16_t g_attemptReason = 0;
 
 bool pin_applies(const char *ssid) {
     Lock lock;
@@ -604,6 +610,8 @@ bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin 
     }
 
     xEventGroupClearBits(s_events, BIT_CONNECTED | BIT_DISCONNECTED);
+    g_attemptReason = 0;
+    int64_t t0 = esp_timer_get_time();
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &cfg);
     if (err == ESP_OK) err = esp_wifi_connect();
     EventBits_t bits = 0;
@@ -612,11 +620,26 @@ bool attempt(const char *ssid, const WifiScanEntry *pin5 = nullptr, bool usePin 
                                    pdMS_TO_TICKS(direct != nullptr ? LAST_AP_TIMEOUT_MS : CONNECT_TIMEOUT_MS));
     }
 
+    bool ok = (bits & BIT_CONNECTED) && g_connected;
     {
         Lock lock;
         g_connecting = false;
+        WifiAttempt &a = g_attempts[g_attemptTotal++ % ATTEMPTS_MAX];
+        a = {};
+        copy_str(a.ssid, sizeof(a.ssid), cred.ssid);
+        a.atS = (uint32_t) (t0 / 1000000);
+        a.ms = (uint32_t) ((esp_timer_get_time() - t0) / 1000);
+        a.channel = cfg.sta.bssid_set ? cfg.sta.channel : 0;
+        a.ok = ok;
+        a.reason = ok ? 0 : (err != ESP_OK ? 1 : g_attemptReason);
+        a.timeout = !ok && err == ESP_OK && bits == 0;
+        a.hotspot = g_apActive;
+        if (ok) {
+            wifi_ap_record_t info;
+            if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) a.channel = info.primary;
+        }
     }
-    if ((bits & BIT_CONNECTED) && g_connected) return true;
+    if (ok) return true;
 
     ESP_LOGW(TAG, "Connecting to %s failed%s", cred.ssid, err != ESP_OK ? "" : (bits ? "" : " (timeout)"));
     esp_wifi_disconnect();
@@ -687,6 +710,44 @@ bool maybe_roam(int64_t connectedSinceUs) {
     return true;
 }
 
+// The strongest access point of this network in the robot's last scan
+// (g_aps is sorted strongest first): joining it directly skips the driver's
+// own scan of every 2.4 + 5 GHz channel, which on campus (passive-only 5 GHz
+// radar channels) could take longer than the attempt's timeout.
+bool strongest_ap(const char *ssid, LastAp *out) {
+    Lock lock;
+    for (size_t i = 0; i < g_apCount; i++) {
+        if (std::strcmp(g_aps[i].ssid, ssid) != 0) continue;
+        copy_str(out->ssid, sizeof(out->ssid), ssid);
+        std::memcpy(out->bssid, g_aps[i].bssid, sizeof(out->bssid));
+        out->channel = g_aps[i].channel;
+        return out->channel != 0;
+    }
+    return false;
+}
+
+// One go at a network: its strongest access point from the last scan first,
+// then the usual way (the pinned / 5 GHz access point, or any). With the
+// setup hotspot up, joining 5 GHz access points kept failing (seen on
+// iotroam, and at home), so the hotspot is switched off for the attempt and
+// back on if it fails -- when asked from the setup page (that phone drops
+// off for a few seconds), or when no phone is on it anyway.
+bool try_network(const char *target, const WifiScanEntry *pin5, bool asked) {
+    bool paused = false;
+    if (g_apActive && (asked || ap_client_count() == 0)) {
+        if (asked) vTaskDelay(pdMS_TO_TICKS(1000)); // let the page's request get its answer first
+        ESP_LOGI(TAG, "Setup hotspot off while trying %s", target);
+        stop_ap();
+        paused = true;
+    }
+    bool pinned = pin5 != nullptr || pin_applies(target);
+    LastAp ap;
+    bool ok = !pinned && strongest_ap(target, &ap) && attempt(target, nullptr, false, &ap);
+    if (!ok) ok = attempt(target, pin5) || (pinned && attempt(target, nullptr, false));
+    if (!ok && paused) start_ap();
+    return ok;
+}
+
 void manager_task(void *) {
     int64_t disconnectedSinceUs = esp_timer_get_time();
     int64_t connectedSinceUs = 0;
@@ -734,6 +795,7 @@ void manager_task(void *) {
                 g_preferredSsid[0] = '\0';
             }
             bool haveTarget = target[0] != '\0' && wifi_networks_find(target, nullptr);
+            bool asked = haveTarget;
             const WifiScanEntry *pin5 = nullptr;
             if (!haveTarget && wifi_networks_count() > 0) {
                 do_scan();
@@ -749,7 +811,7 @@ void manager_task(void *) {
             // A pinned attempt (the chosen access point, or the 5 GHz one)
             // that fails falls back to letting the driver pick any access
             // point of that network.
-            if (haveTarget && (attempt(target, pin5) || ((pin5 != nullptr || pin_applies(target)) && attempt(target, nullptr, false)))) {
+            if (haveTarget && try_network(target, pin5, asked)) {
                 remember_connected_ap(target);
                 connectedSinceUs = esp_timer_get_time();
                 continue;
@@ -841,6 +903,7 @@ void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data
         // 2 AUTH_EXPIRE / 15 4WAY_HANDSHAKE_TIMEOUT / 204 HANDSHAKE_TIMEOUT
         // usually mean a wrong password; 201 NO_AP_FOUND means out of range.
         ESP_LOGW(TAG, "%s (reason=%d)", wasConnected ? "disconnected" : "connect attempt failed", event->reason);
+        if (!wasConnected) g_attemptReason = event->reason;
         reset_log_net(wasConnected ? "wifi disconnected" : "wifi connect failed");
         xEventGroupSetBits(s_events, BIT_DISCONNECTED);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_AP_STACONNECTED) {
@@ -1040,6 +1103,29 @@ void wifi_request_debug_scan(int mode, int channel) {
     g_debugScanChannel = channel;
     g_debugScanMode = mode;
     xEventGroupSetBits(s_events, BIT_SCAN_REQUEST);
+}
+
+size_t wifi_get_attempts(WifiAttempt *out, size_t max) {
+    Lock lock;
+    size_t n = std::min(std::min(max, ATTEMPTS_MAX), g_attemptTotal);
+    for (size_t i = 0; i < n; i++) out[i] = g_attempts[(g_attemptTotal - n + i) % ATTEMPTS_MAX];
+    return n;
+}
+
+const char *wifi_reason_text(const WifiAttempt &a) {
+    if (a.ok) return "connected";
+    if (a.timeout) return "no answer in time";
+    switch (a.reason) {
+    case 1: return "the radio refused to start it";
+    case 2: case 15: case 204: return "handshake failed (wrong password?)";
+    case 201: return "access point not found";
+    case 202: return "authentication refused";
+    case 203: return "association refused";
+    case 205: return "connection failed";
+    case 210: case 211: return "no access point with matching security";
+    case 212: return "signal too weak";
+    default: return "failed";
+    }
 }
 
 void wifi_request_connect(const char *ssid) {

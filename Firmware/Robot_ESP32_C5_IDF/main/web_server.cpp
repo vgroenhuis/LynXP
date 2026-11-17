@@ -1,4 +1,5 @@
 #include "esp_attr.h"
+#include "esp_timer.h"
 #include "web_server.hpp"
 #include "ws_broadcast.hpp"
 #include "servo_table.hpp"
@@ -988,6 +989,22 @@ esp_err_t handle_wifi_status(httpd_req_t *req) {
     cJSON_AddNumberToObject(root, "maxSaved", WIFI_NETWORKS_MAX);
     cJSON_AddBoolToObject(root, "prefer5g", wifi_get_prefer_5ghz());
     cJSON_AddStringToObject(root, "debug", wifi_debug_info());
+    // The last few connection attempts (newest last), so a failed "Connect" says why.
+    WifiAttempt attempts[4];
+    size_t attemptCount = wifi_get_attempts(attempts, 4);
+    int64_t nowS = esp_timer_get_time() / 1000000;
+    cJSON *atts = cJSON_AddArrayToObject(root, "attempts");
+    for (size_t i = 0; i < attemptCount; i++) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "ssid", attempts[i].ssid);
+        cJSON_AddBoolToObject(o, "ok", attempts[i].ok);
+        cJSON_AddStringToObject(o, "result", wifi_reason_text(attempts[i]));
+        cJSON_AddNumberToObject(o, "reason", attempts[i].reason);
+        cJSON_AddNumberToObject(o, "channel", attempts[i].channel);
+        cJSON_AddNumberToObject(o, "agoS", (double) (nowS - attempts[i].atS));
+        cJSON_AddBoolToObject(o, "hotspot", attempts[i].hotspot);
+        cJSON_AddItemToArray(atts, o);
+    }
 
     bool camLinked = !cam_link_peer_is_stale();
     cJSON_AddBoolToObject(root, "camLinked", camLinked);

@@ -129,3 +129,18 @@ void wifi_request_connect(const char *ssid);
 // instead of at the next retry tick -- and drop the current connection if
 // its network was just forgotten.
 void wifi_networks_changed();
+
+// One connection attempt, for the setup page and the server's start-up report.
+struct WifiAttempt {
+    char ssid[33];
+    uint32_t atS;       // uptime when it started, s
+    uint32_t ms;        // how long it took
+    uint8_t channel;    // the access point's channel (0: any, the driver chose)
+    uint16_t reason;    // the driver's disconnect reason (wifi_err_reason_t), 0 if none
+    bool ok;
+    bool timeout;       // no answer within the attempt's time
+    bool hotspot;       // the setup hotspot was on during it
+};
+// The last attempts, oldest first. Returns how many were copied.
+size_t wifi_get_attempts(WifiAttempt *out, size_t max);
+const char *wifi_reason_text(const WifiAttempt &a);

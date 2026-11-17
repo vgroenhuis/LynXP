@@ -121,6 +121,11 @@ function initWifiManager(root) {
     } else {
       status = "Not connected -- looking for a saved network in range.";
     }
+    const lastTry = (s.attempts || [])[(s.attempts || []).length - 1];
+    if (!s.connected && !s.connecting && lastTry && !lastTry.ok) {
+      const ch = lastTry.channel ? `, channel ${lastTry.channel}` : "";
+      status += ` Last try: ${lastTry.ssid} -- ${lastTry.result}${lastTry.reason > 1 ? ` (reason ${lastTry.reason})` : ""}${ch}, ${lastTry.agoS} s ago.`;
+    }
     if (s.apActive) {
       status += ` Setup hotspot "${s.apSsid}" is on${s.viaAp ? " (you're connected through it)" : ""}.`;
     }

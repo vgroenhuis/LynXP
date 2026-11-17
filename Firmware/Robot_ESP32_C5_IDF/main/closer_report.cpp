@@ -1,6 +1,7 @@
 #include "closer_report.hpp"
 
 #include "wifi_connect.hpp"
+#include "wifi_networks.hpp"
 #include "ws_broadcast.hpp"
 #include "ina260.hpp"
 #include "cam_link.hpp"
@@ -155,6 +156,29 @@ char *build_report(const char *event) {
         char msg[120]; // (the server takes messages up to 120 characters)
         snprintf(msg, sizeof(msg), "%s", closer_update_state());
         cJSON_AddStringToObject(j, "message", msg);
+    }
+
+    // With the start-up report: the saved networks (names only) and the
+    // connection attempts so far -- the server logs them, so a robot that
+    // struggled to get online leaves a trace of why.
+    if (std::strcmp(event, "boot") == 0) {
+        cJSON *saved = cJSON_AddArrayToObject(j, "wifi_saved");
+        WifiCredential cred;
+        for (size_t i = 0; i < wifi_networks_count() && i < 20 && wifi_networks_get(i, &cred); i++) {
+            cJSON_AddItemToArray(saved, cJSON_CreateString(cred.ssid));
+        }
+        std::memset(&cred, 0, sizeof(cred));
+        WifiAttempt attempts[10];
+        size_t n = wifi_get_attempts(attempts, 10);
+        cJSON *log = cJSON_AddArrayToObject(j, "wifi_log");
+        for (size_t i = 0; i < n; i++) {
+            const WifiAttempt &a = attempts[i];
+            char line[100];
+            snprintf(line, sizeof(line), "%lus %.32s ch%u %s%s reason %u, %lu ms%s", (unsigned long) a.atS, a.ssid, a.channel,
+                     a.ok ? "ok" : "FAIL: ", a.ok ? "," : wifi_reason_text(a), a.reason, (unsigned long) a.ms,
+                     a.hotspot ? ", hotspot on" : "");
+            cJSON_AddItemToArray(log, cJSON_CreateString(line));
+        }
     }
 
     // After a hang restart, the boot report says where the two tracked tasks
