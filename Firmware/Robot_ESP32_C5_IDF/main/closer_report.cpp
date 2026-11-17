@@ -171,6 +171,12 @@ char *build_report(const char *event) {
         WifiAttempt attempts[10];
         size_t n = wifi_get_attempts(attempts, 10);
         cJSON *log = cJSON_AddArrayToObject(j, "wifi_log");
+        if (wifi_networks_unreadable() > 0) {
+            char line[100];
+            snprintf(line, sizeof(line), "%u saved network(s) unreadable at start-up: dropped, list rewritten",
+                     (unsigned) wifi_networks_unreadable());
+            cJSON_AddItemToArray(log, cJSON_CreateString(line));
+        }
         for (size_t i = 0; i < n; i++) {
             const WifiAttempt &a = attempts[i];
             char line[100];

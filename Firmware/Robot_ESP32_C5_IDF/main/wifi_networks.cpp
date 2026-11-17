@@ -27,6 +27,7 @@ constexpr const char *NVS_NAMESPACE = "wifinets";
 SemaphoreHandle_t s_mutex = nullptr;
 EXT_RAM_BSS_ATTR WifiCredential s_nets[WIFI_NETWORKS_MAX];
 size_t s_count = 0;
+size_t s_unreadable = 0; // entries that couldn't be read at start-up (see wifi_networks_init())
 
 struct Lock {
     Lock() { xSemaphoreTake(s_mutex, portMAX_DELAY); }
@@ -135,27 +136,56 @@ void wifi_networks_init() {
     Lock lock;
 
     s_count = 0;
+    s_unreadable = 0;
+    uint16_t count = 0;
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
-        uint16_t count = 0;
         nvs_get_u16(h, "count", &count);
         char key[16];
         for (size_t i = 0; i < count && s_count < WIFI_NETWORKS_MAX; i++) {
             entry_key(i, key, sizeof(key));
             WifiCredential c;
-            size_t len = sizeof(c);
-            if (nvs_get_blob(h, key, &c, &len) == ESP_OK && len == sizeof(c)) {
+            bool read = false;
+            for (int tries = 0; tries < 2 && !read; tries++) {
+                size_t len = sizeof(c);
+                esp_err_t err = nvs_get_blob(h, key, &c, &len);
+                read = err == ESP_OK && len == sizeof(c);
+                if (!read) ESP_LOGE(TAG, "saved network %s unreadable: %s (%u bytes)", key, esp_err_to_name(err), (unsigned) len);
+            }
+            if (read) {
                 c.ssid[sizeof(c.ssid) - 1] = '\0';
                 c.password[sizeof(c.password) - 1] = '\0';
                 s_nets[s_count++] = c;
+            } else {
+                s_unreadable++;
             }
         }
         nvs_close(h);
+    }
+    // An unreadable entry left a hole: the list in memory is shorter than the
+    // keys in flash, so the next network added took slot n<count-in-memory>
+    // -- the key of a network that *was* readable -- and overwrote it. (That
+    // is how iotroam and the home 5 GHz network kept pushing each other out.)
+    // Write the readable ones back without the hole, so keys and list agree.
+    if (s_unreadable > 0) {
+        ESP_LOGE(TAG, "%u saved network(s) unreadable; rewriting the list without them", (unsigned) s_unreadable);
+        persist_from(0, false);
+        if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+            char key[16];
+            for (size_t i = s_count; i < count; i++) {
+                entry_key(i, key, sizeof(key));
+                nvs_erase_key(h, key);
+            }
+            nvs_commit(h);
+            nvs_close(h);
+        }
     }
 
     migrate_once();
     ESP_LOGI(TAG, "%u saved network(s)", (unsigned) s_count);
 }
+
+size_t wifi_networks_unreadable() { return s_unreadable; }
 
 size_t wifi_networks_count() {
     Lock lock;

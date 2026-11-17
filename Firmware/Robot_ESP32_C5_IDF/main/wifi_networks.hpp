@@ -35,6 +35,10 @@ void wifi_networks_init();
 
 size_t wifi_networks_count();
 
+// How many saved entries couldn't be read at start-up (they're dropped, and
+// the list rewritten without them). Reported to the server.
+size_t wifi_networks_unreadable();
+
 // Copies entry i (in the order they were added) into *out. False if out of range.
 bool wifi_networks_get(size_t index, WifiCredential *out);
 
