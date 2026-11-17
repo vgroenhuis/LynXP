@@ -618,7 +618,8 @@ window.addEventListener("DOMContentLoaded", () => {
     // Absolute aim runs in the pose loop, so keep that going even with no
     // overlay or game listening (with the socket up it adds no requests).
     if (aimParams) subscribeToPose(() => {});
-    Lynx.sfx.volume = app.general.volume;
+    if (Lynx.sfx.setVolume) Lynx.sfx.setVolume(app.general.volume);
+    else Lynx.sfx.volume = app.general.volume;
     setupSceneOpacity(app);
     setupModeSelect(calib, app);
     setupDriveModeButton();

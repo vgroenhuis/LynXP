@@ -450,10 +450,10 @@ window.Lynx = window.Lynx || {};
       lensLimit.rad = (Math.max(30, deg - 2) * Math.PI) / 180;
       return lensLimit.rad;
     }
-    ar.projectLens = (wx, wy, h) => {
+    ar.projectLens = (wx, wy, h, minZ = NEAR_M) => {
       const v = ar.view;
       const [xc, yc, zc] = camPoint(wx, wy, h);
-      if (zc < NEAR_M || Math.atan2(Math.hypot(xc, yc), zc) > lensMaxOffAxis()) return null;
+      if (zc < minZ || Math.atan2(Math.hypot(xc, yc), zc) > lensMaxOffAxis()) return null;
       const p = Lynx.lens.project(xc, yc, zc, v.imgW, v.imgH);
       if (!p) return null;
       return { x: v.offX + p.u * v.scale, y: v.offY + p.v * v.scale, depth: zc, ppm: (p.scale * v.scale) / zc };
@@ -461,10 +461,12 @@ window.Lynx = window.Lynx || {};
 
     // World point (x, y on the floor, h meters up) -> screen. Null if behind
     // the camera. ppm = screen pixels per meter at that depth (for sizing).
-    ar.project = (wx, wy, h) => {
+    // (minZ: how near the lens a point may be; a figure right in front of the
+    // camera is drawn nearer than the floor's 4 cm)
+    ar.project = (wx, wy, h, minZ = NEAR_M) => {
       const v = ar.view;
       const [xc, yc, zc] = camPoint(wx, wy, h);
-      if (zc < NEAR_M) return null;
+      if (zc < minZ) return null;
       const p = pinhole(xc, yc, zc);
       return { x: p.x, y: p.y, depth: zc, ppm: (v.f * v.scale) / zc };
     };

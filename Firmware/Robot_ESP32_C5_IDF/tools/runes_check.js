@@ -23,12 +23,12 @@ const rangeCells = (drop) => (RUN * ((JV + Math.sqrt(JV * JV + 2 * GR * Math.max
 const islandFloats = (ch) => ch === "."; // only on open water
 
 function check(lv, allowed) {
-  const rows = lv.map.map((s) => s.padEnd(Math.max(...lv.map.map((x) => x.length)), "."));
+  const rows = lv.map.map((s) => s.padEnd(Math.max(...lv.map.map((x) => x.length)), "o"));
   const H = rows.length, W = rows[0].length;
-  const OUT = process.env.OUTSIDE || ":"; // what's round the map
+  const OUT = process.env.OUTSIDE || "o"; // what's round the map (the sea)
   const PAD = 3;
   const tile = (i, j) => (i < 0 || j < 0 || i >= H || j >= W ? OUT : rows[i][j]);
-  const base = (i, j) => { const ch = tile(i, j); if (i < 0 || j < 0 || i >= H || j >= W || ch === "." || ch === ":") return 0; const r = lv.rise && lv.rise[i] && lv.rise[i][j]; return (+(r || (lv.riseAll && ch !== "." && ch !== ":" ? lv.riseAll : 0)) || 0) * RISE; };
+  const base = (i, j) => { const ch = tile(i, j); if (i < 0 || j < 0 || i >= H || j >= W || ch === "." || ch === ":" || ch === "o") return 0; const r = lv.rise && lv.rise[i] && lv.rise[i][j]; return (+(r || (lv.riseAll && ch !== "." && ch !== ":" && ch !== "o" ? lv.riseAll : 0)) || 0) * RISE; };
   const cells = [];
   for (let i = -PAD; i < H + PAD; i++) for (let j = -PAD; j < W + PAD; j++) cells.push([i, j]);
   const key = (i, j) => `${i},${j}`;
@@ -69,7 +69,7 @@ function check(lv, allowed) {
     const h = base(i, j);
     const k = key(i, j);
     if (ch === "." || ch === ":") return P[0] && P[0].island && P[0].island.has(k) ? 0 : null;
-    if (ch === "w" || ch === "h") return null;
+    if (ch === "w" || ch === "h" || ch === "o" || ch === "T" || ch === "R") return null; // (water, the sea; trees and rocks: solid)
     if (ch === "~") return P[3] && P[3].lit && P[3].lit.has(k) ? h : null;
     if (ch === "F") return P[2] && P[2].doused && P[2].doused.has(k) ? h : null;
     if (ch === "^") return P[5] && P[5].sunk && P[5].sunk.has(k) ? h : null;
@@ -78,6 +78,7 @@ function check(lv, allowed) {
   }
   function topH(i, j, P) { // the highest solid there (for a jump's path)
     const ch = tile(i, j); const h = base(i, j);
+    if (ch === "T" || ch === "R") return h + 0.3; // (too high to jump over)
     if ((ch === "A" || ch === "B") && !(P[1] && P[1].plate === ch)) return h + 0.07;
     return h;
   }

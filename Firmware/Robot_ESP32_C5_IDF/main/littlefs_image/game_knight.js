@@ -518,70 +518,121 @@ Lynx.games = Lynx.games || {};
   }
 
   // Draws a figure's primitives (floor-frame points) through world3d.
+  // A primitive with a `grp` (a part: a leg, an arm, the body) is drawn
+  // with the rest of its part: the part's outline first, under all of it,
+  // then its fills -- so the pieces of one part meet without a line between
+  // them, and no piece's outline cuts across its neighbour's (which flickered
+  // as the depth order of touching pieces swapped). Parts, and pieces
+  // without one, go far to near. Points come through w.projectClose where
+  // there is one (a figure right in front of the lens stays whole), and a
+  // piece reaching behind the lens is cut where it leaves the view.
   function drawPrims(w, prims, ar, outline, alpha = 1, flash = 0) {
     const c = ar.ctx;
-    const items = [];
-    prims.forEach((p) => {
-      if (p.k === "seg") {
-        const a = w.project(...p.a);
-        const b = w.project(...p.b);
-        if (a && b) items.push({ p, a, b, z: (a.depth + b.depth) / 2 });
-      } else if (p.k === "ball") {
-        const s = w.project(...p.c);
-        if (s) items.push({ p, s, z: s.depth });
-      } else {
-        const pts = p.pts.map((q) => w.project(...q));
-        if (pts.every(Boolean)) items.push({ p, pts, z: pts.reduce((m, q) => m + q.depth, 0) / pts.length });
+    const P = w.projectClose || w.project;
+    const pj = (q) => P(q[0], q[1], q[2]);
+    // a segment with one end behind the lens: its end moved in to where it still projects
+    const cut = (inside, outside) => {
+      let lo = 0;
+      let hi = 1;
+      for (let n = 0; n < 8; n++) {
+        const m = (lo + hi) / 2;
+        if (pj(inside.map((v, i) => v + (outside[i] - v) * m))) lo = m;
+        else hi = m;
       }
+      return lo > 0.02 ? pj(inside.map((v, i) => v + (outside[i] - v) * lo)) : null;
+    };
+    const groups = new Map();
+    const items = [];
+    prims.forEach((p, n) => {
+      let it = null;
+      if (p.k === "seg") {
+        let a = pj(p.a);
+        let b = pj(p.b);
+        if (a && !b) b = cut(p.a, p.b);
+        else if (b && !a) a = cut(p.b, p.a);
+        if (a && b) it = { p, a, b, z: (a.depth + b.depth) / 2 };
+      } else if (p.k === "ball") {
+        const s = pj(p.c);
+        if (s) it = { p, s, z: s.depth };
+      } else {
+        const pts = p.pts.map(pj);
+        if (pts.every(Boolean)) it = { p, pts, z: pts.reduce((m, q) => m + q.depth, 0) / pts.length };
+      }
+      if (!it) return;
+      it.n = n;
+      it.z += p.bias || 0; // (m: nearer than it is, within its part -- a hat over the head)
+      const key = p.grp === undefined ? `#${n}` : p.grp;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+      items.push(it);
     });
-    items.sort((x, y) => y.z - x.z);
+    const parts = [...groups.values()].map((list) => ({ list: list.sort((x, y) => y.z - x.z || x.n - y.n), z: list.reduce((m, it) => m + it.z, 0) / list.length }));
+    parts.sort((x, y) => y.z - x.z);
     c.save();
     c.globalAlpha *= alpha;
     c.lineCap = "round";
     c.lineJoin = "round";
-    items.forEach((it) => {
-      const col = flash > 0 ? mix(it.p.color, "#ffffff", flash) : it.p.color;
+    const segWidth = (it) => Math.max(1, 2 * it.p.rad * (it.a.ppm + it.b.ppm) / 2);
+    const line = (it, color, wd, dx = 0, dy = 0) => {
+      c.strokeStyle = color;
+      c.lineWidth = wd;
+      c.beginPath();
+      c.moveTo(it.a.x + dx, it.a.y + dy);
+      c.lineTo(it.b.x + dx, it.b.y + dy);
+      c.stroke();
+    };
+    const polyPath = (it) => {
+      c.beginPath();
+      it.pts.forEach((q, i) => (i ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y)));
+      c.closePath();
+    };
+    const drawOutline = (it) => {
+      if (it.p.noOutline) return;
       if (it.p.k === "seg") {
-        const width = Math.max(1, 2 * it.p.rad * (it.a.ppm + it.b.ppm) / 2);
-        const line = (color, wd, dx = 0, dy = 0) => {
-          c.strokeStyle = color;
-          c.lineWidth = wd;
-          c.beginPath();
-          c.moveTo(it.a.x + dx, it.a.y + dy);
-          c.lineTo(it.b.x + dx, it.b.y + dy);
-          c.stroke();
-        };
-        line(outline, width + Math.min(3, 1 + width * 0.25));
-        line(col, width);
-        if (width > 3) line(it.p.shine ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.28)", width * 0.35, -width * 0.18, -width * 0.2);
+        const width = segWidth(it);
+        line(it, outline, width + Math.min(3, 1 + width * 0.25));
       } else if (it.p.k === "ball") {
         const rad = Math.max(1, it.p.rad * it.s.ppm);
         c.beginPath();
         c.arc(it.s.x, it.s.y, rad + Math.min(1.5, 0.5 + rad * 0.12), 0, 2 * Math.PI);
         c.fillStyle = outline;
         c.fill();
+      } else {
+        polyPath(it);
+        c.strokeStyle = outline;
+        c.lineWidth = 2.5;
+        c.stroke();
+      }
+    };
+    const drawFill = (it) => {
+      const col = flash > 0 ? mix(it.p.color, "#ffffff", flash) : it.p.color;
+      if (it.p.k === "seg") {
+        const width = segWidth(it);
+        line(it, col, width);
+        if (width > 3) {
+          // round: a shade along one side, a highlight along the other (the light from up left)
+          line(it, "rgba(0,0,0,0.16)", width * 0.32, width * 0.26, width * 0.22);
+          line(it, it.p.shine ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.24)", width * 0.3, -width * 0.18, -width * 0.2);
+        }
+      } else if (it.p.k === "ball") {
+        const rad = Math.max(1, it.p.rad * it.s.ppm);
         c.beginPath();
         c.arc(it.s.x, it.s.y, rad, 0, 2 * Math.PI);
-        c.fillStyle = col;
+        if (rad > 4 && !it.p.flat) {
+          const g = c.createRadialGradient(it.s.x - rad * 0.35, it.s.y - rad * 0.4, rad * 0.1, it.s.x, it.s.y, rad);
+          g.addColorStop(0, mix(col, "#ffffff", 0.22));
+          g.addColorStop(0.55, col);
+          g.addColorStop(1, mix(col, "#000000", 0.28));
+          c.fillStyle = g;
+        } else c.fillStyle = col;
         c.fill();
-        if (rad > 3) {
-          c.beginPath();
-          c.arc(it.s.x - rad * 0.3, it.s.y - rad * 0.35, rad * 0.35, 0, 2 * Math.PI);
-          c.fillStyle = "rgba(255,255,255,0.3)";
-          c.fill();
-        }
       } else {
-        c.beginPath();
-        it.pts.forEach((q, i) => (i ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y)));
-        c.closePath();
+        polyPath(it);
         c.fillStyle = col;
         c.fill();
-        c.strokeStyle = outline;
-        c.lineWidth = 1.5;
-        c.stroke();
         (it.p.lines || []).forEach(([a, b]) => {
-          const pa = w.project(...a);
-          const pb = w.project(...b);
+          const pa = pj(a);
+          const pb = pj(b);
           if (!pa || !pb) return;
           c.strokeStyle = it.p.lineColor;
           c.lineWidth = Math.max(1, 0.0007 * pa.ppm);
@@ -591,11 +642,15 @@ Lynx.games = Lynx.games || {};
           c.stroke();
         });
       }
+    };
+    parts.forEach((part) => {
+      part.list.forEach(drawOutline);
+      part.list.forEach(drawFill);
     });
     c.restore();
   }
   function mix(hex, other, t) {
-    if (!hex || hex[0] !== "#") return hex;
+    if (!hex || hex[0] !== "#" || hex.length !== 7) return hex;
     const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
     const a = p(hex);
     const b = p(other);

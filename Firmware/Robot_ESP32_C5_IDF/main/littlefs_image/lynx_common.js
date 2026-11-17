@@ -409,6 +409,8 @@ window.Lynx = window.Lynx || {};
         { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "cellCm", label: "Level scale: one map cell (the cubes fit in one)", type: "number", unit: "cm", def: 5, min: 3, max: 10, step: 0.5 },
         { key: "knightCm", label: "Explorer's height (3 cm climbs 5 cm blocks)", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
+        { key: "textures", label: "Textures (off: flat colours, lighter for an old phone)", type: "checkbox", def: true },
+        { key: "ambience", label: "Surf and stream sounds (also keep the sound output awake: no late first jump sound)", type: "checkbox", def: true },
         { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
         { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
         { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
@@ -781,6 +783,7 @@ window.Lynx = window.Lynx || {};
         for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       }
       if (audio.state === "suspended") audio.resume();
+      if (ambientWant && !ambientNow) startAmbient();
     } catch (e) {
       audio = null; // no WebAudio -- silently no sound
     }
@@ -883,6 +886,72 @@ window.Lynx = window.Lynx || {};
       const notes = [82, 82, 165, 82, 82, 147, 82, 82, 131, 82, 123, 110];
       notes.forEach((f, i) => { tone(t + i * 0.11, "sawtooth", f, null, 0.1, 0.3); tone(t + i * 0.11, "square", f * 2, null, 0.08, 0.1); });
     },
+  };
+
+  // A quiet, endless background (a game's place: "shore" -- surf and a
+  // stream), or null for none. Besides the mood, it keeps the sound output
+  // busy: some outputs (Bluetooth, HDMI, power-saving sound cards) go to
+  // sleep in silence and wake late, which delayed the first effect after a
+  // quiet spell. Follows sfx.volume; starts once sound is unlocked.
+  let ambientWant = null;
+  let ambientNow = null;
+  function startAmbient() {
+    if (!audio || ambientWant === (ambientNow && ambientNow.kind)) return;
+    if (ambientNow) {
+      const old = ambientNow;
+      old.master.gain.setTargetAtTime(0, audio.currentTime, 0.4);
+      setTimeout(() => old.nodes.forEach((n) => { try { n.stop(); } catch (e) { /* (stopped) */ } }), 2000);
+      ambientNow = null;
+    }
+    if (!ambientWant) return;
+    const t = audio.currentTime;
+    const master = audio.createGain();
+    master.gain.setValueAtTime(0, t);
+    master.gain.setTargetAtTime(Math.max(0.0002, sfx.volume * 0.5), t, 1.2);
+    master.connect(audio.destination);
+    const nodes = [];
+    const layer = (type, freq, q, level, lfoHz, lfoDepth) => {
+      const src = audio.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+      const f = audio.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = audio.createGain();
+      g.gain.value = level;
+      src.connect(f);
+      f.connect(g);
+      g.connect(master);
+      // (the swell: a slow wobble of its loudness)
+      const lfo = audio.createOscillator();
+      lfo.frequency.value = lfoHz;
+      const depth = audio.createGain();
+      depth.gain.value = level * lfoDepth;
+      lfo.connect(depth);
+      depth.connect(g.gain);
+      src.start(t, Math.random());
+      lfo.start(t);
+      nodes.push(src, lfo);
+    };
+    // the surf: low, rolling in and out; the stream: a soft, higher rush
+    layer("lowpass", 420, 0.6, 0.11, 0.11, 0.85);
+    layer("lowpass", 900, 0.5, 0.035, 0.07, 0.6);
+    layer("bandpass", 2600, 0.9, 0.022, 0.53, 0.35);
+    ambientNow = { kind: ambientWant, master, nodes };
+  }
+  sfx.ambient = (kind) => {
+    ambientWant = kind || null;
+    try {
+      startAmbient();
+    } catch (e) {
+      ambientNow = null; // (no ambience: not worth breaking a game over)
+    }
+  };
+  // (the volume setting changed: the ambience follows)
+  sfx.setVolume = (v) => {
+    sfx.volume = v;
+    if (audio && ambientNow) ambientNow.master.gain.setTargetAtTime(Math.max(0.0002, v * 0.5), audio.currentTime, 0.2);
   };
 
   sfx.play = (name) => {

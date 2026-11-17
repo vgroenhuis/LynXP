@@ -45,7 +45,8 @@
 // view instead of the knight, or null), hideBlock(b) (true: a real block not
 // shown -- no cut-out, no outline: something virtual covers it), hideHero() (true: no knight, shadow
 // or jump hint), forceTracks() (true: the wheel tracks shown whatever the
-// switch says), forceTags() (the same for the tags found); unarmed: true (no
+// switch says), forceTags() (the same for the tags found), floorH(f, r) (the
+// floor's height there: gentle hills, a few mm; she walks up and down them); unarmed: true (no
 // sword in the hand -- with drawHero, another character). See `api` below for what it gets.
 
 window.Lynx = window.Lynx || {};
@@ -239,7 +240,8 @@ Lynx.games = Lynx.games || {};
     };
 
     function groundAt(f, r, z, up = C.STEP_UP) {
-      let best = { h: 0, ref: null };
+      // (the floor: flat, or an extension's gentle hills -- X.floorH, a few mm)
+      let best = { h: X && X.floorH ? X.floorH(f, r) : 0, ref: null };
       for (const b of solids) {
         if (b.h1 > z + up + 1e-6 || !inFoot(b, f, r, C.BODY_R * 0.6)) continue;
         if (b.h1 > best.h) best = { h: b.h1, ref: b.id };

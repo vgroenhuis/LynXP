@@ -13,6 +13,7 @@
 //
 // Lynx.world3d(ar, opts) -> {
 //   setAnchor(a), anchor(), toWorld(f, r), toLocal(x, y), w3(f, r, h),
+//   projectClose(f, r, h) (as project, down to 6 mm from the lens: figures),
 //   camLocal() -> {f, r, h}, camZ(f, r, h), project(f, r, h),
 //   polyScreen(points [[f, r, h]...], seg), fillPoly(pts, fill, stroke, width),
 //   line3(points, color, width, stepM), extent(f0, f1, r0, r1, h0, h1),
@@ -73,6 +74,14 @@ window.Lynx = window.Lynx || {};
       if (camZ(f, r, h) < near) return null;
       const w = toWorld(f, r);
       return proj(w.x, w.y, h);
+    };
+    // the same down to 6 mm in front of the lens: small figures the camera
+    // comes right up to (the floor's surfaces keep the 4 cm clip)
+    const CLOSE = 0.006;
+    const projectClose = (f, r, h) => {
+      if (camZ(f, r, h) < CLOSE) return null;
+      const w = toWorld(f, r);
+      return proj(w.x, w.y, h, CLOSE);
     };
 
     // Local polygon -> screen polygon, clipped at the near plane (edges cut
@@ -365,7 +374,7 @@ window.Lynx = window.Lynx || {};
 
     return {
       frame, setAnchor: (a) => (anchor = { ...a }), anchor: () => anchor,
-      toWorld, toLocal, w3, camLocal, camZ, project, polyScreen, fillPoly, line3, extent, box, slab, wall, floor, texFloor, texFace,
+      toWorld, toLocal, w3, camLocal, camZ, project, projectClose, polyScreen, fillPoly, line3, extent, box, slab, wall, floor, texFloor, texFace,
       beginFrame: () => (frame.cam = camLocal()),
       near,
     };
