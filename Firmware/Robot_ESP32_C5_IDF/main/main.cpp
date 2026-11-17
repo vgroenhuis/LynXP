@@ -24,6 +24,7 @@
 #include "closer_update.hpp"
 #include "app_data.hpp"
 #include "reset_log.hpp"
+#include "flash_check.hpp"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -97,6 +98,7 @@ extern "C" void app_main(void) {
     if (CAM_LINK_VIDEO) cam_stream_start(); // MJPEG of the camera's frames over this board's Wi-Fi, port 81 (cam_stream.hpp)
     debug_pan_register_routes();
     reset_log_register_routes(); // GET /resets
+    flash_check_register_routes(); // GET /flashcheck: flash / PSRAM self-test
     closer_report_start(); // heartbeats to the CloSer lab demos page, once a device key is stored
 
     // Both tasks now exist -- subscribe them to the task watchdog and start

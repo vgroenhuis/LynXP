@@ -38,6 +38,7 @@ idf_component_register(
         "debug_pan.cpp"
         "closer_report.cpp"
         "closer_update.cpp"
+        "flash_check.cpp"
         "cpu_trace.c"
     INCLUDE_DIRS "."
     REQUIRES
@@ -61,6 +62,7 @@ idf_component_register(
         mbedtls         # esp_crt_bundle.h
         app_update      # esp_ota_ops.h
         esp_partition
+        bootloader_support # esp_image_format.h: the running image's SHA-256 (flash_check.cpp)
         cjson           # espressif/cjson managed component
         mdns            # espressif/mdns managed component
         ssd1306         # nopnop2002/ssd1306 managed component

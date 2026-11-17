@@ -13,6 +13,7 @@
 #include "watchdog.hpp"
 #include "breadcrumb.hpp"
 #include "reset_log.hpp"
+#include "flash_check.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -135,6 +136,16 @@ char *build_report(const char *event) {
         cJSON_AddNumberToObject(stats, "power [W]", mw / 1000.0f);
     }
     if (ws.apActive) cJSON_AddNumberToObject(stats, "hotspot clients", ws.apClients);
+    // The flash / PSRAM self-test (GET /flashcheck), once one has run: its
+    // passes and every wrong read it found, so the server's history keeps it.
+    FlashCheckResult fc;
+    if (flash_check_get(&fc)) {
+        cJSON_AddNumberToObject(stats, "flashcheck passes", fc.passes);
+        cJSON_AddNumberToObject(stats, "flashcheck program errors", fc.directHashBad + fc.cacheHashBad + fc.chunkMismatches);
+        cJSON_AddNumberToObject(stats, "flashcheck nvs errors",
+                                fc.nvsReadDiffs + fc.nvsBadHeaders + fc.nvsBadData + fc.nvsBadPages);
+        cJSON_AddNumberToObject(stats, "flashcheck psram errors", fc.psramBadWords);
+    }
 
     // The link to the camera board (ESP32-S3): its status line over SPI
     // every second or so (cam_link.cpp), and pings to it over Wi-Fi.
