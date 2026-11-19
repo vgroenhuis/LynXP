@@ -3233,7 +3233,7 @@ Lynx.games = Lynx.games || {};
       helpLine: () =>
         G.phase === "menu"
           ? ""
-          : "Explorer: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V",
+          : "Explorer: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V · Opacity: RB / LB",
       onFire(state) {
         if (G.phase === "play" && G.ship) boardOrLeave();
         else confirm(state);
@@ -3268,7 +3268,8 @@ Lynx.games = Lynx.games || {};
       lowerView: true,
       drawHero: drawExplorer,
       onWeapon(wpn) {
-        if (G.phase !== "menu") return false;
+        // in play: RB / LB (Tab / Shift + Tab) set the floors' and walls' opacity (more / less), not the camera zoom
+        if (G.phase !== "menu") return Lynx.stepSceneOpacity(wpn);
         if (wpn === "next") choose(1);
         else if (wpn === "prev") choose(-1);
         else if (typeof wpn === "number" && wpn >= 1 && wpn <= LEVELS.length) {

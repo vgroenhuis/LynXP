@@ -541,7 +541,7 @@ Lynx.games = Lynx.games || {};
     });
 
     // -- input -------------------------------------------------------------------------------------------------------
-    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floor and the hedges more / less see-through
+    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floor and the hedges less / more see-through
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title") return startLevel(menu.sel);
@@ -847,7 +847,7 @@ Lynx.games = Lynx.games || {};
     }
 
     // -- drawing -----------------------------------------------------------------------------------------------------
-    const FLOOR_ALPHA = 0.6;
+    const FLOOR_ALPHA = 1; // (opaque at 100%: the floors and walls opacity slider / RB / LB makes it see-through, Lynx.sceneOpacity)
     const texOn = typeof Lynx.texture === "function" && !!ar.texturedQuad;
     function floorTex(r, h, flat, tex, alpha = FLOOR_ALPHA) {
       if (texOn && Lynx.texture(tex)) w.floor(r, h, null, null, { detail: tex, alpha });
@@ -882,18 +882,18 @@ Lynx.games = Lynx.games || {};
           const k = idx(i, j);
           const t = tiles[k];
           if (t === "water") {
-            floorTex(q(i, j), 0.0003, "rgba(20,50,100,1)", "wh_water", 0.8);
+            floorTex(q(i, j), 0.0003, "rgba(20,50,100,1)", "wh_water");
             w.floor(q(i, j), 0.0005, `rgba(150,200,255,${0.06 + 0.05 * Math.sin(time * 2 + i * 1.3 + j * 0.7)})`, null);
-          } else if (t === "moss") floorTex(q(i, j), 0.0003, "rgba(70,100,50,1)", "wh_moss", 0.85);
+          } else if (t === "moss") floorTex(q(i, j), 0.0003, "rgba(70,100,50,1)", "wh_moss");
           else if (t === "plateP" || t === "plateQ") {
             const g = t === "plateP" ? "P" : "Q";
-            floorTex(q(i, j), 0.0004, "rgba(120,116,108,1)", "wh_plate", 0.9);
+            floorTex(q(i, j), 0.0004, "rgba(120,116,108,1)", "wh_plate");
             w.floor(q(i, j, 0.003), 0.0006, rgb(GATE[g], weights[g] ? 0.45 : 0.12), rgb(GATE[g], 0.9), { width: 1.5, object: true });
           } else if (t === "spring") {
-            floorTex(q(i, j), 0.0003, "rgba(20,60,110,1)", "wh_water", 0.9);
+            floorTex(q(i, j), 0.0003, "rgba(20,60,110,1)", "wh_water");
             w.floor(q(i, j), 0.0005, `rgba(140,230,255,${0.18 + 0.1 * Math.sin(time * 3 + i + j)})`, null);
           } else if (t === "home") {
-            floorTex(q(i, j), 0.0003, "rgba(110,112,120,1)", "wh_stone", 0.95);
+            floorTex(q(i, j), 0.0003, "rgba(110,112,120,1)", "wh_stone");
             w.floor(q(i, j), 0.0005, `rgba(170,230,255,${0.14 + 0.08 * Math.sin(time * 2.2)})`, "rgba(190,235,255,0.7)");
           } else if (t === "hedge") w.box(q(i, j), 0, HEDGE_H, HEDGE);
           else if (t === "rock") w.box(q(i, j, 0.004), 0, 0.032, ROCK);

@@ -728,7 +728,7 @@ Lynx.games = Lynx.games || {};
     });
 
     // -- input --------------------------------------------------------------------------------------------------
-    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floors and walls more / less see-through
+    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floors and walls less / more see-through
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title") return startLevel(menu.sel);
@@ -1222,7 +1222,7 @@ Lynx.games = Lynx.games || {};
     const ROCK = { top: "#6f6a62", side: "#57534c", dark: "#3f3c37", line: "rgba(10,8,5,0.7)", tex: "gb_granite", topTex: "gb_granite" };
     const q = (i, j, m = 0) => ({ f0: (N - 1 - i) * T + m, f1: (N - i) * T - m, r0: -S / 2 + j * T + m, r1: -S / 2 + (j + 1) * T - m });
 
-    const FLOOR_ALPHA = 0.5;
+    const FLOOR_ALPHA = 1; // (opaque at 100%: the floors and walls opacity slider / RB / LB makes it see-through, Lynx.sceneOpacity)
     const texOn = typeof Lynx.texture === "function" && !!ar.texturedQuad;
     function floorTex(r, h, flat, tex, alpha = FLOOR_ALPHA) {
       if (texOn && Lynx.texture(tex)) w.floor(r, h, null, null, { detail: tex, alpha });
@@ -1254,7 +1254,7 @@ Lynx.games = Lynx.games || {};
           const t = tiles[idx(i, j)];
           if (t === "road") floorTex(q(i, j), 0.0004, "rgba(150,115,70,1)", "gb_dirt");
           else if (t === "entry") {
-            floorTex(q(i, j), 0.0004, "rgba(60,10,100,1)", "gb_portal", FLOOR_ALPHA * (0.85 + 0.3 * Math.sin(time * 4 + i + j)));
+            floorTex(q(i, j), 0.0004, "rgba(60,10,100,1)", "gb_portal", Math.min(1, FLOOR_ALPHA * (0.85 + 0.3 * Math.sin(time * 4 + i + j))));
             w.floor(q(i, j), 0.0005, `rgba(190,90,255,${0.15 + 0.15 * Math.sin(time * 5 + i * 2 + j)})`, null);
           } else if (t === "home") {
             floorTex(q(i, j), 0.0004, "rgba(255,210,80,1)", "gb_gold");

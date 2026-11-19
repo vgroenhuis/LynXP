@@ -653,13 +653,19 @@ window.Lynx = window.Lynx || {};
   Lynx.sceneAlpha = () => Lynx.sceneOpacity;
   // The shoulder buttons (and Tab) as a see-through control, for a game that has
   // no other use for them while playing: RB / Tab: floors and walls more
-  // transparent, LB: less (in steps of 10%). active() says when (not on a menu
-  // that uses them to choose).
+  // opaque, LB: less (in steps of 10%: like the slider, to the right is more).
+  // active() says when (not on a menu that uses them to choose).
+  // (a game that already handles "weapon" itself, e.g. Rune Stones, calls
+  // Lynx.stepSceneOpacity("next" | "prev") from its handler instead)
+  Lynx.stepSceneOpacity = (w) => {
+    if ((w !== "next" && w !== "prev") || !Lynx.setSceneOpacityPct) return false;
+    const pct = Math.round(Lynx.sceneOpacity * 10) * 10; // (to the 10% grid)
+    Lynx.setSceneOpacityPct(Math.max(10, Math.min(100, pct + (w === "next" ? 10 : -10))));
+    return true;
+  };
   Lynx.sceneOpacityBumpers = (active = () => true) => {
     Lynx.onAction("weapon", (w) => {
-      if ((w !== "next" && w !== "prev") || !active() || !Lynx.setSceneOpacityPct) return;
-      const pct = Math.round(Lynx.sceneOpacity * 10) * 10; // (to the 10% grid)
-      Lynx.setSceneOpacityPct(Math.max(10, Math.min(100, pct + (w === "next" ? -10 : 10))));
+      if (active()) Lynx.stepSceneOpacity(w);
     });
   };
   // run fn with the canvas's alpha times the scene's

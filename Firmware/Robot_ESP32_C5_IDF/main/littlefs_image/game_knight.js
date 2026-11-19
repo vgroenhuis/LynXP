@@ -1530,7 +1530,7 @@ Lynx.games = Lynx.games || {};
         start(firstLevel);
       },
     });
-    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floors and walls more / less see-through
+    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floors and walls less / more see-through
     Lynx.onAction("fire", () => {
       if (state === "title") {
         // the level chosen on the title screen (an introduction's demo: the configured one)
