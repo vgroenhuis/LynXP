@@ -1256,7 +1256,7 @@ Lynx.NL = {
 "RUNE STONES": "RUNENSTENEN",
 "No fighting: set the rune stones (cubes 0-5) down by hand to make the explorer's way": "Geen gevechten: zet de runenstenen (blokjes 0-5) met de hand neer en maak de weg vrij voor de ontdekkingsreiziger",
 "Tap a level · tap it again (or ▶): start": "Tik een level aan · nog een keer (of ▶): start",
-"Explorer: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V": "Ontdekkingsreiziger: stick / WASD · Springen: spatie / A · Robot: rechterstick / pijltjes · Hint: H · Levels: L · Centreren: V",
+"Explorer: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V · Opacity: RB / LB": "Ontdekkingsreiziger: stick / WASD · Springen: spatie / A · Robot: rechterstick / pijltjes · Hint: H · Levels: L · Centreren: V · Dekking: RB / LB",
 "Level scale: one map cell (the cubes fit in one)": "Schaal van het level: één vakje van de kaart (een blokje past erin)",
 "Sort by": "Sorteren op",
 "Standard order": "Standaardvolgorde",

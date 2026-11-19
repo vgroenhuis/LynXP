@@ -500,7 +500,7 @@ Lynx.games = Lynx.games || {};
       color: "#8ff0ff",
     });
 
-    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floors and walls more / less see-through
+    Lynx.sceneOpacityBumpers(() => state !== "title"); // RB / LB: the floors and walls less / more see-through
     Lynx.onAction("fire", () => {
       Lynx.sfx.unlock();
       if (state === "title") return startLevel(menu.sel);
