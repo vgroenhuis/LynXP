@@ -64,8 +64,8 @@ Lynx.GAME_TABLE_DATES = {
   },
   "golf": {
    "files": 1,
-   "loc": 910,
-   "updated": null
+   "loc": 941,
+   "updated": "2026-11-21"
   },
   "inkblot": {
    "files": 1,

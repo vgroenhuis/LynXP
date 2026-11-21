@@ -74,7 +74,7 @@ Lynx.games = Lynx.games || {};
     {
       name: "The Hill", par: 3, tee: [0.3, 0], cup: [1.95, 0],
       border: rect(0, 2.2, -0.35, 0.35),
-      slopes: [{ poly: rect(0.85, 1.65, -0.35, 0.35), af: -0.55, al: 0 }],
+      slopes: [{ poly: rect(0.85, 1.3, -0.35, 0.35), af: -0.45, al: 0 }],
     },
     {
       name: "Bank Shot", par: 3, tee: [0.3, -0.25], cup: [1.65, 0.1],
@@ -265,6 +265,7 @@ Lynx.games = Lynx.games || {};
       ball.vx = dx * v;
       ball.vy = dy * v;
       ball.moving = true;
+      ball.settled = false;
       lipped = false;
       strokes++;
       Lynx.sfx.play("knock");
@@ -353,7 +354,10 @@ Lynx.games = Lynx.games || {};
           const sy = sp.w * (cx - sp.x);
           const vs = bounce(nx, ny, sx, sy, 0.6);
           hit = Math.max(hit, vs);
-          if (vs > 0) ball.moving = true;
+          if (vs > 0) {
+            ball.moving = true;
+            ball.settled = false;
+          }
         }
         // the hub
         const dh = Math.hypot(ball.x - sp.x, ball.y - sp.y);
@@ -376,6 +380,7 @@ Lynx.games = Lynx.games || {};
         const vn = bounce(nx, ny, robotV.x, robotV.y, 0.5);
         if (vn > 0.03) {
           ball.moving = true;
+          ball.settled = false;
           if (wasResting && state === "play") {
             lie = { x: px, y: py };
             strokes++;
@@ -406,7 +411,7 @@ Lynx.games = Lynx.games || {};
         }
       }
       const inSand = course.sand.some((p) => inPoly(ball.x, ball.y, p));
-      if (ax || ay) ball.moving = true;
+      if ((ax || ay) && !ball.settled) ball.moving = true;
       if (!ball.moving) {
         // (a resting ball can still be swept by a sail or bumped by the robot)
         collide(ball.x, ball.y);
@@ -414,6 +419,12 @@ Lynx.games = Lynx.games || {};
       }
       ball.vx += ax * dt;
       ball.vy += ay * dt;
+      const vmax = 2 * Math.sqrt(S);
+      const v0 = Math.hypot(ball.vx, ball.vy);
+      if (v0 > vmax) {
+        ball.vx *= vmax / v0;
+        ball.vy *= vmax / v0;
+      }
       const fr = (inSand ? SAND : ROLL) * dt;
       const sp2 = Math.hypot(ball.vx, ball.vy);
       if (sp2 <= fr) {
@@ -472,6 +483,15 @@ Lynx.games = Lynx.games || {};
         ball.vx = ball.vy = 0;
         ball.moving = false;
       }
+      // (held against a rail on a slope: it creeps nowhere -- then it rests)
+      const moved = Math.hypot(ball.x - px, ball.y - py);
+      ball.stuck = moved < 0.01 * dt ? (ball.stuck || 0) + dt : 0;
+      if (ball.stuck > 0.4) {
+        ball.vx = ball.vy = 0;
+        ball.moving = false;
+        ball.settled = true;
+        ball.stuck = 0;
+      }
     }
 
     function update(dt) {
@@ -487,6 +507,12 @@ Lynx.games = Lynx.games || {};
         robotV.y = lerp(robotV.y, (p.y - lastPose.y) / dt, 0.35);
       }
       lastPose = { x: p.x, y: p.y };
+      // (a jump in the pose -- relocalized -- is no swing of the putter)
+      const rv = Math.hypot(robotV.x, robotV.y);
+      if (rv > 0.6) {
+        robotV.x *= 0.6 / rv;
+        robotV.y *= 0.6 / rv;
+      }
       if (!course) return;
       course.spinners.forEach((sp) => (sp.a += sp.w * dt));
       course.posts.forEach((o) => (o.flash = Math.max(0, o.flash - dt * 3)));
@@ -811,8 +837,8 @@ Lynx.games = Lynx.games || {};
         if (state === "play") {
           if (!ball.moving) {
             ar.edgeArrow(ball.x, ball.y, BALL_R, "#ffffff");
-            if (!atBall()) ar.text("Drive up to your ball", v.cx, v.y + v.h - 46, { size: 14, align: "center", alpha: 0.9 });
-            else if (!swing) ar.text("Turn to aim · hold FIRE to swing, let go to putt", v.cx, v.y + v.h - 46, { size: 14, align: "center", alpha: 0.9 });
+            if (!atBall()) ar.text("Drive up to your ball", v.cx, v.y + v.h - 76, { size: 14, align: "center", alpha: 0.9 });
+            else if (!swing) ar.text("Turn to aim · hold FIRE to swing, let go to putt", v.cx, v.y + v.h - 76, { size: 14, align: "center", alpha: 0.9 });
           }
           ar.edgeArrow(course.cup[0], course.cup[1], 0.1, "#ff3040");
           if (cfg.radar) {
@@ -827,7 +853,7 @@ Lynx.games = Lynx.games || {};
           const pw = swingPower(swing.t);
           const w = Math.min(240, v.w * 0.5);
           const x0 = v.cx - w / 2;
-          const y0 = v.y + v.h - 70;
+          const y0 = v.y + v.h - 100;
           ctx.fillStyle = "rgba(0,0,0,0.55)";
           ctx.fillRect(x0 - 3, y0 - 3, w + 6, 18);
           const grad = ctx.createLinearGradient(x0, 0, x0 + w, 0);
@@ -892,6 +918,10 @@ Lynx.games = Lynx.games || {};
       // (debug, e.g. for an introduction: putt from where the ball is, toward a point)
       debug: {
         course: () => course,
+        startAt: (i) => {
+          holeIx = Math.max(0, Math.min(nHoles - 1, i));
+          startHole();
+        },
         ball: () => ball,
         puttToward: (x, y, power) => {
           const d = Math.hypot(x - ball.x, y - ball.y) || 1;
@@ -900,6 +930,7 @@ Lynx.games = Lynx.games || {};
           ball.vx = ((x - ball.x) / d) * v;
           ball.vy = ((y - ball.y) / d) * v;
           ball.moving = true;
+          ball.settled = false;
           strokes++;
         },
       },
