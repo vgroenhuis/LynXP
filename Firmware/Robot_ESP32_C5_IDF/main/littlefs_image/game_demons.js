@@ -439,7 +439,9 @@ Lynx.games = Lynx.games || {};
 
   const rand = (a, b) => a + Math.random() * (b - a);
 
-  Lynx.games.demons = (ar, cfg) => {
+  Lynx.games.demons = (ar, cfg, app) => {
+    // tagged cubes on the floor (cube_cover.js): cover -- demons walk round them, the robot stops at them
+    const cover = cfg.cubes !== false && Lynx.cubeCover ? Lynx.cubeCover(ar, app, { clear: 0.14 }) : null;
     const diff = DIFFICULTY[cfg.difficulty] || DIFFICULTY.hmp;
     const speedMult = (cfg.enemySpeed || 1) * diff.speed;
     const aimAssist = cfg.aimAssist !== false;
@@ -602,7 +604,7 @@ Lynx.games = Lynx.games || {};
         return d1 * d2 < 0 && d3 * d4 < 0;
       });
     }
-    const wallAt = (x, y, h) => h < WALL_H_M && walls.some((w) => nearestOnWall(w, x, y).d < WALL_R_M);
+    const wallAt = (x, y, h) => (h < WALL_H_M && walls.some((w) => nearestOnWall(w, x, y).d < WALL_R_M)) || (!!cover && cover.wallAt(x, y, h));
 
     function spawnEnemy(type) {
       const pos = Lynx.randomAround(ar.pose.x, ar.pose.y, spawnR - 0.3, spawnR + 0.5);
@@ -649,7 +651,7 @@ Lynx.games = Lynx.games || {};
       hit: (e, dmg) => e.state === "alive" && hurtEnemy(e, dmg),
       hurtPlayer: (f) => damagePlayer(45 * f), // (your own rocket)
       wallAt: (x, y, h) => wallAt(x, y, h),
-      blocked: (x0, y0, x1, y1) => crossesWall(x0, y0, x1, y1),
+      blocked: (x0, y0, x1, y1) => crossesWall(x0, y0, x1, y1) || (!!cover && cover.blocked(x0, y0, x1, y1)),
     });
 
     function tryFire() {
@@ -700,6 +702,8 @@ Lynx.games = Lynx.games || {};
         if (!target) continue;
         // a wall between: the wall takes it (unless the demon floats above it)
         if ((ENEMY[target.type].floatM || 0) < WALL_H_M && crossesWall(ar.pose.x, ar.pose.y, target.x, target.y)) continue;
+        // (a cube hides it only if it's mostly behind it -- a small cube doesn't)
+        if (cover && !ENEMY[target.type].floatM && cover.blocked(ar.pose.x, ar.pose.y, target.x, target.y, 0, ENEMY[target.type].heightM * 0.6)) continue;
         // Damage falls off with distance, shotgun most of all.
         const dist = Math.hypot(target.x - ar.pose.x, target.y - ar.pose.y);
         const falloff = w.pellets > 1 ? Math.max(0.35, 1 - (dist - 0.8) / 3) : 1;
@@ -775,6 +779,7 @@ Lynx.games = Lynx.games || {};
     // -- simulation -------------------------------------------------------------
     function update(dt) {
       stateTime += dt;
+      if (cover) cover.update();
       cooldown = Math.max(0, cooldown - dt);
       muzzle = Math.max(0, muzzle - dt);
       hurtFlash = Math.max(0, hurtFlash - dt * 1.2);
@@ -885,12 +890,14 @@ Lynx.games = Lynx.games || {};
             my += e.strafeDir * nx * 2.5 * k2;
           });
         }
+        if (cover && !def.floatM) [mx, my] = cover.steer(e.x, e.y, mx, my, 0.06, e.strafeDir);
         const mlen = Math.hypot(mx, my);
         const speed = def.speed * speedMult * (e.pain > 0 ? 0.3 : 1) * (e.attackAnim > 0 ? 0.2 : 1);
         if (mlen > 0) {
           e.x += (mx / mlen) * speed * dt;
           e.y += (my / mlen) * speed * dt;
         }
+        if (cover && !def.floatM) [e.x, e.y] = cover.slide(e, e.x, e.y, 0.06);
         if (!def.floatM) {
           walls.forEach((w) => {
             const n = nearestOnWall(w, e.x, e.y);
@@ -1044,6 +1051,7 @@ Lynx.games = Lynx.games || {};
       // the cover walls: real stone slabs (a few cm thick, courses of blocks), not a row of sprites
       w3.beginFrame();
       walls.forEach((wl) => w3.wall(wl.x0, wl.y0, wl.x1, wl.y1, WALL_R_M, WALL_H_M, WALL_PIECE_M * 1.5, STONE_WALL));
+      if (cover) cover.draw(w3);
       pickups.forEach((k) => {
         const spr = sprites[k.kind];
         const hover = 0.02 + Math.sin(k.phase) * 0.01;
@@ -1175,6 +1183,10 @@ Lynx.games = Lynx.games || {};
       }
     }
 
+    if (cover && Lynx.control && Lynx.control.setDriveFilter) {
+      Lynx.control.setDriveFilter((j1, j2) => cover.filterDrive(j1, j2) || { j1, j2 });
+      ar.onDestroy(() => Lynx.control.setDriveFilter(null));
+    }
     ar.onFrame((now, dt) => {
       update(dt);
       drawWorld();

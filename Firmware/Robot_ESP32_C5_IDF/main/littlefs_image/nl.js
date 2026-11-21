@@ -1650,5 +1650,6 @@ Lynx.NL = {
 "🪙 Move coin": "🪙 Munt verplaatsen",
 "▶ Start": "▶ Start",
 "Run: stick / WASD · Jump: A / Space · Coin elsewhere: Fire · Behind: Y / C · Center: V · Rescan: R · Manual drive: M": "Rennen: stick / WASD · Springen: A / spatie · Munt ergens anders: Vuur · Erachter: Y / C · Midden: V · Opnieuw zoeken: R · Zelf rijden: M",
-"Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Coin elsewhere: Fire · Center: V / Y / C · Rescan: R · Auto drive: M": "Lara: linker stick / WASD · Robot: rechter stick / pijltjes · Springen: A / spatie · Munt ergens anders: Vuur · Midden: V / Y / C · Opnieuw zoeken: R · Vanzelf rijden: M"
+"Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Coin elsewhere: Fire · Center: V / Y / C · Rescan: R · Auto drive: M": "Lara: linker stick / WASD · Robot: rechter stick / pijltjes · Springen: A / spatie · Munt ergens anders: Vuur · Midden: V / Y / C · Opnieuw zoeken: R · Vanzelf rijden: M",
+"Tagged cubes on the floor are cover (monsters walk round them, shots stop at them, the robot stops short of them; needs internet once, the tag detector)": "Kubussen met tags op de vloer zijn dekking (monsters lopen eromheen, schoten stoppen ertegen, de robot stopt ervoor; heeft één keer internet nodig, voor de tagdetector)"
 };

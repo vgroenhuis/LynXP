@@ -129,7 +129,11 @@ Lynx.games = Lynx.games || {};
 
   const rand = (a, b) => a + Math.random() * (b - a);
 
-  Lynx.games.david = (ar, cfg) => {
+  Lynx.games.david = (ar, cfg, app) => {
+    // tagged cubes on the floor (cube_cover.js): cover -- monsters walk round them, shots and bombs stop at
+    // them, the robot stops short of them
+    const cover = cfg.cubes !== false && Lynx.cubeCover ? Lynx.cubeCover(ar, app, { clear: 0.14 }) : null;
+    const w3 = cover && Lynx.world3d ? Lynx.world3d(ar, { textures: false }) : null;
     const diff = DIFFICULTY[cfg.difficulty] || DIFFICULTY.normaal;
     const areaM = cfg.areaM || 2;
     const aimAssist = cfg.aimAssist !== false;
@@ -264,8 +268,14 @@ Lynx.games = Lynx.games || {};
         hitMonster(o, n);
       },
       hurtPlayer: (f) => f > 0.3 && loseHeart(),
+      wallAt: (x, y, h) => !!cover && cover.wallAt(x, y, h),
+      blocked: (x0, y0, x1, y1) => !!cover && cover.blocked(x0, y0, x1, y1),
     });
     Lynx.onAction("shield", () => {}); // (X / gamepad B raise it)
+    if (cover && Lynx.control && Lynx.control.setDriveFilter) {
+      Lynx.control.setDriveFilter((j1, j2) => cover.filterDrive(j1, j2) || { j1, j2 });
+      ar.onDestroy(() => Lynx.control.setDriveFilter(null));
+    }
 
     function tryFire(pressed) {
       if (cooldown > 0) return;
@@ -293,7 +303,16 @@ Lynx.games = Lynx.games || {};
       offsets.forEach((o) => {
         const px = v.cx + o * v.w;
         const py = v.cy;
-        const t = targetAt(px, py);
+        let t = targetAt(px, py);
+        // (a cube in front, nearly as tall as what's behind it: the cube takes the shot)
+        if (t && cover) {
+          const o = t.obj;
+          const top = o.golden !== undefined ? CRATE_M : MONSTER[o.type].fly + MONSTER[o.type].heightM;
+          if (!(o.golden === undefined && MONSTER[o.type].fly > 0.03) && cover.blocked(ar.pose.x, ar.pose.y, o.x, o.y, 0, top * 0.6)) {
+            t = null;
+            Lynx.sfx.play("knock");
+          }
+        }
         const endX = t ? t.rect.x + t.rect.w / 2 : px;
         const endY = t ? t.rect.y + t.rect.h / 2 : py;
         tracers.push({ x0: v.cx + (o + 0.1) * v.w, y0: v.y + v.h, x1: endX, y1: endY, t: 0, color: w.color });
@@ -408,6 +427,7 @@ Lynx.games = Lynx.games || {};
     // -- update ----------------------------------------------------------------------------
     function update(dt) {
       stateTime += dt;
+      if (cover) cover.update();
       cooldown = Math.max(0, cooldown - dt);
       hurtFlash = Math.max(0, hurtFlash - dt);
       if (message) message.t += dt;
@@ -458,8 +478,13 @@ Lynx.games = Lynx.games || {};
         // Wiggle sideways while coming closer (bats more than the others).
         const side = Math.sin(m.wobble * (m.type === "bat" ? 2.5 : 1)) * (m.type === "bat" ? 0.8 : 0.35);
         const speed = def.speed * diff.speed * (1 + 0.06 * (level - 1)) * (m.hit > 0 ? 0.3 : 1);
-        m.x += ((dx / d) - (dy / d) * side) * speed * dt;
-        m.y += ((dy / d) + (dx / d) * side) * speed * dt;
+        let mx = dx / d - (dy / d) * side;
+        let my = dy / d + (dx / d) * side;
+        const walks = def.fly < 0.03; // (bats fly over the cubes)
+        if (cover && walks) [mx, my] = cover.steer(m.x, m.y, mx, my, 0.05, side >= 0 ? 1 : -1);
+        m.x += mx * speed * dt;
+        m.y += my * speed * dt;
+        if (cover && walks) [m.x, m.y] = cover.slide(m, m.x, m.y, 0.05);
         const jumpedOver = ar.feet() > def.fly + def.heightM * 0.7;
         if (d < TOUCH_M + (m.type === "boss" ? 0.1 : 0) && invulnerable === 0 && !jumpedOver) {
           // the shield, up and facing it: it bounces off
@@ -615,6 +640,7 @@ Lynx.games = Lynx.games || {};
 
     function draw() {
       const v = ar.view;
+      if (cover && w3) cover.draw(w3);
       crates.forEach(drawCrate);
       monsters.forEach(drawMonster);
       loot.forEach(drawLoot);

@@ -449,7 +449,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // than all with the page (Free drive needs none of them). Listed in load
   // order: later files use earlier ones. The shared layers (ar, world3d,
   // tags, cubes) are in cam.html.
-  const WEAPONS = ["weapons_kit.js"];
+  const WEAPONS = ["weapons_kit.js", "cube_cover.js"];
   const KNIGHT = ["game_knight.js"];
   const KNIGHT_BLOCKS = [...KNIGHT, "game_knightblocks.js"];
   const SOLVERS = ["camcal_solver.js", "camext_solver.js"];

@@ -31,6 +31,8 @@
   const CAM_AIM = ["Manual: the crosshair is the camera's optical axis (turn to aim)", "Handmatig: het dradenkruis is de optische as van de camera (draai om te richten)"];
   const CAM_TRACK = ["Automatic: tracks the character, turning only outside a dead zone (keeps pictures still for the tag detector); look controls move the robot instead", "Automatisch: volgt het personage en draait alleen buiten een dode zone (houdt beelden stil voor de tagherkenning)"];
   const NONE = ["None", "Geen"];
+  const COVER = ["Optional cover: cubes on the floor are solid -- monsters walk round them, shots stop at them, the robot stops short of them", "Optioneel dekking: kubussen op de vloer zijn massief -- monsters lopen eromheen, schoten stoppen ertegen, de robot stopt ervoor"];
+  const ANY_TAG = ["Any", "Alle"];
   const DASH = ["-", "-"];
   const JUMP_VIRTUAL = ["Virtual jump (setting): the view rises, the robot stays on the floor", "Virtueel springen (instelling): het beeld stijgt, de robot blijft op de vloer"];
   const JUMP_CHAR = ["The character jumps, catches ledges and climbs", "Het personage springt, grijpt randen en klimt"];
@@ -63,36 +65,36 @@
       genre: ["Shooter (FPS)", "Schietspel (FPS)"], players: "1", view: FIRST,
       role: ["Your body: dodge fireballs by driving, pick up health and ammo by driving over it", "Je lichaam: ontwijk vuurballen door te rijden, pak gezondheid en munitie door eroverheen te rijden"],
       drive: STICK_CAM, camera: CAM_AIM, jump: JUMP_VIRTUAL, fire: ["Fire the weapon (hold: auto)", "Het wapen afvuren (ingedrukt: automatisch)"],
-      tagRole: NONE, tagIds: DASH, levelsN: null, levels: ["Endless waves; new weapons on the floor in later waves; cover walls from wave 3", "Eindeloze golven; nieuwe wapens op de vloer in latere golven; dekkingsmuren vanaf golf 3"],
+      tagRole: COVER, tagIds: ANY_TAG, levelsN: null, levels: ["Endless waves; new weapons on the floor in later waves; cover walls from wave 3", "Eindeloze golven; nieuwe wapens op de vloer in latere golven; dekkingsmuren vanaf golf 3"],
       winlose: ["Health and armor; game over at 0", "Gezondheid en pantser; game over bij 0"], scoring: ["Points per kill", "Punten per kill"],
       space: ["Demons spawn in a ring of 2.5 m; pickups within 0.5 m of the start", "Demonen verschijnen in een ring van 2,5 m; pickups binnen 0,5 m van de start"],
       fight: ["Yes: shooting and melee", "Ja: schieten en dichtbij"],
       weapons: ["Fist, chainsaw, pistol, shotgun, super shotgun, chaingun, rocket launcher, plasma rifle, BFG 9000", "Vuist, kettingzaag, pistool, jachtgeweer, dubbelloops, chaingun, raketwerper, plasmageweer, BFG 9000"],
       enemies: ["Imps, pinkies, cacodemons (fireballs aimed where you were)", "Imps, pinkies, cacodemons (vuurballen gericht op waar je was)"],
       engine: ENG_2D, style: ["Pixel-art sprites as billboards (Doom look), status-bar face", "Pixelart-sprites als billboards (Doom-look), gezichtje in de statusbalk"], detail: 3,
-      detailNote: ["Sprites, glows, shadows; projectiles and blasts", "Sprites, gloed, schaduwen; projectielen en explosies"], net: DASH,
+      detailNote: ["Sprites, glows, shadows; projectiles and blasts", "Sprites, gloed, schaduwen; projectielen en explosies"], net: ["Tag detector, for the cubes (optional)", "Tagherkenning, voor de kubussen (optioneel)"],
     },
     david: {
       genre: ["Shooter, crate-breaker", "Shooter, kratten openschieten"], players: "1", view: FIRST,
       role: ["Your body: aim by turning, dodge monsters, drive over coins", "Je lichaam: richt door te draaien, ontwijk monsters, rijd over munten"],
       drive: STICK_CAM, camera: CAM_AIM, jump: JUMP_VIRTUAL, fire: ["Fire the weapon", "Het wapen afvuren"],
-      tagRole: NONE, tagIds: DASH, levelsN: null, levels: ["Endless levels: open every crate and beat every monster", "Eindeloze levels: open elke kist en versla elk monster"],
+      tagRole: COVER, tagIds: ANY_TAG, levelsN: null, levels: ["Endless levels: open every crate and beat every monster", "Eindeloze levels: open elke kist en versla elk monster"],
       winlose: ["Hearts; a golden crate in each level holds a new weapon", "Harten; een gouden kist in elk level bevat een nieuw wapen"], scoring: ["Points (coins, monsters)", "Punten (munten, monsters)"],
       space: ["Radius 2 m", "Straal 2 m"], fight: ["Yes: shooting and melee", "Ja: schieten en dichtbij"],
       weapons: ["Water pistol, wooden sword, bow (arrows fall), laser pistol, bombs, double pistol, lightning gun, rainbow cannon; wooden shield", "Waterpistool, houten zwaard, boog (pijlen vallen), laserpistool, bommen, dubbel pistool, bliksemkanon, regenboogkanon; houten schild"],
       enemies: ["Monsters that crawl toward you", "Monsters die op je afkruipen"],
-      engine: ENG_2D, style: ["Pixel-art sprites as billboards, crates and effects", "Pixelart-sprites als billboards, kratten en effecten"], detail: 3, detailNote: ["Sprites, glows, projectiles", "Sprites, gloed, projectielen"], net: DASH,
+      engine: ENG_2D, style: ["Pixel-art sprites as billboards, crates and effects", "Pixelart-sprites als billboards, kratten en effecten"], detail: 3, detailNote: ["Sprites, glows, projectiles", "Sprites, gloed, projectielen"], net: ["Tag detector, for the cubes (optional)", "Tagherkenning, voor de kubussen (optioneel)"],
     },
     poop: {
       genre: ["Shooter with walls", "Shooter met muren"], players: "1", view: FIRST,
       role: ["Your body: find a clear line of fire, walls block you too", "Je lichaam: zoek een vrij schootsveld, muren blokkeren ook jou"],
       drive: STICK_CAM_WALLS, camera: CAM_AIM, jump: JUMP_VIRTUAL, fire: ["Fire the weapon", "Het wapen afvuren"],
-      tagRole: NONE, tagIds: DASH, levelsN: 10, levels: ["10 levels, each with long stone walls; a giant poop in levels 5 and 10", "10 levels, elk met lange stenen muren; een gigantische drol in level 5 en 10"],
+      tagRole: COVER, tagIds: ANY_TAG, levelsN: 10, levels: ["10 levels, each with long stone walls; a giant poop in levels 5 and 10", "10 levels, elk met lange stenen muren; een gigantische drol in level 5 en 10"],
       winlose: ["Hearts", "Harten"], scoring: ["Points; golden poops are worth a lot", "Punten; gouden drollen zijn veel waard"], space: ["Radius 2 m", "Straal 2 m"],
       fight: ["Yes: shooting and melee", "Ja: schieten en dichtbij"],
       weapons: ["Water gun, bow (arrows fall), toilet brush (melee), bombs; toilet-lid shield", "Waterpistool, boog (pijlen vallen), toiletborstel (dichtbij), bommen; toiletdeksel als schild"],
       enemies: ["Poops (walk around the walls), golden poops, giant poop", "Drollen (lopen om de muren heen), gouden drollen, gigantische drol"],
-      engine: ENG_2D, style: ["Pixel-art sprites as billboards; walls as rows of stone sprites", "Pixelart-sprites als billboards; muren als rijen steensprites"], detail: 3, detailNote: ["Sprites, shadows, projectiles", "Sprites, schaduwen, projectielen"], net: DASH,
+      engine: ENG_2D, style: ["Pixel-art sprites as billboards; walls as rows of stone sprites", "Pixelart-sprites als billboards; muren als rijen steensprites"], detail: 3, detailNote: ["Sprites, shadows, projectiles", "Sprites, schaduwen, projectielen"], net: ["Tag detector, for the cubes (optional)", "Tagherkenning, voor de kubussen (optioneel)"],
     },
     coins: {
       genre: ["Arcade chase (Pac-Man)", "Arcade-achtervolging (Pac-Man)"], players: "1", view: FIRST,
