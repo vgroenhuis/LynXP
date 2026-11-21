@@ -24,7 +24,7 @@
     differentiatorCutoffHz: 10, motorPower: 1000, wheelbaseMm: 170, wheelDiameterMm: 65, telemetryHz: 10,
     motorDeadzonePwm: 300, gotoSpeedGain: 10, maxWheelSpeedRevPerSec: 1.8, maxAccelRevPerSec2: 5, maxDecelRevPerSec2: 5,
     gotoVelKp: 1500, gotoVelKi: 1000, feedForwardPwmPerRevPerSec: 0.53, gotoAllowReverse: true, gotoPreserveHeading: false,
-    controlFrameAllowReverse: true, servoFollowControlFrame: true, controlFrameRotationStrategy: 0,
+    controlFrameAllowReverse: true, servoFollowControlFrame: true, controlFrameRotationStrategy: 1,
     servoMinPulseUs: 530, servoMaxPulseUs: 2410, servoCenterPulseUs: 1465, servoMinAngleDeg: -90, servoMaxAngleDeg: 90,
     servoMaxRotationRateDegPerSec: 270, servoAssistMarginDeg: 45, panMaxSpeedDegPerSec: 180, tiltMaxSpeedDegPerSec: 120,
     cameraJoystickCurve: 1, tiltMinPulseUs: 2250, tiltMaxPulseUs: 550, tiltCenterPulseUs: 1370, tiltMinAngleDeg: -90,
@@ -63,7 +63,7 @@
     drive: null, driveAt: -1e9, // {kind, j1, j2}
     rot: 0, rotAt: -1e9, tiltRate: 0, tiltAt: -1e9, rel: null, relAt: -1e9,
   });
-  const vmax = () => PARAMS.maxWheelSpeedRevPerSec * Math.PI * (PARAMS.wheelDiameterMm / 1000) * 0.9;
+  const vmax = () => PARAMS.maxWheelSpeedRevPerSec * Math.PI * (PARAMS.wheelDiameterMm / 1000);
   const curve = (v) => (Math.abs(v) < 0.03 ? 0 : PARAMS.cameraJoystickCurve === 1 ? Math.sign(v) * v * v : v);
   let lastStep = performance.now();
   function step() {
@@ -73,36 +73,58 @@
     // the camera's direction (the control frame) and tilt, from rate input
     if (now - R.rotAt < 500 && R.rot) R.ct = wrap(R.ct + (curve(R.rot) * PARAMS.panMaxSpeedDegPerSec * Math.PI) / 180 * dt);
     if (now - R.tiltAt < 500 && R.tiltRate) R.tilt = clamp(R.tilt + curve(R.tiltRate) * PARAMS.tiltMaxSpeedDegPerSec * dt, -60, 60);
-    // driving
-    let v = 0;
-    let w = 0;
+    // driving: wheel speed targets as the firmware sets them (control_modes.cpp), as fractions of the top speed
+    let tl = 0;
+    let tr = 0;
     const d = now - R.driveAt < 600 ? R.drive : null;
     if (d && d.kind === "joystick") {
-      const l = clamp(d.j2 + d.j1, -1, 1);
-      const r = clamp(d.j2 - d.j1, -1, 1);
-      v = ((l + r) / 2) * vmax();
-      w = ((r - l) * vmax()) / (PARAMS.wheelbaseMm / 1000);
+      tl = d.j2 + d.j1; // (ws_broadcast.cpp: V1[0] = j2 + j1, V1[1] = j2 - j1)
+      tr = d.j2 - d.j1;
     } else if (d && d.kind === "control") {
-      // the control frame: forward = where the camera looks; the chassis turns to the way to go and drives
-      const fx = d.j2;
-      const fy = -d.j1;
-      const mag = Math.min(1, Math.hypot(fx, fy));
-      if (mag > 0.02) {
-        const want = Math.atan2(Math.sin(R.ct) * fx + Math.cos(R.ct) * fy, Math.cos(R.ct) * fx - Math.sin(R.ct) * fy);
-        let err = wrap(want - R.theta);
-        let dir = 1;
-        if (PARAMS.controlFrameAllowReverse && Math.abs(err) > Math.PI / 2 + 0.2) {
-          err = wrap(err + Math.PI);
-          dir = -1;
-        }
-        w = clamp(err * 6, -6, 6);
-        v = dir * mag * vmax() * Math.max(0, Math.cos(err));
+      // controlFrameJoystickControl + driveTowardWorldDirection: the camera frame's joystick turned
+      // into the world, then into the chassis's forward / left; which face drives: FIXED_HEMISPHERE
+      // (ahead of the camera: forward) or the closer face
+      const jx = d.j2;
+      const jy = -d.j1;
+      const wx = jx * Math.cos(R.ct) - jy * Math.sin(R.ct);
+      const wy = jx * Math.sin(R.ct) + jy * Math.cos(R.ct);
+      const fwd = wx * Math.cos(R.theta) + wy * Math.sin(R.theta);
+      const left = -wx * Math.sin(R.theta) + wy * Math.cos(R.theta);
+      const ahead = PARAMS.controlFrameRotationStrategy === 1 ? wx * Math.cos(R.ct) + wy * Math.sin(R.ct) >= 0 : fwd >= 0;
+      if (ahead) {
+        tl = fwd - left;
+        tr = fwd + left;
+      } else if (!PARAMS.controlFrameAllowReverse) {
+        const turn = (left >= 0 ? 1 : -1) * Math.max(Math.abs(left), 0.3);
+        tl = -turn;
+        tr = turn;
+      } else {
+        tl = fwd + left;
+        tr = fwd - left;
       }
     }
-    // (a little inertia)
-    const k = 1 - Math.exp(-dt / 0.12);
-    R.v += (v - R.v) * k;
-    R.w += (w - R.w) * k;
+    // to wheel speeds (m/s); the chassis turning no faster than the pan servo can follow (applyServoTrackingConstraints)
+    const top = vmax();
+    let vl = clamp(tl, -1, 1) * top;
+    let vr = clamp(tr, -1, 1) * top;
+    const wb = PARAMS.wheelbaseMm / 1000;
+    if (PARAMS.servoFollowControlFrame && d && d.kind === "control") {
+      const avg = (vl + vr) / 2;
+      const maxW = (PARAMS.servoMaxRotationRateDegPerSec * Math.PI) / 180;
+      const w0 = clamp((vr - vl) / wb, -maxW, maxW);
+      vl = avg - (w0 * wb) / 2;
+      vr = avg + (w0 * wb) / 2;
+    }
+    // the wheels reach those speeds at most so quickly (maxAccelRevPerSec2 / maxDecelRevPerSec2)
+    const circ = Math.PI * (PARAMS.wheelDiameterMm / 1000);
+    const acc = (cur, want) => {
+      const lim = (Math.abs(want) > Math.abs(cur) ? PARAMS.maxAccelRevPerSec2 : PARAMS.maxDecelRevPerSec2) * circ * dt;
+      return cur + clamp(want - cur, -lim, lim);
+    };
+    R.vl = acc(R.vl || 0, vl);
+    R.vr = acc(R.vr || 0, vr);
+    R.v = (R.vl + R.vr) / 2;
+    R.w = (R.vr - R.vl) / wb;
     R.theta = wrap(R.theta + R.w * dt);
     R.x += R.v * Math.cos(R.theta) * dt;
     R.y += R.v * Math.sin(R.theta) * dt;

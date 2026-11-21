@@ -97,7 +97,9 @@ window.Lynx = window.Lynx || {};
   Lynx.drawWheelTracks = (ar, w, opts = {}) => {
     const p = ar.pose;
     if (!p || !(typeof p.x === "number")) return;
-    const th = typeof p.chassisTheta === "number" ? p.chassisTheta : p.theta - ((p.servoAngleDeg || 0) * Math.PI) / 180;
+    // the chassis's heading: pose.theta is the chassis's own (the camera's is theta + servoAngleDeg) --
+    // with the page's smooth aim, pose.theta is the camera's and chassisTheta the chassis's (Lynx.cameraFrame)
+    const th = typeof p.chassisTheta === "number" ? p.chassisTheta : p.theta;
     const wb = (ar.calib && ar.calib.wheelbaseM) || 0.17;
     const half = opts.halfWidthM ?? 0.1;
     const front = opts.frontM ?? 0.06;
