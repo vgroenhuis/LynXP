@@ -262,7 +262,7 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // World coordinate frame (X red, Y green, 1 m ticks) -- on by default.
+  // World coordinate frame (X red, Y green, 1 m ticks) -- off by default.
   let worldAxesInitialized = false;
   wireOverlayToggle("camToggleWorldAxes", "camShowWorldAxes", "camAxesOverlay", () => {
     if (worldAxesInitialized) return;
@@ -270,7 +270,7 @@ window.addEventListener("DOMContentLoaded", () => {
     calibPromise.then((calib) => {
       if (calib) initFloorGrid(calib, { canvasId: "camAxesOverlay", grid: false, axes: true });
     });
-  }, true);
+  });
 
   let waypointOverlayInitialized = false;
   wireOverlayToggle("camToggleWaypoints", "camShowWaypointsOverlay", "camWaypointOverlay", () => {
@@ -819,12 +819,21 @@ window.addEventListener("DOMContentLoaded", () => {
   // like everything on the Games & apps page, and swapped in place.
   function setupModeSelect(calib, app) {
     const select = document.getElementById("camModeSelect");
-    Lynx.CATALOG.forEach((e) => {
-      const opt = document.createElement("option");
-      opt.value = e.id;
-      opt.textContent = `${e.icon} ${e.name}`;
-      select.appendChild(opt);
-    });
+    // the editor's picks on top, then every game and app by name (as on the Games & apps page)
+    const tr = (s) => (Lynx.tr ? Lynx.tr(s) : s);
+    const group = (label, list) => {
+      const g = document.createElement("optgroup");
+      g.label = tr(label);
+      list.forEach((e) => {
+        const opt = document.createElement("option");
+        opt.value = e.id;
+        opt.textContent = `${e.icon} ${tr(e.name)}`;
+        g.appendChild(opt);
+      });
+      select.appendChild(g);
+    };
+    group("★ Editor's picks", Lynx.editorPicks());
+    group("All games", Lynx.catalogByName());
     select.value = app.active;
     select.addEventListener("change", () => {
       app.active = select.value;

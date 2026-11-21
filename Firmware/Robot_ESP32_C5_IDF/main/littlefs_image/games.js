@@ -28,11 +28,9 @@
   // -- catalog cards -------------------------------------------------------------
   // On top the editor's picks, then every game and app by name (A-Z, in the
   // page's language) -- the picks again among them.
-  const EDITOR_PICKS = ["laraonblocks", "runes"];
-  const shownName = (e) => (Lynx.tr ? Lynx.tr(e.name) : e.name);
-  const byName = (a, b) => shownName(a).localeCompare(shownName(b), Lynx.lang || undefined, { sensitivity: "base" });
-  const picks = () => EDITOR_PICKS.map((id) => Lynx.CATALOG.find((e) => e.id === id)).filter(Boolean);
-  const allByName = () => Lynx.CATALOG.slice().sort(byName);
+  // (Lynx.EDITOR_PICKS, lynx_common.js)
+  const picks = () => Lynx.editorPicks();
+  const allByName = () => Lynx.catalogByName();
   // "2026-11-07" -> "7 Nov 2026" / "7 nov 2026" (the page's language)
   function releaseText(iso) {
     const d = new Date(`${iso}T12:00:00`);
@@ -58,7 +56,7 @@
       entry.name,
       entry.kind !== "none" ? el("span", { className: "games-tag", textContent: entry.kind === "app" ? "app" : "game" }) : null,
       entry.needsModel ? el("span", { className: "games-tag games-tag-ai", textContent: "YOLOv8" }) : null,
-      !pick && EDITOR_PICKS.includes(entry.id) ? el("span", { className: "games-tag games-tag-pick", textContent: "★ Editor's pick" }) : null, // (in the list of all)
+      !pick && Lynx.EDITOR_PICKS.includes(entry.id) ? el("span", { className: "games-tag games-tag-pick", textContent: "★ Editor's pick" }) : null, // (in the list of all)
     ]));
     if (entry.released) body.appendChild(el("div", { className: "games-card-date", textContent: `Released ${releaseText(entry.released)}` }));
     body.appendChild(el("div", { className: "games-card-blurb", textContent: entry.blurb }));

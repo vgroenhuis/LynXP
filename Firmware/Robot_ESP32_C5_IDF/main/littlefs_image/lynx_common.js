@@ -22,6 +22,14 @@ window.Lynx = window.Lynx || {};
     "bowl", "toothbrush", "wine glass", "fork", "knife", "spoon",
   ];
 
+  // The editor's picks: on top of the Games & apps page and the first-person
+  // view's game list, before every game and app by name.
+  Lynx.EDITOR_PICKS = ["laraonblocks", "runes"];
+  Lynx.editorPicks = () => Lynx.EDITOR_PICKS.map((id) => Lynx.CATALOG.find((e) => e.id === id)).filter(Boolean);
+  Lynx.catalogByName = () => {
+    const name = (e) => (Lynx.tr ? Lynx.tr(e.name) : e.name);
+    return Lynx.CATALOG.slice().sort((a, b) => name(a).localeCompare(name(b), Lynx.lang || undefined, { sensitivity: "base" }));
+  };
   Lynx.CATALOG = [
     {
       id: "none", // kept as-is: stored settings refer to it
