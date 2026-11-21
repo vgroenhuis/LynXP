@@ -34,13 +34,13 @@ Lynx.GAME_TABLE_DATES = {
   },
   "david": {
    "files": 1,
-   "loc": 695,
-   "updated": "2026-11-07"
+   "loc": 721,
+   "updated": "2026-11-21"
   },
   "demons": {
    "files": 1,
-   "loc": 1200,
-   "updated": "2026-11-15"
+   "loc": 1212,
+   "updated": "2026-11-21"
   },
   "detect": {
    "files": 1,
@@ -70,17 +70,17 @@ Lynx.GAME_TABLE_DATES = {
   "knight": {
    "files": 1,
    "loc": 1980,
-   "updated": "2026-11-19"
+   "updated": "2026-11-21"
   },
   "knightblocks": {
    "files": 1,
    "loc": 1493,
-   "updated": "2026-11-17"
+   "updated": "2026-11-21"
   },
   "laraonblocks": {
    "files": 1,
    "loc": 343,
-   "updated": null
+   "updated": "2026-11-21"
   },
   "lightwall": {
    "files": 1,
@@ -105,8 +105,8 @@ Lynx.GAME_TABLE_DATES = {
   },
   "poop": {
    "files": 1,
-   "loc": 779,
-   "updated": "2026-11-15"
+   "loc": 794,
+   "updated": "2026-11-21"
   },
   "prisma": {
    "files": 3,
@@ -120,8 +120,8 @@ Lynx.GAME_TABLE_DATES = {
   },
   "runes": {
    "files": 1,
-   "loc": 3293,
-   "updated": "2026-11-19"
+   "loc": 3245,
+   "updated": "2026-11-21"
   },
   "scavenger": {
    "files": 1,

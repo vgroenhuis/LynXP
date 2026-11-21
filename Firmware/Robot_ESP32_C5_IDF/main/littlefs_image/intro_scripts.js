@@ -929,7 +929,7 @@ window.Lynx = window.Lynx || {};
         cam: { fly: [[0.05, -0.05, 0.18], [0.5, -0.05, 0]], to: [[0.5, 0.25, 0.25], [0.9, -0.05, 0]] },
       },
       {
-        say: ["You make the way, with six rune stones: the tagged cubes 0 to 5, set down by hand. The Island makes an island in the water; the Weight holds a plate down to open its gate.", "Jij maakt de weg vrij, met zes runenstenen: de blokjes met tag 0 tot 5, die je met de hand neerzet. Het Eiland maakt een eiland in het water; het Gewicht houdt een plaat omlaag zodat het hek opengaat."],
+        say: ["You make the way, with six rune stones: the tagged cubes 0 to 5, set down by hand. The Bridge lays a bridge across the water, along the cube's X axis; the Weight holds a plate down to open its gate.", "Jij maakt de weg vrij, met zes runenstenen: de blokjes met tag 0 tot 5, die je met de hand neerzet. De Brug legt een brug over het water, langs de X-as van het blokje; het Gewicht houdt een plaat omlaag zodat het hek opengaat."],
         cam: { orbit: [0.3, 0, 0], radius: 0.45, height: 0.35, from: -10, to: 30 },
         run: (ctx) => ctx.fakeCubes(RUNES_1),
       },
@@ -951,7 +951,7 @@ window.Lynx = window.Lynx || {};
         d: 12,
       },
       {
-        say: ["The first level starts with just the Island, the second with three stones. Some levels need a stone twice, some have raised ground to climb, and on the river cube 4 steers a ship. Press Fire to start!", "Het eerste level begint met alleen het Eiland, het tweede met drie stenen. Sommige levels hebben een steen twee keer nodig, sommige hebben verhoogde grond om te beklimmen, en op de rivier stuurt blokje 4 een schip. Druk op Vuur om te beginnen!"],
+        say: ["The first level starts with just the Bridge, the second with three stones. Some levels need a stone twice, some have raised ground to climb, and on the river cube 4 steers a ship. Press Fire to start!", "Het eerste level begint met alleen de Brug, het tweede met drie stenen. Sommige levels hebben een steen twee keer nodig, sommige hebben verhoogde grond om te beklimmen, en op de rivier stuurt blokje 4 een schip. Druk op Vuur om te beginnen!"],
         cam: { orbit: [0.55, -0.05, 0], radius: 0.95, height: 0.8, from: 60, to: 100 },
         stick: steer(0.95, -0.05, 0.9),
       },
