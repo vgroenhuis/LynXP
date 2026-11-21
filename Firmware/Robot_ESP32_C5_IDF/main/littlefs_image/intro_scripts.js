@@ -886,19 +886,19 @@ window.Lynx = window.Lynx || {};
         cam: { orbit: [0.4, 0, 0.02], radius: 0.6, height: 0.4, from: -40, to: 10 },
       },
       {
-        say: ["A coin turns up near her. The first lies on the floor, the second hangs in the air: jump for it.", "Er verschijnt een munt bij haar in de buurt. De eerste ligt op de vloer, de tweede hangt in de lucht: spring ernaar."],
+        say: ["A coin turns up near her. The first lies on the floor, the next ones at random heights: some on the floor, some in the air -- jump for them.", "Er verschijnt een munt bij haar in de buurt. De eerste ligt op de vloer, de volgende op willekeurige hoogtes: sommige op de vloer, sommige in de lucht -- spring ernaar."],
         cam: { chase: hero, dist: 0.18, height: 0.1, side: 30 },
         stick: steer(0.42, 0.0, 1),
         at: [[1.2, "jump"], [2.4, "jump"]],
       },
       {
-        say: ["From the third on they're too high: stack the tagged cubes, or put them on a box or a book, and climb.", "Vanaf de derde hangen ze te hoog: stapel de kubussen met tags, of zet ze op een doos of een boek, en klim."],
+        say: ["Coin by coin they can hang higher, out of a jump's reach: stack the tagged cubes, or put them on a box or a book, and climb.", "Munt na munt kunnen ze hoger hangen, buiten bereik van een sprong: stapel de kubussen met tags, of zet ze op een doos of een boek, en klim."],
         cam: { chase: hero, dist: 0.18, height: 0.12, side: -30 },
         stick: steer(0.42, 0.06, 1),
         at: [[0.4, "jump"], [1.4, "jump"], [2.4, "jump"]],
       },
       {
-        say: ["Every coin counts, and each one is higher. Press Fire to start!", "Elke munt telt, en elke volgende hangt hoger. Druk op Vuur om te beginnen!"],
+        say: ["Every coin counts. Press Fire to start!", "Elke munt telt. Druk op Vuur om te beginnen!"],
         cam: { orbit: [0.45, 0, 0.02], radius: 0.7, height: 0.5, from: 60, to: 110 },
       },
     ],

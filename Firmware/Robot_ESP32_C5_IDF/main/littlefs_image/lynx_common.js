@@ -375,8 +375,8 @@ window.Lynx = window.Lynx || {};
       icon: "\u{1F9D7}",
       blurb:
         "Knight on Blocks with Lara, the explorer with the long braid, and coins: a gold coin turns up near her (at most some 20 cm away). " +
-        "The first lies on the floor, the second hangs in the air within a jump's reach -- and from the third on they're out of reach: " +
-        "stack the tagged cubes (or put them on a box, a book, a chair...) so she can climb up to the coin. Each coin is a bit higher than the last. " +
+        "The first lies on the floor; every next one hangs at a random height, up to a highest that rises coin by coin: for the second a jump's reach, " +
+        "from the third on out of reach from the floor -- then stack the tagged cubes (or put them on a box, a book, a chair...) so she can climb up to the coin. Easy coins keep coming in between. " +
         "The score: the coins taken. Needs internet once (the tag detector). Printable tags: open /tags.html on the robot.",
       settings: [
         { key: "knightCm", label: "Lara's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
