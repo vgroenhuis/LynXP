@@ -8,6 +8,7 @@
 //   from coin 3 on out of a jump's reach from the floor and higher each time
 //   -- so easy coins come between the ones that need cubes stacked (or put
 //   on a box, a book, a chair...) to climb up to.
+// She takes a coin within arm's length (overhead too, arms up).
 // The score: the coins taken. No hints, no heights shown: a shadow on what's
 // below the coin shows where it is; an arrow at the edge points to it when
 // it's out of the picture.
@@ -106,6 +107,10 @@ Lynx.games = Lynx.games || {};
     const H = C.BODY_H; // her height (m)
     const APEX = (C.JUMP_V * C.JUMP_V) / (2 * C.GRAVITY); // a jump's height (m)
     const COIN_R = 0.2 * H; // the coin's radius
+    const ARM = 0.4 * H; // her arm's length
+    const SHOULDER = 0.8 * H; // her shoulders, above her feet
+    const HIP = 0.1 * H; // (down to there: bending down for a coin on the floor)
+    const REACH = SHOULDER + C.BODY_R + ARM; // her hand, arm up, above her feet
     const NEAR = 0.2 * (H / 0.03); // farthest a coin turns up from her: 20 cm at 3 cm tall
     const G = { score: 0, coin: null, time: 0, best: null, rankMsg: "", pop: null, tries: 0 };
     Lynx.bestScore(BOARD).then((b) => (G.best = b)).catch(() => {});
@@ -118,9 +123,9 @@ Lynx.games = Lynx.games || {};
     // the highest the k-th coin can be
     function coinTop(k) {
       if (k <= 1) return COIN_R; // on the floor
-      if (k === 2) return H + COIN_R + 0.35 * APEX; // above her head: a jump's reach
-      // out of a jump's reach from the floor (her head at H + APEX), a bit higher each time
-      return H + APEX + COIN_R + 0.25 * H + (k - 3) * 0.5 * H;
+      if (k === 2) return REACH + COIN_R + 0.35 * APEX; // above her reaching hand: a jump's reach
+      // out of a jump's reach from the floor (her hand at REACH + APEX), a bit higher each time
+      return REACH + APEX + COIN_R + 0.25 * H + (k - 3) * 0.5 * H;
     }
     const fits = (f, r, h) =>
       // not in a cube (or so close above it that it's on it, for the coins in the air)
@@ -160,11 +165,16 @@ Lynx.games = Lynx.games || {};
       api.sfx("coin");
       spawn(G.score + 1);
     }
+    // within arm's length: the coin's edge no further than an arm from her body (hips to shoulders) --
+    // overhead too, arms up
     function touching() {
       const c = G.coin;
       if (!c) return false;
-      if (Math.hypot(c.f - hero.f, c.r - hero.r) > C.BODY_R + COIN_R) return false;
-      return c.h + COIN_R > hero.z && c.h - COIN_R < hero.z + H;
+      const d = Math.hypot(c.f - hero.f, c.r - hero.r);
+      const lo = hero.z + HIP;
+      const hi = hero.z + SHOULDER;
+      const dz = c.h < lo ? lo - c.h : c.h > hi ? c.h - hi : 0;
+      return Math.hypot(d, dz) <= C.BODY_R + ARM + COIN_R;
     }
     let submitted = 0;
     function submit() {
