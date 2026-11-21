@@ -272,6 +272,18 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // The web demo (tools/web_demo: no robot, no camera): a tiled floor in
+  // place of the camera's picture, under every overlay and game
+  if (window.LYNX_DEMO) {
+    const floor = document.createElement("canvas");
+    floor.id = "camDemoFloor";
+    floor.className = "cam-floor-grid";
+    img.insertAdjacentElement("afterend", floor);
+    calibPromise.then((calib) => {
+      if (calib) initFloorGrid(calib, { canvasId: "camDemoFloor", grid: false, tiles: true });
+    });
+  }
+
   let waypointOverlayInitialized = false;
   wireOverlayToggle("camToggleWaypoints", "camShowWaypointsOverlay", "camWaypointOverlay", () => {
     if (waypointOverlayInitialized) return;
@@ -1849,7 +1861,9 @@ function hexToRgb(hex) {
 // instance with { canvasId: "camAxesOverlay", grid: false, axes: true } so
 // the two overlays toggle independently but share one projection/clipping
 // pipeline.
-function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = false } = {}) {
+// tiles: a tiled floor under a grey sky, filled (the web demo's stand-in for
+// the camera's picture: tools/web_demo -- there's no camera there)
+function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = false, tiles = false } = {}) {
   const canvas = document.getElementById(canvasId);
   const img = document.getElementById("camStream");
   // wireOverlayToggle() only ever calls this once actually enabling the
@@ -1989,6 +2003,123 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
     if (zc <= 0.01) return null; // behind the camera, or grazing along the optical axis
     const p = Lynx.lens.project(xc, yc, zc, img.naturalWidth, img.naturalHeight);
     return p && { u: p.u, v: p.v, zc };
+  }
+
+  // The tiled floor (tiles): the sky down to the horizon, then 30 cm tiles in
+  // two shades, fading into the haze far away, and their joints as lines.
+  // Each tile is cut into smaller pieces near the camera (the lens bends
+  // them) and clipped at nearM (in front of the lens).
+  const TILE_M = 0.3;
+  const TILE_REACH_M = 7;
+  const TILE_RGB = [[176, 150, 116], [158, 132, 100]];
+  const HAZE_RGB = [150, 152, 158];
+  function drawTiles(makeLineDrawer, halfWidthAt, nearM, toCanvas, uMin, uMax, vMin, vMax, pose) {
+    if (!(nearM < TILE_REACH_M)) {
+      ctx.fillStyle = "rgb(170,178,196)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    // the haze (under everything), the sky above the horizon
+    ctx.fillStyle = `rgb(${HAZE_RGB.join(",")})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const far = 400;
+    const hz = [-1, -0.5, 0, 0.5, 1].map((k) => project(k * far * 1.2, far)).filter(Boolean).map((p) => toCanvas(p.u, p.v));
+    if (hz.length >= 2) {
+      const top = Math.min(...hz.map((q) => q.y));
+      const sky = ctx.createLinearGradient(0, 0, 0, Math.max(1, top));
+      sky.addColorStop(0, "rgb(190,198,218)");
+      sky.addColorStop(1, `rgb(${HAZE_RGB.join(",")})`);
+      ctx.fillStyle = sky;
+      ctx.beginPath();
+      ctx.moveTo(-10, -10);
+      ctx.lineTo(canvas.width + 10, -10);
+      const l = hz[0];
+      const r = hz[hz.length - 1];
+      const slope = (r.y - l.y) / (r.x - l.x || 1);
+      ctx.lineTo(canvas.width + 10, l.y + slope * (canvas.width + 10 - l.x));
+      ctx.lineTo(-10, l.y + slope * (-10 - l.x));
+      ctx.closePath();
+      ctx.fill();
+    }
+    // the tiles round the camera, within the view (camera-relative: right x, forward y)
+    const toRel = (wx, wy) => worldToRelative(wx, wy, pose);
+    const c0 = relativeToWorld(0, TILE_REACH_M / 2, pose);
+    const R = TILE_REACH_M / 2 + TILE_M;
+    const i0 = Math.floor((c0.x - R) / TILE_M);
+    const i1 = Math.ceil((c0.x + R) / TILE_M);
+    const j0 = Math.floor((c0.y - R) / TILE_M);
+    const j1 = Math.ceil((c0.y + R) / TILE_M);
+    const quads = [];
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const mid = toRel((i + 0.5) * TILE_M, (j + 0.5) * TILE_M);
+        if (mid.forward < nearM - TILE_M || mid.forward > TILE_REACH_M + TILE_M) continue;
+        if (Math.abs(mid.right) > halfWidthAt(Math.max(0, mid.forward)) + TILE_M) continue;
+        quads.push({ i, j, d: mid.forward });
+      }
+    }
+    quads.sort((a, b) => b.d - a.d); // (far first)
+    const clipNear = (pts) => {
+      // Sutherland-Hodgman against forward >= nearM
+      const out = [];
+      for (let k = 0; k < pts.length; k++) {
+        const a = pts[k];
+        const b = pts[(k + 1) % pts.length];
+        const ina = a.forward >= nearM;
+        const inb = b.forward >= nearM;
+        if (ina) out.push(a);
+        if (ina !== inb) {
+          const t = (nearM - a.forward) / (b.forward - a.forward);
+          out.push({ right: a.right + (b.right - a.right) * t, forward: nearM });
+        }
+      }
+      return out;
+    };
+    for (const q of quads) {
+      const n = q.d < 0.8 ? 4 : q.d < 2 ? 2 : 1; // (pieces per side: the lens bends the near ones)
+      const haze = Math.min(1, Math.max(0, (q.d - 1.5) / (TILE_REACH_M - 1.5)));
+      const base = TILE_RGB[(q.i + q.j) & 1];
+      const col = base.map((v, k) => Math.round(v + (HAZE_RGB[k] - v) * haze));
+      ctx.fillStyle = `rgb(${col.join(",")})`;
+      ctx.strokeStyle = ctx.fillStyle; // (a hairline of the same colour: no seams between the pieces)
+      ctx.lineWidth = 1;
+      for (let a = 0; a < n; a++) {
+        for (let b = 0; b < n; b++) {
+          const x0 = (q.i + a / n) * TILE_M;
+          const x1 = (q.i + (a + 1) / n) * TILE_M;
+          const y0 = (q.j + b / n) * TILE_M;
+          const y1 = (q.j + (b + 1) / n) * TILE_M;
+          const poly = clipNear([toRel(x0, y0), toRel(x1, y0), toRel(x1, y1), toRel(x0, y1)]);
+          if (poly.length < 3) continue;
+          const pts = [];
+          for (const v of poly) {
+            const p = project(v.right, v.forward);
+            if (!p) break;
+            pts.push(toCanvas(p.u, p.v));
+          }
+          if (pts.length !== poly.length) continue;
+          ctx.beginPath();
+          pts.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+    }
+    // the joints between the tiles
+    const drawJoint = makeLineDrawer(TILE_REACH_M, halfWidthAt(TILE_REACH_M), { r: 92, g: 80, b: 66 }, 0.9);
+    ctx.lineWidth = 1.5;
+    const corner = (wx, wy) => toRel(wx, wy);
+    for (let i = i0; i <= i1 + 1; i++) {
+      const a = corner(i * TILE_M, j0 * TILE_M);
+      const b = corner(i * TILE_M, (j1 + 1) * TILE_M);
+      drawJoint(a.right, a.forward, b.right, b.forward);
+    }
+    for (let j = j0; j <= j1 + 1; j++) {
+      const a = corner(i0 * TILE_M, j * TILE_M);
+      const b = corner((i1 + 1) * TILE_M, j * TILE_M);
+      drawJoint(a.right, a.forward, b.right, b.forward);
+    }
   }
 
   function draw() {
@@ -2132,6 +2263,8 @@ function initFloorGrid(calib, { canvasId = "camFloorGrid", grid = true, axes = f
       };
       piece(a, b, 0);
     };
+
+    if (tiles) drawTiles(makeLineDrawer, halfWidthAt, nearM, toCanvas, uMin, uMax, vMin, vMax, pose);
 
     if (grid) TIERS.forEach(({ interval, opacity, lineWidth }) => {
       const maxDistM = reachFor(interval);
