@@ -1255,11 +1255,6 @@ Lynx.NL = {
 "Tap a level · tap it again (or ▶): start": "Tik een level aan · nog een keer (of ▶): start",
 "Explorer: stick / WASD · Jump: Space / A · Robot: right stick / arrows · Hint: H · Levels: L · Center: V · Opacity: RB / LB": "Ontdekkingsreiziger: stick / WASD · Springen: spatie / A · Robot: rechterstick / pijltjes · Hint: H · Levels: L · Centreren: V · Dekking: RB / LB",
 "Level scale: one map cell (the cubes fit in one)": "Schaal van het level: één vakje van de kaart (een blokje past erin)",
-"Sort by": "Sorteren op",
-"Standard order": "Standaardvolgorde",
-"Name (A–Z)": "Naam (A–Z)",
-"Release date (newest first)": "Releasedatum (nieuwste eerst)",
-"Release date (oldest first)": "Releasedatum (oudste eerst)",
 "Released {}": "Uitgebracht op {}",
 "Fire / A: back to the menu": "Vuur / A: terug naar het menu",
 "Explorer's height (3 cm climbs 5 cm blocks)": "Lengte van de ontdekkingsreiziger (3 cm klimt op blokken van 5 cm)",
@@ -1646,5 +1641,8 @@ Lynx.NL = {
 "LARA ON BLOCKS": "LARA OP BLOKKEN",
 "Knight on Blocks with Lara, the explorer with the long braid, and coins: a gold coin turns up near her (at most some 20 cm away). The first lies on the floor, the second hangs in the air within a jump's reach -- and from the third on they're out of reach: stack the tagged cubes (or put them on a box, a book, a chair...) so she can climb up to the coin. Each coin is a bit higher than the last. The score: the coins taken. Needs internet once (the tag detector). Printable tags: open /tags.html on the robot.": "Ridder op Blokken met Lara, de avonturierster met de lange vlecht, en munten: er verschijnt een gouden munt bij haar in de buurt (hooguit zo'n 20 cm verderop). De eerste ligt op de vloer, de tweede hangt in de lucht, met een sprong te halen -- en vanaf de derde zijn ze buiten bereik: stapel de kubussen met tags (of zet ze op een doos, een boek, een stoel...) zodat ze naar de munt kan klimmen. Elke munt hangt iets hoger dan de vorige. De score: het aantal gepakte munten. Heeft één keer internet nodig (voor de tagdetector). Tags om te printen: open /tags.html op de robot.",
 "Run: stick / WASD · Jump: A / Space · Behind: Y / C · Center: V · Rescan: R · Manual drive: M": "Rennen: stick / WASD · Springen: A / spatie · Erachter: Y / C · Midden: V · Opnieuw zoeken: R · Zelf rijden: M",
-"Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Center: V / Y / C · Rescan: R · Auto drive: M": "Lara: linker stick / WASD · Robot: rechter stick / pijltjes · Springen: A / spatie · Midden: V / Y / C · Opnieuw zoeken: R · Vanzelf rijden: M"
+"Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Center: V / Y / C · Rescan: R · Auto drive: M": "Lara: linker stick / WASD · Robot: rechter stick / pijltjes · Springen: A / spatie · Midden: V / Y / C · Opnieuw zoeken: R · Vanzelf rijden: M",
+"★ Editor's picks": "★ Tips van de redactie",
+"★ Editor's pick": "★ Tip van de redactie",
+"All games": "Alle spellen"
 };

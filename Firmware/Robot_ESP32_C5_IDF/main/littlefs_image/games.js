@@ -26,27 +26,13 @@
   }
 
   // -- catalog cards -------------------------------------------------------------
-  // The order of the cards: the catalog's own, by name or by release date
-  // (remembered per browser). Free drive stays first whatever the order.
-  const SORT_KEY = "gamesSort";
-  let sortBy = "default";
-  try {
-    sortBy = localStorage.getItem(SORT_KEY) || "default";
-  } catch (e) {
-    // (not remembered)
-  }
+  // On top the editor's picks, then every game and app by name (A-Z, in the
+  // page's language) -- the picks again among them.
+  const EDITOR_PICKS = ["laraonblocks", "runes"];
   const shownName = (e) => (Lynx.tr ? Lynx.tr(e.name) : e.name);
-  function sortedCatalog() {
-    const list = Lynx.CATALOG.slice();
-    const byName = (a, b) => shownName(a).localeCompare(shownName(b), Lynx.lang || undefined, { sensitivity: "base" });
-    const date = (e) => e.released || "";
-    if (sortBy === "name") list.sort(byName);
-    else if (sortBy === "newest") list.sort((a, b) => date(b).localeCompare(date(a)) || byName(a, b));
-    else if (sortBy === "oldest") list.sort((a, b) => date(a).localeCompare(date(b)) || byName(a, b));
-    const free = list.findIndex((e) => e.id === "none");
-    if (free > 0) list.unshift(...list.splice(free, 1));
-    return list;
-  }
+  const byName = (a, b) => shownName(a).localeCompare(shownName(b), Lynx.lang || undefined, { sensitivity: "base" });
+  const picks = () => EDITOR_PICKS.map((id) => Lynx.CATALOG.find((e) => e.id === id)).filter(Boolean);
+  const allByName = () => Lynx.CATALOG.slice().sort(byName);
   // "2026-11-07" -> "7 Nov 2026" / "7 nov 2026" (the page's language)
   function releaseText(iso) {
     const d = new Date(`${iso}T12:00:00`);
@@ -55,39 +41,44 @@
   }
 
   function renderCatalog() {
-    const grid = $("catalog");
-    grid.replaceChildren();
-    sortedCatalog().forEach((entry) => {
-      const active = app.active === entry.id;
-      const card = el("div", { className: "games-card" + (active ? " games-card-active" : "") + (editing === entry.id ? " games-card-editing" : "") });
-      card.appendChild(el("div", { className: "games-card-icon", textContent: entry.icon }));
-      const body = el("div", { className: "games-card-body" });
-      body.appendChild(el("div", { className: "games-card-title" }, [
-        entry.name,
-        entry.kind !== "none" ? el("span", { className: "games-tag", textContent: entry.kind === "app" ? "app" : "game" }) : null,
-        entry.needsModel ? el("span", { className: "games-tag games-tag-ai", textContent: "YOLOv8" }) : null,
-      ]));
-      if (entry.released) body.appendChild(el("div", { className: "games-card-date", textContent: `Released ${releaseText(entry.released)}` }));
-      body.appendChild(el("div", { className: "games-card-blurb", textContent: entry.blurb }));
-      const actions = el("div", { className: "games-card-actions" });
-      const selectBtn = el("button", { type: "button", className: "games-btn" + (active ? " games-btn-on" : ""), textContent: active ? "✓ Active" : "Use this" });
-      selectBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        app.active = entry.id;
-        editing = entry.id;
-        save();
-        renderAll();
-      });
-      actions.appendChild(selectBtn);
-      body.appendChild(actions);
-      card.appendChild(body);
-      card.addEventListener("click", () => {
-        editing = entry.id;
-        renderAll();
-      });
-      grid.appendChild(card);
-    });
+    const fill = (grid, list, pick) => {
+      grid.replaceChildren();
+      list.forEach((entry) => grid.appendChild(makeCard(entry, pick)));
+    };
+    fill($("catalogPicks"), picks(), true);
+    fill($("catalog"), allByName(), false);
     $("playBtn").textContent = app.active === "none" ? "▶ Open first-person view" : `▶ Play ${Lynx.findEntry(app.active).name}`;
+  }
+  function makeCard(entry, pick) {
+    const active = app.active === entry.id;
+    const card = el("div", { className: "games-card" + (active ? " games-card-active" : "") + (editing === entry.id ? " games-card-editing" : "") });
+    card.appendChild(el("div", { className: "games-card-icon", textContent: entry.icon }));
+    const body = el("div", { className: "games-card-body" });
+    body.appendChild(el("div", { className: "games-card-title" }, [
+      entry.name,
+      entry.kind !== "none" ? el("span", { className: "games-tag", textContent: entry.kind === "app" ? "app" : "game" }) : null,
+      entry.needsModel ? el("span", { className: "games-tag games-tag-ai", textContent: "YOLOv8" }) : null,
+      !pick && EDITOR_PICKS.includes(entry.id) ? el("span", { className: "games-tag games-tag-pick", textContent: "★ Editor's pick" }) : null, // (in the list of all)
+    ]));
+    if (entry.released) body.appendChild(el("div", { className: "games-card-date", textContent: `Released ${releaseText(entry.released)}` }));
+    body.appendChild(el("div", { className: "games-card-blurb", textContent: entry.blurb }));
+    const actions = el("div", { className: "games-card-actions" });
+    const selectBtn = el("button", { type: "button", className: "games-btn" + (active ? " games-btn-on" : ""), textContent: active ? "✓ Active" : "Use this" });
+    selectBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      app.active = entry.id;
+      editing = entry.id;
+      save();
+      renderAll();
+    });
+    actions.appendChild(selectBtn);
+    body.appendChild(actions);
+    card.appendChild(body);
+    card.addEventListener("click", () => {
+      editing = entry.id;
+      renderAll();
+    });
+    return card;
   }
 
   // -- settings form ---------------------------------------------------------------
@@ -267,16 +258,6 @@
     renderModelStatus();
   });
   $("benchBtn").addEventListener("click", benchmark);
-  $("catalogSort").value = ["default", "name", "newest", "oldest"].includes(sortBy) ? sortBy : "default";
-  $("catalogSort").addEventListener("change", (e) => {
-    sortBy = e.target.value;
-    try {
-      localStorage.setItem(SORT_KEY, sortBy);
-    } catch (err) {
-      // (only for this visit)
-    }
-    if (app) renderCatalog();
-  });
 
   Lynx.loadAppSettings().then((settings) => {
     app = settings;
