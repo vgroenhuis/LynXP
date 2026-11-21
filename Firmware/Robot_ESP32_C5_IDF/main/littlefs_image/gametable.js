@@ -165,6 +165,16 @@
       scoring: ["Points (ink scrubbed, wells capped)", "Punten (inkt geschrobd, bronnen gedicht)"], space: ["Radius 1.5 m", "Straal 1,5 m"], fight: NO, weapons: DASH, enemies: ["Spreading ink", "Zich verspreidende inkt"],
       engine: ENG_2D, style: ["Glossy smooth blobs (curves and gradients)", "Glanzende gladde vlekken (bochten en kleurverlopen)"], detail: 3, detailNote: ["Smooth organic shapes", "Gladde organische vormen"], net: DASH,
     },
+    golf: {
+      genre: ["Sports / physics (crazy golf)", "Sport / natuurkunde (midgetgolf)"], players: "1", view: FIRST,
+      role: ["The putter: drive to the ball, the camera aims, FIRE putts; the robot is solid (a bump is a stroke)", "De putter: rij naar de bal, de camera richt, VUUR put; de robot is massief (een duw telt als slag)"],
+      drive: STICK_CAM, camera: CAM_STICK, jump: NO, fire: ["Hold to swing the power meter, let go to putt", "Vasthouden om de krachtmeter te laten zwaaien, loslaten om te putten"],
+      tagRole: NONE, tagIds: DASH, levelsN: 9, levels: ["9 holes: straight, dogleg, bumpers, bunker, windmill, pond, hill, bank shot, gauntlet (par 27)", "9 holes: recht, dogleg, stuiterpalen, bunker, molen, vijver, heuvel, bandstoot, slotparcours (par 27)"],
+      winlose: ["No way to lose; picked up at par + 4", "Niet te verliezen; opgepakt bij par + 4"],
+      scoring: ["Strokes over 9 holes (fewer is better), against par", "Slagen over 9 holes (minder is beter), tegen par"], space: ["About 0.9 x 2.6 m per hole (size setting 0.6-1.5x)", "Ongeveer 0,9 x 2,6 m per hole (grootte instelbaar 0,6-1,5x)"], fight: NO, weapons: DASH,
+      enemies: ["Windmill sails, sand, water and slopes", "Molenwieken, zand, water en hellingen"],
+      engine: ENG_2D, style: ["Striped green with wooden rails, a shaded ball, a waving flag; ball physics with bounces", "Gestreepte green met houten randen, een gearceerde bal, een wapperende vlag; balfysica met stuiters"], detail: 3, detailNote: ["Simple 3D rails and posts, depth-sorted", "Eenvoudige 3D-randen en -palen, op diepte gesorteerd"], net: DASH,
+    },
     prisma: {
       genre: ["Puzzle (Sokoban + lasers)", "Puzzel (Sokoban + lasers)"], players: "1", view: FIRST,
       role: ["The pusher: you step tile by tile and push mirrors and crates", "De duwer: je stapt tegel voor tegel en duwt spiegels en kratten"],

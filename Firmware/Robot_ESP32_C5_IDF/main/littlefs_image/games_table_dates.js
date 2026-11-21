@@ -10,7 +10,7 @@ Lynx.GAME_TABLE_DATES = {
   "camcal": {
    "files": 6,
    "loc": 2687,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "chips": {
    "files": 1,
@@ -45,7 +45,7 @@ Lynx.GAME_TABLE_DATES = {
   "detect": {
    "files": 1,
    "loc": 437,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "echo": {
    "files": 1,
@@ -55,12 +55,17 @@ Lynx.GAME_TABLE_DATES = {
   "focus": {
    "files": 1,
    "loc": 186,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "gems": {
    "files": 1,
    "loc": 2141,
    "updated": "2026-11-19"
+  },
+  "golf": {
+   "files": 1,
+   "loc": 910,
+   "updated": null
   },
   "inkblot": {
    "files": 1,
@@ -74,12 +79,12 @@ Lynx.GAME_TABLE_DATES = {
   },
   "knightblocks": {
    "files": 1,
-   "loc": 1493,
+   "loc": 1499,
    "updated": "2026-11-21"
   },
   "laraonblocks": {
    "files": 1,
-   "loc": 359,
+   "loc": 373,
    "updated": "2026-11-21"
   },
   "lightwall": {
@@ -91,7 +96,7 @@ Lynx.GAME_TABLE_DATES = {
    "files": 0,
    "inCam": true,
    "loc": 398,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "nano": {
    "files": 1,
@@ -101,7 +106,7 @@ Lynx.GAME_TABLE_DATES = {
   "none": {
    "files": 1,
    "loc": 88,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "poop": {
    "files": 1,
@@ -111,12 +116,12 @@ Lynx.GAME_TABLE_DATES = {
   "prisma": {
    "files": 3,
    "loc": 1014,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "race": {
    "files": 1,
    "loc": 347,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "runes": {
    "files": 1,
@@ -126,7 +131,7 @@ Lynx.GAME_TABLE_DATES = {
   "scavenger": {
    "files": 1,
    "loc": 437,
-   "updated": "2026-10-14"
+   "updated": "2026-11-08"
   },
   "shepherd": {
    "files": 1,

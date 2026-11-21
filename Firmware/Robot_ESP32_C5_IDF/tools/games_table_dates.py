@@ -36,6 +36,7 @@ FILES = {
     "shepherd": ["game_shepherd.js"],
     "lightwall": ["game_lightwall.js"],
     "inkblot": ["game_inkblot.js"],
+    "golf": ["game_golf.js"],
     "gems": ["game_gems.js"],
     "wisps": ["game_wisps.js"],
     "chips": ["game_chips.js"],

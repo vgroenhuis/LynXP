@@ -251,6 +251,25 @@ window.Lynx = window.Lynx || {};
       boards: [{ key: "inkblot", title: "Inkblot", better: "higher", format: "points" }],
     },
     {
+      id: "golf",
+      released: "2026-11-21",
+      kind: "game",
+      name: "Mini Golf",
+      icon: "\u26F3",
+      blurb:
+        "Crazy golf on your floor, and the robot is the putter. Nine holes, each laid out ahead of the robot from where it stands: " +
+        "a dogleg, bumpers, a bunker, a windmill's turning sails, a pond, a hill the ball rolls back down, a zigzag for bank shots and a final gauntlet. " +
+        "Drive up to your ball, turn to aim (a dashed line shows the way), hold FIRE while the power meter swings and let go to putt. " +
+        "The ball bounces off the rails; a ball in the pond costs a stroke, and bumping a resting ball with the robot counts as one too. " +
+        "Fewest strokes wins. Each hole needs about 0.9 x 2.6 m of clear floor.",
+      settings: [
+        { key: "holes", label: "Holes (the scoreboard counts all 9 only)", type: "number", def: 9, min: 1, max: 9, step: 1 },
+        { key: "scale", label: "Course size", type: "number", unit: "×", def: 1, min: 0.6, max: 1.5, step: 0.1 },
+        { key: "radar", label: "Radar", type: "checkbox", def: true },
+      ],
+      boards: [{ key: "golf", title: "Mini Golf (strokes, 9 holes)", better: "lower", format: "points" }],
+    },
+    {
       id: "shepherd",
       released: "2026-10-17",
       kind: "game",
