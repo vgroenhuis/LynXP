@@ -3,10 +3,11 @@
 // explorer with the braid and the tank top, runs, jumps and climbs on the real
 // tagged cubes; a gold coin turns up near her (at most some 20 cm away, at
 // 3 cm hero height -- all distances scale with her height):
-//   coin 1 lies on the floor,
-//   coin 2 hangs in the air, within a jump's reach from the floor,
-//   coin 3 on: higher and higher -- out of reach from the floor: stack cubes
-//   (or put them on a box, a book, a chair...) to climb up to it.
+//   coin 1 lies on the floor; every next one at a random height, from the
+//   floor up to a highest that rises coin by coin: for coin 2 a jump's reach,
+//   from coin 3 on out of a jump's reach from the floor and higher each time
+//   -- so easy coins come between the ones that need cubes stacked (or put
+//   on a box, a book, a chair...) to climb up to.
 // The score: the coins taken. No hints, no heights shown: a shadow on what's
 // below the coin shows where it is; an arrow at the edge points to it when
 // it's out of the picture.
@@ -109,8 +110,13 @@ Lynx.games = Lynx.games || {};
     const G = { score: 0, coin: null, time: 0, best: null, rankMsg: "", pop: null, tries: 0 };
     Lynx.bestScore(BOARD).then((b) => (G.best = b)).catch(() => {});
 
-    // the k-th coin's height (its centre above the floor)
+    // the k-th coin's height (its centre above the floor): anywhere from the floor up to its highest
     function coinHeight(k) {
+      const top = coinTop(k);
+      return COIN_R + Math.random() * (top - COIN_R);
+    }
+    // the highest the k-th coin can be
+    function coinTop(k) {
       if (k <= 1) return COIN_R; // on the floor
       if (k === 2) return H + COIN_R + 0.35 * APEX; // above her head: a jump's reach
       // out of a jump's reach from the floor (her head at H + APEX), a bit higher each time
@@ -347,7 +353,7 @@ Lynx.games = Lynx.games || {};
         if (touching()) take();
       },
       snapshot: () => ({ score: G.score, coin: G.coin && { k: G.coin.k, f: +G.coin.f.toFixed(3), r: +G.coin.r.toFixed(3), h: +G.coin.h.toFixed(3) } }),
-      debug: { G, spawn, coinHeight, take, H, APEX },
+      debug: { G, spawn, coinHeight, coinTop, take, H, APEX },
     };
   };
 })(window.Lynx);
