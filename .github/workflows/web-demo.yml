@@ -20,14 +20,14 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false # (a deployment under way finishes; the next one waits)
 
 jobs:
-  deploy:
+  # (two jobs, as in GitHub's own Pages workflows: the site's upload is
+  # finished and listed before the deploy looks for it -- in one job the
+  # deploy sometimes found no "github-pages" artifact yet)
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - name: Build the demo site
@@ -36,5 +36,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
