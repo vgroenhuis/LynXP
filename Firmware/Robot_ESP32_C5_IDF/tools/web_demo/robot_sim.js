@@ -327,7 +327,7 @@
     },
   });
 
-  // -- a note on every page: this is the demo ---------------------------------------------------
+  // -- a note on every page, for five seconds: this is the demo ---------------------------------------------------
   document.addEventListener("DOMContentLoaded", () => {
     const nl = (() => {
       try {
@@ -345,6 +345,9 @@
       "position:fixed;left:50%;bottom:4px;transform:translateX(-50%);z-index:99999;background:rgba(30,30,40,0.85);color:#ffe9a8;" +
       "font:12px system-ui,sans-serif;padding:3px 10px;border-radius:6px;pointer-events:none;max-width:94vw;text-align:center";
     document.body.appendChild(b);
-    setTimeout(() => (b.style.opacity = "0.55"), 8000);
+    // (gone after five seconds: it sits where the pages show their controls' help)
+    b.style.transition = "opacity 0.8s";
+    setTimeout(() => (b.style.opacity = "0"), 5000);
+    setTimeout(() => b.remove(), 6000);
   });
 })();
