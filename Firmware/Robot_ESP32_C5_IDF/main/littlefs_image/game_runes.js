@@ -10,7 +10,8 @@
 //   1 Weight  -- holds a pressure plate down: its gate opens
 //   2 Rain    -- puts out the fire near it
 //   3 Lantern -- lights the ghost bridges near it: lit, they hold the knight
-//   4 Key     -- set in the socket next to the portal, opens it
+//   4 Key     -- an upright key: set on the keyhole in the socket next to the
+//                portal, it slides down into it and the portal opens
 //   5 Earth   -- sinks the spikes near it
 // Each stone is drawn as a stone with its rune big inside (its tags not
 // shown), and can't be climbed. A stone works wherever it stands -- on the
@@ -682,7 +683,20 @@ Lynx.games = Lynx.games || {};
         g.lift = clamp(g.lift + (g.open ? dt * 1.6 : -dt * 2.4), 0, 1);
       });
       let open = !o.hasKey; // (no socket in the level: open from the start)
-      for (let i = 0; i < o.H; i++) for (let j = 0; j < o.W; j++) if (o.rows[i][j] === "K" && onSpot(4, i, j)) open = true;
+      let sock = null;
+      for (let i = 0; i < o.H; i++) {
+        for (let j = 0; j < o.W; j++) {
+          if (o.rows[i][j] === "K" && onSpot(4, i, j)) {
+            open = true;
+            sock = [i, j];
+          }
+        }
+      }
+      // the key over the keyhole slides down into it (and up out of it, taken away)
+      if (sock) G.keySock = sock;
+      G.keySink = clamp((G.keySink || 0) + (sock ? dt * 1.4 : -dt * 3), 0, 1);
+      if (!sock && G.keySink === 0) G.keySock = null;
+      if (o.hasKey) open = !!sock && G.keySink >= 1; // (the portal opens once the key is all the way in)
       if (open !== G.portalOpen) {
         sfx(open ? "power" : "beep");
         if (open) say("The portal opens!", "#e0b0ff");
@@ -929,6 +943,8 @@ Lynx.games = Lynx.games || {};
       G.inv = 0;
       G.hint = false;
       G.portalOpen = false;
+      G.keySink = 0;
+      G.keySock = null;
       // the map in front of the robot, from where it stands now
       const ch = api.chassis();
       G.O = { f: ch.f, r: ch.r, th: ch.th, rows: lv.map, H: lv.map.length, W: Math.max(...lv.map.map((s) => s.length)) };
@@ -1827,6 +1843,15 @@ Lynx.games = Lynx.games || {};
         poly(cellQuad(i, j, i, j, h, 0.2), down ? "rgba(70,150,70,0.85)" : "rgba(190,140,50,0.9)", "rgba(40,30,10,0.9)", 2);
       } else if (ch === "K") {
         poly(ring(cf, cr, CELL * 0.42, h, 4), G.portalOpen ? "rgba(240,200,60,0.55)" : "rgba(240,200,60,0.2)", "rgba(240,200,60,0.95)", 2);
+        // the keyhole: a black circle and a triangle below it (the circle towards the far end of the level)
+        const [ff, fr] = cellCenterFR(i - 1, j);
+        const l = Math.hypot(ff - cf, fr - cr) || 1;
+        const df = (ff - cf) / l;
+        const dr = (fr - cr) / l;
+        const at = (a, b) => [cf + df * a - dr * b, cr + dr * a + df * b, h + 0.0004];
+        const hole = "rgba(8,6,4,0.95)";
+        poly([at(0.06 * CELL, 0), at(-0.24 * CELL, -0.1 * CELL), at(-0.24 * CELL, 0.1 * CELL)], hole, null);
+        poly(ring(...at(0.08 * CELL, 0).slice(0, 2), CELL * 0.11, h + 0.0005, 14), hole, null);
       } else if (ch === "E") {
         poly(ring(cf, cr, CELL * 0.45, h, 16), G.portalOpen ? `rgba(190,110,255,${0.45 + 0.15 * Math.sin(G.time * 5)})` : "rgba(120,110,140,0.45)", G.portalOpen ? "rgba(230,190,255,0.95)" : "rgba(160,150,180,0.8)", 2);
       } else if (ch === "S") {
@@ -2120,52 +2145,67 @@ Lynx.games = Lynx.games || {};
         draw("rgba(236,241,250,1)", -s * 0.04, 0.9);
       });
     }
-    // The Key: a golden key hovering over the stone's spot, turning with the
-    // cube (every tag is directional: its heading is the cube's), tipped up so
-    // it shows from every side. No cube.
+    // The Key: a golden key standing upright on its tip on the ground at the
+    // stone's spot, turned to face the camera (no cube). Over the keyhole
+    // (the socket, K) it slides down into it, up to its bow (G.keySink).
     function queueKey(b0) {
-      const fb = islandFrame(b0);
-      const hov = Math.max(groundNear(b0), b0.h1) + 0.016 + 0.002 * Math.sin(G.time * 2.1);
-      const TILT = 0.95; // rad: the key's plane, up from the floor
-      const pt = (u, v) => {
-        const [f, r] = api.fromB(fb, u, v * Math.cos(TILT));
-        return [f, r, hov + v * Math.sin(TILT)];
-      };
-      const mid = w.camZ(...pt(0, 0));
+      const sink = G.keySock ? G.keySink || 0 : 0;
+      let kf = b0.cf;
+      let kr = b0.cr;
+      if (G.keySock && sink > 0) {
+        // (it slides in where the keyhole is: drawn to its middle as it goes down)
+        const [sf, sr] = cellCenterFR(...G.keySock);
+        const e = clamp(sink * 2.5, 0, 1);
+        kf += (sf - kf) * e;
+        kr += (sr - kr) * e;
+      }
+      const [ci, cj] = cellAt(kf, kr);
+      const z0 = baseAt(Math.round(ci), Math.round(cj));
+      const SHAFT = 0.03;
+      const down = sink * (SHAFT - 0.003); // (into the keyhole: all of the shaft, the bow stays out)
+      // its plane: upright, square to the way the camera looks at it
+      const cam = w.camLocal();
+      const a = Math.atan2(kr - cam.r, kf - cam.f);
+      const sa = -Math.sin(a);
+      const ca = Math.cos(a);
+      const pt = (u, z) => [kf + sa * u, kr + ca * u, z0 + z - down];
+      const mid = w.camZ(...pt(0, 0.02));
       if (mid < w.near) return;
       ar.queue(mid, () => {
         const g = ar.ctx;
-        const P = (u, v) => w.project(...pt(u, v));
-        const poly = (list, fill, stroke, lw) => {
-          const q = list.map(([u, v]) => P(u, v));
+        const P = (u, z) => w.project(...pt(u, z));
+        // a rectangle of the key (u0..u1, z0..z1), only what's above the ground
+        const rect = (u0, u1, za, zb, fill, stroke, lw) => {
+          const lo = Math.max(za, down);
+          if (zb <= lo) return;
+          const q = [P(u0, lo), P(u1, lo), P(u1, zb), P(u0, zb)];
           if (q.some((x) => !x)) return;
           g.beginPath();
           q.forEach((x, k) => (k ? g.lineTo(x.x, x.y) : g.moveTo(x.x, x.y)));
           g.closePath();
-          if (fill) {
-            g.fillStyle = fill;
-            g.fill();
-          }
-          if (stroke) {
-            g.strokeStyle = stroke;
-            g.lineWidth = lw;
-            g.stroke();
-          }
+          g.fillStyle = fill;
+          g.fill();
+          g.strokeStyle = stroke;
+          g.lineWidth = lw;
+          g.stroke();
         };
-        const c = P(0, 0);
+        const c = P(0, 0.03);
         if (!c) return;
-        ar.glow(c.x, c.y, Math.max(8, c.ppm * 0.045), [[0, "rgba(255,230,120,0.5)"], [1, "rgba(255,210,60,0)"]]);
+        ar.glow(c.x, c.y, Math.max(8, c.ppm * 0.04), [[0, "rgba(255,230,120,0.45)"], [1, "rgba(255,210,60,0)"]]);
         g.save();
         g.lineJoin = "round";
-        const lw = Math.max(1, c.ppm * 0.0012);
+        const lw = Math.max(1, c.ppm * 0.0011);
         const gold = "#f2c230";
         const edge = "rgba(90,60,6,0.95)";
-        // the shaft and its two teeth (the key points along the cube's forward direction)
-        poly([[-0.006, -0.0022], [0.03, -0.0022], [0.03, -0.0095], [0.0245, -0.0095], [0.0245, -0.0052], [0.0195, -0.0052], [0.0195, -0.0095], [0.0145, -0.0095], [0.0145, -0.0022], [0.0145, 0.0022], [-0.006, 0.0022]], gold, edge, lw);
-        // the bow: a ring
-        const ringPts = (rad, n = 14) => Array.from({ length: n }, (_, k) => [-0.016 + Math.cos((k / n) * Math.PI * 2) * rad, Math.sin((k / n) * Math.PI * 2) * rad]);
-        const outer = ringPts(0.0105).map(([u, v]) => P(u, v));
-        const inner = ringPts(0.0048).map(([u, v]) => P(u, v));
+        // the teeth near the tip, the shaft up from the ground
+        rect(0.0018, 0.0085, 0.0035, 0.0085, gold, edge, lw);
+        rect(0.0018, 0.0065, 0.0115, 0.016, gold, edge, lw);
+        rect(-0.0022, 0.0022, 0, SHAFT, gold, edge, lw);
+        // the bow on top: a ring
+        const n = 16;
+        const ringPts = (rad) => Array.from({ length: n }, (_, k) => P(Math.cos((k / n) * Math.PI * 2) * rad, SHAFT + 0.0095 + Math.sin((k / n) * Math.PI * 2) * rad));
+        const outer = ringPts(0.0105);
+        const inner = ringPts(0.0048);
         if (outer.every(Boolean) && inner.every(Boolean)) {
           g.beginPath();
           outer.forEach((x, k) => (k ? g.lineTo(x.x, x.y) : g.moveTo(x.x, x.y)));
@@ -2177,6 +2217,14 @@ Lynx.games = Lynx.games || {};
           g.strokeStyle = edge;
           g.lineWidth = lw;
           g.stroke();
+        }
+        // its shadow, where it stands
+        const f0 = P(0, down);
+        if (f0 && sink < 0.95) {
+          g.fillStyle = "rgba(0,0,0,0.25)";
+          g.beginPath();
+          g.ellipse(f0.x, f0.y, Math.max(2, c.ppm * 0.004), Math.max(1, c.ppm * 0.0015), 0, 0, Math.PI * 2);
+          g.fill();
         }
         g.restore();
       });
