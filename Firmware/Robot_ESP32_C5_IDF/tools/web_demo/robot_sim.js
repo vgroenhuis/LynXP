@@ -5,7 +5,7 @@
 //     /camdiag, /waypoints, /appdata/* (settings, scores, tags, camcal...:
 //     kept in this browser's localStorage), the rest: 503 "not in the demo"
 //   - the WebSocket (/ws): a simulated robot -- it drives from the drive
-//     commands (joystick, control_joystick), turns its camera from the aim
+//     commands (joystick, control_joystick, goto: the auto drive), turns its camera from the aim
 //     commands (aim, control_frame_rotate, tilt_rate, camera_relative) and
 //     broadcasts its pose ten times a second, answers pings
 //   - the camera stream (http://<cam>:81/stream): a plain grey frame -- the
@@ -76,7 +76,8 @@
     // driving: wheel speed targets as the firmware sets them (control_modes.cpp), as fractions of the top speed
     let tl = 0;
     let tr = 0;
-    const d = now - R.driveAt < 600 ? R.drive : null;
+    // (the joysticks are resent while held: stale after 0.6 s; a goto holds until the next command)
+    const d = R.drive && (R.drive.kind === "goto" || now - R.driveAt < 600) ? R.drive : null;
     if (d && d.kind === "joystick") {
       tl = d.j2 + d.j1; // (ws_broadcast.cpp: V1[0] = j2 + j1, V1[1] = j2 - j1)
       tr = d.j2 - d.j1;
@@ -103,12 +104,37 @@
         tr = fwd - left;
       }
     }
+    else if (d && d.kind === "goto") {
+      // computeGotoTargetWheelVelocities: to (x, y), slowing down over the last 10 cm
+      // (gotoSpeedGain), stopping within 3 cm; backing up to a goal behind (gotoAllowReverse)
+      const dx = d.x - R.x;
+      const dy = d.y - R.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist >= 0.03) {
+        const k = clamp(dist * PARAMS.gotoSpeedGain, 0, 1);
+        const wx = (dx / dist) * k;
+        const wy = (dy / dist) * k;
+        const fwd = wx * Math.cos(R.theta) + wy * Math.sin(R.theta);
+        const left = -wx * Math.sin(R.theta) + wy * Math.cos(R.theta);
+        if (fwd >= 0) {
+          tl = fwd - left;
+          tr = fwd + left;
+        } else if (!PARAMS.gotoAllowReverse) {
+          const turn = (left >= 0 ? 1 : -1) * Math.max(Math.abs(left), 0.3);
+          tl = -turn;
+          tr = turn;
+        } else {
+          tl = fwd + left;
+          tr = fwd - left;
+        }
+      }
+    }
     // to wheel speeds (m/s); the chassis turning no faster than the pan servo can follow (applyServoTrackingConstraints)
     const top = vmax();
     let vl = clamp(tl, -1, 1) * top;
     let vr = clamp(tr, -1, 1) * top;
     const wb = PARAMS.wheelbaseMm / 1000;
-    if (PARAMS.servoFollowControlFrame && d && d.kind === "control") {
+    if (PARAMS.servoFollowControlFrame && d && (d.kind === "control" || d.kind === "goto")) {
       const avg = (vl + vr) / 2;
       const maxW = (PARAMS.servoMaxRotationRateDegPerSec * Math.PI) / 180;
       const w0 = clamp((vr - vl) / wb, -maxW, maxW);
@@ -152,6 +178,10 @@
     switch (msg.type) {
       case "joystick":
         R.drive = { kind: "joystick", j1: n(msg.j1), j2: n(msg.j2) };
+        R.driveAt = now;
+        break;
+      case "goto":
+        R.drive = { kind: "goto", x: n(msg.x), y: n(msg.y) };
         R.driveAt = now;
         break;
       case "control_joystick":

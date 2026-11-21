@@ -166,6 +166,9 @@ Lynx.games = Lynx.games || {};
     const scan = { yaw0: 0 };
 
     const say = (text, color = "#ffe080") => (note = { text, color, t: 0 });
+    // a message about the hero, in the extension's words where it has its own hero
+    // (X.heroTexts: Lara on Blocks says Lara, not the knight)
+    const heroText = (s) => (X && X.heroTexts && X.heroTexts[s]) || s;
     const sfx = (name) => Lynx.sfx.play(name);
 
     // -- the blocks in the floor frame ---------------------------------------------------------
@@ -930,7 +933,7 @@ Lynx.games = Lynx.games || {};
       if (state === "playing") stopRobot();
       applyControl();
       showAutoBtns();
-      say(on ? "Auto drive: the robot follows the knight" : "Manual drive: right stick / arrows drive the robot", "#c0f0ff");
+      say(on ? heroText("Auto drive: the robot follows the knight") : "Manual drive: right stick / arrows drive the robot", "#c0f0ff");
     }
 
     function steerRobot(dt, now) {
@@ -1151,7 +1154,7 @@ Lynx.games = Lynx.games || {};
       if (cam.aimYaw === null) return;
       cam.aimPt = aimTarget(); // (turned there at the camera's speed: aimAt)
       cam.aimMoving = true;
-      say("Camera: re-centering on the knight", "#c0f0ff");
+      say(heroText("Camera: re-centering on the knight"), "#c0f0ff");
     }
     // the camera button: in auto drive the robot circles round behind the knight; in manual drive, re-center
     Lynx.onAction("camera", () => state === "playing" && (autoDrive ? (cam.behind = true) : recenter()));
@@ -1160,7 +1163,7 @@ Lynx.games = Lynx.games || {};
       camDist = clamp(Math.round((camDist - dir * ZOOM_STEP) / ZOOM_STEP) * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
       remember("knightblocksCamDist", camDist);
       cam.planMs = -1e9; // plan for it straight away
-      say(`Camera ${Math.round(camDist * 100)} cm from the knight`, "#c0f0ff");
+      say(heroText("Camera {} cm from the knight").replace("{}", Math.round(camDist * 100)), "#c0f0ff");
     }
     // RB / Tab: zoom in, LB: out (the weapon buttons -- no weapons to switch here)
     Lynx.onAction("weapon", (wpn) => (X && X.onWeapon && X.onWeapon(wpn, state) ? null : wpn === "prev" ? zoom(-1) : wpn === "next" ? zoom(1) : null));
@@ -1478,6 +1481,9 @@ Lynx.games = Lynx.games || {};
 
     return {
       actionLabel: X && X.actionLabel ? X.actionLabel : light ? "▶ Start" : "⚔️ Sword",
+      // the button only while Fire does something: a game whose Fire only starts (Knight on Blocks
+      // itself, X.fireStartsOnly: Lara on Blocks) hides it in play
+      actionShown: () => state !== "playing" || !(light || (X && X.fireStartsOnly)),
       ext: X,
       debug: {
         ext: () => X, api: () => api, hero: () => hero, cam: () => cam, world: () => w, tags: () => tb, solids: () => solids, startPlay, startScan, rescan, teleport: (f, r) => placeHero(f, r, hero.yaw), predictJump },
