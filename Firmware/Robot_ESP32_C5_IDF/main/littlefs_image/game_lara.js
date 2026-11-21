@@ -4,10 +4,10 @@
 // tagged cubes; a gold coin turns up near her (at most some 20 cm away, at
 // 3 cm hero height -- all distances scale with her height):
 //   coin 1 lies on the floor; every next one at a random height, from the
-//   floor up to a highest that rises coin by coin: for coin 2 a jump's reach,
-//   from coin 3 on out of a jump's reach from the floor and higher each time
-//   -- so easy coins come between the ones that need cubes stacked (or put
-//   on a box, a book, a chair...) to climb up to.
+//   floor up to some 3 cm (her height) above the highest coin taken so far --
+//   so the coins climb step by step, out of a jump's reach and on up to where
+//   cubes have to be stacked (or put on a box, a book, a chair...) to climb
+//   to them, with easy ones in between.
 // She takes a coin within arm's length (overhead too, arms up).
 // The score: the coins taken. No hints, no heights shown: a shadow on what's
 // below the coin shows where it is; an arrow at the edge points to it when
@@ -110,23 +110,20 @@ Lynx.games = Lynx.games || {};
     const ARM = 0.4 * H; // her arm's length
     const SHOULDER = 0.8 * H; // her shoulders, above her feet
     const HIP = 0.1 * H; // (down to there: bending down for a coin on the floor)
-    const REACH = SHOULDER + C.BODY_R + ARM; // her hand, arm up, above her feet
     const NEAR = 0.2 * (H / 0.03); // farthest a coin turns up from her: 20 cm at 3 cm tall
-    const G = { score: 0, coin: null, time: 0, best: null, rankMsg: "", pop: null, tries: 0 };
+    const G = { score: 0, coin: null, time: 0, best: null, rankMsg: "", pop: null, tries: 0, highest: 0 };
     Lynx.bestScore(BOARD).then((b) => (G.best = b)).catch(() => {});
 
-    // the k-th coin's height (its centre above the floor): anywhere from the floor up to its highest
+    // the k-th coin's height (its centre above the floor): the first on the floor, every next one
+    // anywhere from the floor up to its highest
     function coinHeight(k) {
-      const top = coinTop(k);
+      if (k <= 1) return COIN_R;
+      const top = coinTop();
       return COIN_R + Math.random() * (top - COIN_R);
     }
-    // the highest the k-th coin can be
-    function coinTop(k) {
-      if (k <= 1) return COIN_R; // on the floor
-      if (k === 2) return REACH + COIN_R + 0.35 * APEX; // above her reaching hand: a jump's reach
-      // out of a jump's reach from the floor (her hand at REACH + APEX), a bit higher each time
-      return REACH + APEX + COIN_R + 0.25 * H + (k - 3) * 0.5 * H;
-    }
+    // the highest the next coin can be: some 3 cm (her height) above the highest coin taken so far
+    const CLIMB = H;
+    const coinTop = () => Math.max(COIN_R, G.highest) + CLIMB;
     const fits = (f, r, h) =>
       // not in a cube (or so close above it that it's on it, for the coins in the air)
       !api.solids.some((b) => api.inFoot(b, f, r, COIN_R + 0.004) && h + COIN_R > b.h0 - 0.002 && h - COIN_R < b.h1 + (h > COIN_R * 1.5 ? 0.6 * H : 0.002));
@@ -161,6 +158,7 @@ Lynx.games = Lynx.games || {};
     }
     function take() {
       G.score += 1;
+      G.highest = Math.max(G.highest, G.coin.h);
       G.pop = { f: G.coin.f, r: G.coin.r, h: G.coin.h, t: 0 };
       api.sfx("coin");
       spawn(G.score + 1);
