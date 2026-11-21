@@ -52,6 +52,7 @@ window.Lynx = window.Lynx || {};
         { key: "jump", label: "Virtual jumping (Space / gamepad A)", type: "checkbox", def: false },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
         { key: "arrows", label: "Off-screen arrows", type: "checkbox", def: true },
+        { key: "cubes", label: "Tagged cubes on the floor are cover (monsters walk round them, shots stop at them, the robot stops short of them; needs internet once, the tag detector)", type: "checkbox", def: true },
       ],
       boards: [{ key: "demons", title: "Doom", better: "higher", format: "points" }],
     },
@@ -75,6 +76,7 @@ window.Lynx = window.Lynx || {};
         { key: "jump", label: "Virtual jumping (Space / gamepad A)", type: "checkbox", def: false },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
         { key: "arrows", label: "Arrows to crates and monsters", type: "checkbox", def: true },
+        { key: "cubes", label: "Tagged cubes on the floor are cover (monsters walk round them, shots stop at them, the robot stops short of them; needs internet once, the tag detector)", type: "checkbox", def: true },
       ],
       boards: [{ key: "david", title: "David", better: "higher", format: "points" }],
     },
@@ -100,6 +102,7 @@ window.Lynx = window.Lynx || {};
         { key: "jump", label: "Virtual jumping (Space / gamepad A)", type: "checkbox", def: false },
         { key: "radar", label: "Radar", type: "checkbox", def: true },
         { key: "arrows", label: "Arrows to poops", type: "checkbox", def: true },
+        { key: "cubes", label: "Tagged cubes on the floor are cover (monsters walk round them, shots stop at them, the robot stops short of them; needs internet once, the tag detector)", type: "checkbox", def: true },
       ],
       boards: [{ key: "poop", title: "Poop Shooter", better: "higher", format: "points" }],
     },
@@ -331,7 +334,7 @@ window.Lynx = window.Lynx || {};
       name: "Knight on Blocks",
       icon: "\u{1F9F1}",
       blurb:
-        "The Pocket Knight on real blocks: cubes of any size with AprilTags (tag16h5) on their faces, each tag ID on cubes of one size (measured to the cm). " +
+        "The Pocket Knight on real blocks (without armour or sword: there are no enemies here, just climbing): cubes of any size with AprilTags (tag16h5) on their faces, each tag ID on cubes of one size (measured to the cm). " +
         "The robot finds them with its camera; the knight walks around them, jumps and climbs onto them, catches the edge " +
         "of a stack -- and the robot follows it without bumping into any block it has seen. It looks around first " +
         "if that's set (turning in place); moved blocks are noticed when the camera is still, and Rescan (in the Menu) starts over. Needs internet once (the tag detector). " +
@@ -352,6 +355,34 @@ window.Lynx = window.Lynx || {};
         { key: "showTags", label: "Show tag detections (violet outlines; also a switch in Overlays)", type: "checkbox", def: true },
       ],
       boards: [],
+    },
+    {
+      id: "laraonblocks",
+      released: "2026-11-21",
+      kind: "game",
+      name: "Lara on Blocks",
+      icon: "\u{1FA99}",
+      blurb:
+        "Knight on Blocks with Lara, the explorer with the long braid, and coins: a gold coin turns up near her (at most some 20 cm away). " +
+        "The first lies on the floor, the second hangs in the air within a jump's reach -- and from the third on they're out of reach: " +
+        "stack the tagged cubes (or put them on a box, a book, a chair...) so she can climb up to the coin. Each coin is a bit higher than the last. " +
+        "The score: the coins taken. Fire puts the coin somewhere else if it's hard to get at. Needs internet once (the tag detector). Printable tags: open /tags.html on the robot.",
+      settings: [
+        { key: "knightCm", label: "Lara's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
+        { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
+        { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
+        { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
+        { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
+        { key: "driveSpeedCmS", label: "Manual drive: top speed", type: "number", unit: "cm/s", def: 16, min: 3, max: 35, step: 1 },
+        { key: "turnSpeedDeg", label: "Manual drive: top turning speed", type: "number", unit: "deg/s", def: 60, min: 10, max: 150, step: 5 },
+        { key: "camSpeedDeg", label: "Camera turning speed", type: "number", unit: "deg/s", def: 40, min: 2, max: 40, step: 1 },
+        { key: "camDeadzoneDeg", label: "Camera dead zone, left / right", type: "number", unit: "deg", def: 12, min: 0, max: 30, step: 1 },
+        { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
+        { key: "scan", label: "Look around at the start (turning on the spot)", type: "checkbox", def: false },
+        { key: "showBlocks", label: "Show detected blocks (cyan outlines; also a switch in Overlays)", type: "checkbox", def: true },
+        { key: "showTags", label: "Show tag detections (violet outlines; also a switch in Overlays)", type: "checkbox", def: false },
+      ],
+      boards: [{ key: "laraonblocks", title: "Lara on Blocks", better: "higher", format: "points" }],
     },
     {
       id: "blockquest",
@@ -402,9 +433,9 @@ window.Lynx = window.Lynx || {};
       blurb:
         "A puzzle game on Knight on Blocks, with a new heroine: an explorer -- no fighting, no enemies. Each level appears on the floor in front of the robot, from where it stands: " +
         "water, dark ravines, fire, spikes, ghostly bridges and gates between the explorer and a portal. You make the way by setting the rune stones down by hand -- the tagged " +
-        "cubes 0-5, each shown as a stone with its rune inside: 0 Island makes a palm island round itself (in water only), 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
-        "4 Key in its socket opens the portal, 5 Earth sinks spikes. The first level has just the Island, the second three stones; later levels use the stones they need, and some need a stone twice: move it on while the explorer waits. " +
-        "No setup and no frame cube: just the cubes 0-5 at hand. The stones can't be climbed; raised ground comes in 4 cm steps, one at a time. A directional Island cube (CAD Generators' AprilTag Cube, sides turned) turns its island with it. Ten levels; in the last, The River, cube 4 is a ship's helm: set it down in the river and the ship sails to it, carrying the explorer from one harbour to the other. Needs internet once (the tag detector). Tags to print: /tags.html",
+        "cubes 0-5, each shown as a stone with its rune inside: 0 Bridge lays a plank bridge across the water along the cube's X axis, out to the banks (in water only), 1 Weight holds a plate down (its gate opens), 2 Rain puts out fire, 3 Lantern lights the ghost bridges, " +
+        "4 Key, an upright key, slides into the keyhole next to the portal and opens it, 5 Earth sinks spikes. The first level has just the Bridge, the second three stones; later levels use the stones they need, and some need a stone twice: move it on while the explorer waits. " +
+        "No setup and no frame cube: just the cubes 0-5 at hand. The stones can't be climbed; raised ground comes in 4 cm steps, one at a time. A directional Bridge cube (CAD Generators' AprilTag Cube, sides turned) turns its bridge with it. Ten levels; in the last, The River, cube 4 is a ship's helm: set it down in the river and the ship sails to it, carrying the explorer from one harbour to the other. Needs internet once (the tag detector). Tags to print: /tags.html",
       settings: [
         { key: "hearts", label: "Hearts", type: "number", def: 3, min: 1, max: 9, step: 1 },
         { key: "cellCm", label: "Level scale: one map cell (the cubes fit in one)", type: "number", unit: "cm", def: 5, min: 3, max: 10, step: 0.5 },

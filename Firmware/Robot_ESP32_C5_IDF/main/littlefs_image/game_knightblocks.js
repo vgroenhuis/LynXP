@@ -156,6 +156,7 @@ Lynx.games = Lynx.games || {};
     let solids = []; // the blocks, in the floor frame: {id, cf, cr, yaw, half, h0, h1, inferred}
     let realSolids = []; // (without an extension's virtual ones: what the robot keeps clear of)
     let X = null; // the extension's hooks
+    let light = false; // (no extension: the knight without armour or sword, see below)
     let lastPos = new Map(); // block id -> [cf, cr, h1] last frame (to carry the knight)
     const hero = {
       f: 0, r: 0, z: 0, vf: 0, vr: 0, vz: 0, yaw: 0, onGround: true, standOn: null, mode: "move", coyote: 0, jumpBuf: 0, fallFrom: 0,
@@ -1132,7 +1133,7 @@ Lynx.games = Lynx.games || {};
         if (doScan) startScan();
         else startPlay();
       } else if (state === "scan") startPlay();
-      else if (state === "playing" && hero.mode === "move") {
+      else if (state === "playing" && hero.mode === "move" && !light) {
         if (!hero.attack) startSwing(1);
         else if (hero.attack.n < 3 && hero.attack.u > 0.2) hero.attackQueued = true;
       }
@@ -1338,13 +1339,13 @@ Lynx.games = Lynx.games || {};
           // (the body's animation is in Pocket Knight units: speeds at its size)
           time, speed: h.speed / S, phase: h.phase, air: h.mode === "move" && !h.onGround ? h.vz / S : null, land: h.landT > 0 ? h.landT / 0.18 : 0,
           hang: h.mode === "hang", climb: h.mode === "climb" ? h.climb.anim : null, attack: h.attack ? { n: h.attack.n, u: h.attack.u } : null,
-          hurt: h.hurtT > 0 ? h.hurtT / 0.35 : 0, dead: h.deadT > 0 ? clamp(h.deadT / 0.7, 0, 1) : 0, brace: 0, armed: !(X && X.unarmed),
+          hurt: h.hurtT > 0 ? h.hurtT / 0.35 : 0, dead: h.deadT > 0 ? clamp(h.deadT / 0.7, 0, 1) : 0, brace: 0, armed: !(X && X.unarmed) && !light,
         });
         if (X && X.heroJoints) X.heroJoints(J);
         const c = w.camLocal();
         const near = clamp((Math.hypot(c.f - h.f, c.r - h.r) - 0.05) / 0.04, 0.35, 1);
         if (X && X.drawHero && X.drawHero(J, near * (X.heroAlpha ? X.heroAlpha() : 1))) return;
-        const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw, S), K.KNIGHT_LOOK, { speed: h.speed / S, time });
+        const prims = K.knightPrims(J, K.placer(h.f, h.r, h.z, h.yaw, S), K.KNIGHT_LOOK, { speed: h.speed / S, time, light });
         prims.forEach((p) => p.rad && (p.rad *= S)); // limbs as thick as the knight is small
         if (X && X.heroPrims) X.heroPrims(J, prims, K.placer(h.f, h.r, h.z, h.yaw, S));
         K.drawPrims(w, prims, ar, K.KNIGHT_LOOK.outline, near * (X && X.heroAlpha ? X.heroAlpha() : 1));
@@ -1465,6 +1466,10 @@ Lynx.games = Lynx.games || {};
       },
     };
     X = ext ? ext(api) || null : null;
+    // Knight on Blocks itself has no enemies: the knight climbs without armour,
+    // helmet or sword (a cloth tunic, bare head; Fire only starts). A game riding
+    // on it (Block Quest...) keeps its own hero and weapons.
+    light = !X;
 
     ar.onFrame((now, dt) => {
       update(dt, now);
@@ -1472,7 +1477,7 @@ Lynx.games = Lynx.games || {};
     });
 
     return {
-      actionLabel: X && X.actionLabel ? X.actionLabel : "⚔️ Sword",
+      actionLabel: X && X.actionLabel ? X.actionLabel : light ? "▶ Start" : "⚔️ Sword",
       ext: X,
       debug: {
         ext: () => X, api: () => api, hero: () => hero, cam: () => cam, world: () => w, tags: () => tb, solids: () => solids, startPlay, startScan, rescan, teleport: (f, r) => placeHero(f, r, hero.yaw), predictJump },

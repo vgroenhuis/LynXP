@@ -14,8 +14,8 @@ Lynx.GAME_TABLE_DATES = {
   },
   "chips": {
    "files": 1,
-   "loc": 1106,
-   "updated": "2026-11-11"
+   "loc": 1107,
+   "updated": "2026-11-19"
   },
   "codebreak": {
    "files": 1,
@@ -29,18 +29,18 @@ Lynx.GAME_TABLE_DATES = {
   },
   "crossing": {
    "files": 2,
-   "loc": 1415,
-   "updated": "2026-11-08"
+   "loc": 1416,
+   "updated": "2026-11-19"
   },
   "david": {
    "files": 1,
-   "loc": 695,
-   "updated": "2026-11-07"
+   "loc": 721,
+   "updated": "2026-11-21"
   },
   "demons": {
    "files": 1,
-   "loc": 1199,
-   "updated": "2026-11-08"
+   "loc": 1212,
+   "updated": "2026-11-21"
   },
   "detect": {
    "files": 1,
@@ -59,8 +59,8 @@ Lynx.GAME_TABLE_DATES = {
   },
   "gems": {
    "files": 1,
-   "loc": 2140,
-   "updated": "2026-11-10"
+   "loc": 2141,
+   "updated": "2026-11-19"
   },
   "inkblot": {
    "files": 1,
@@ -69,13 +69,18 @@ Lynx.GAME_TABLE_DATES = {
   },
   "knight": {
    "files": 1,
-   "loc": 1914,
-   "updated": "2026-11-10"
+   "loc": 1980,
+   "updated": "2026-11-21"
   },
   "knightblocks": {
    "files": 1,
-   "loc": 1445,
-   "updated": "2026-11-11"
+   "loc": 1493,
+   "updated": "2026-11-21"
+  },
+  "laraonblocks": {
+   "files": 1,
+   "loc": 343,
+   "updated": "2026-11-21"
   },
   "lightwall": {
    "files": 1,
@@ -100,8 +105,8 @@ Lynx.GAME_TABLE_DATES = {
   },
   "poop": {
    "files": 1,
-   "loc": 775,
-   "updated": "2026-11-08"
+   "loc": 794,
+   "updated": "2026-11-21"
   },
   "prisma": {
    "files": 3,
@@ -115,8 +120,8 @@ Lynx.GAME_TABLE_DATES = {
   },
   "runes": {
    "files": 1,
-   "loc": 2324,
-   "updated": "2026-11-11"
+   "loc": 3245,
+   "updated": "2026-11-21"
   },
   "scavenger": {
    "files": 1,
@@ -140,11 +145,11 @@ Lynx.GAME_TABLE_DATES = {
   },
   "wisps": {
    "files": 1,
-   "loc": 1130,
-   "updated": "2026-11-10"
+   "loc": 1230,
+   "updated": "2026-11-19"
   }
  },
- "generated": "2026-11-15",
+ "generated": "2026-11-21",
  "intros": [
   "blockquest",
   "coins",
@@ -156,6 +161,7 @@ Lynx.GAME_TABLE_DATES = {
   "inkblot",
   "knight",
   "knightblocks",
+  "laraonblocks",
   "lightwall",
   "monster_hunt",
   "poop",

@@ -44,6 +44,7 @@ FILES = {
                "game_temple_sky.js", "game_temple_cistern.js", "game_temple_mirrors.js", "game_temple_vault.js"],
     "knight": ["game_knight.js"],
     "knightblocks": ["game_knightblocks.js"],
+    "laraonblocks": ["game_lara.js"],
     "blockquest": ["blockquest_fx.js", "blockquest_gl.js", "blockquest_figures.js", "blockquest_actors.js", "game_blockquest.js", "blockquest_levels.js"],
     "runes": ["game_runes.js"],
     "nano": ["game_nano.js"],

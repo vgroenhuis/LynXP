@@ -3,7 +3,7 @@
 // may stand in for another)? Usage:
 //   node tools/runes_check.js [game_runes.js] [level id]
 // Env: ONE=1 one placement, never moved (a level that needs a stone moved on
-// should fail it); ISL island radius in cells (2.0; 2.5 for a margin);
+// should fail it); BW the Bridge's half width in cells (0.45);
 // JM extra jump reach in cells (0.08; 0.35 for a margin); MAXS stones in use
 // at once (2, the Key on top).
 // Model (cells of 5 cm): stones placed anywhere and moved freely while the
@@ -17,10 +17,11 @@ const a = src.indexOf("const LEVELS = [");
 const b = src.indexOf("\n  ];\n", a);
 const LEVELS = eval(src.slice(a + "const LEVELS = ".length, b + 4));
 const REACH = 2.2, RISE = 0.04, CELLM = 0.05;
-const ISL = +(process.env.ISL || 2.0); // island radius in cells (its potato's largest)
+const BW = +(process.env.BW || 0.45); // the Bridge's half width in cells
+const BMAX = 4.5, BLAND = 0.35; // its reach each way at most, how far onto a bank (cells)
 const JV = 0.0842, GR = 0.1971, RUN = 0.0771;
 const rangeCells = (drop) => (RUN * ((JV + Math.sqrt(JV * JV + 2 * GR * Math.max(0, drop))) / GR)) / CELLM;
-const islandFloats = (ch) => ch === "."; // only on open water
+const bridgeStands = (ch) => ch === "."; // only in open water
 
 function check(lv, allowed) {
   const rows = lv.map.map((s) => s.padEnd(Math.max(...lv.map.map((x) => x.length)), "o"));
@@ -44,7 +45,27 @@ function check(lv, allowed) {
   const uniq = (arr) => [...new Map(arr.map((e) => [e.id, e])).values()];
   for (const t of stones) {
     const list = [{ id: "none" }];
-    if (t === 0) for (const p of posList) { const ch = tile(Math.round(p[0]), Math.round(p[1])); if (!islandFloats(ch)) continue; const cov = cells.filter(([i, j]) => islandFloats(tile(i, j)) && Math.hypot(i - p[0], j - p[1]) <= ISL).map(([i, j]) => key(i, j)); list.push({ id: "I" + cov.sort().join(";"), island: new Set(cov), at: p }); }
+    // the Bridge: along the cube's X axis (here: the rows, the columns and the diagonals), out to the banks
+    if (t === 0) for (const p of posList) {
+      if (!bridgeStands(tile(Math.round(p[0]), Math.round(p[1])))) continue;
+      for (const [di0, dj0] of [[0, 1], [1, 0], [1, 1], [1, -1]]) {
+        const l = Math.hypot(di0, dj0), di = di0 / l, dj = dj0 / l;
+        const ends = [-1, 1].map((sg) => {
+          for (let u = 0; u <= BMAX; u += 0.1) {
+            const ch = tile(Math.round(p[0] + sg * u * di), Math.round(p[1] + sg * u * dj));
+            if (ch === ".") continue;
+            return ch === ":" || ch === "o" ? Math.max(0, u - 0.1) : u + BLAND;
+          }
+          return BMAX;
+        });
+        const cov = new Set();
+        for (let u = -ends[0]; u <= ends[1] + 1e-9; u += 0.1) for (const v of [-BW, 0, BW]) {
+          const i = Math.round(p[0] + u * di - v * dj), j = Math.round(p[1] + u * dj + v * di);
+          if (bridgeStands(tile(i, j))) cov.add(key(i, j));
+        }
+        list.push({ id: "I" + [...cov].sort().join(";"), island: cov, at: p });
+      }
+    }
     if (t === 1) plates.forEach(([i, j]) => list.push({ id: "W" + rows[i][j], plate: rows[i][j].toUpperCase(), at: [i, j] }));
     if (t === 2) for (const p of posList) { const n = near(p, fires); if (n) list.push({ id: "R" + n, doused: new Set(n.split(";")), at: p }); }
     if (t === 3) for (const p of posList) { const n = near(p, bridges); if (n) list.push({ id: "L" + n, lit: new Set(n.split(";")), at: p }); }

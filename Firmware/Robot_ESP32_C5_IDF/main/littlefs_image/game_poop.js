@@ -152,7 +152,9 @@ Lynx.games = Lynx.games || {};
     return "normal";
   }
 
-  Lynx.games.poop = (ar, cfg) => {
+  Lynx.games.poop = (ar, cfg, app) => {
+    // tagged cubes on the floor (cube_cover.js): solid like the walls -- for the poops, the shots and the robot
+    const cover = cfg.cubes !== false && Lynx.cubeCover ? Lynx.cubeCover(ar, app, { clear: 0.14 }) : null;
     const diff = DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal;
     const areaM = cfg.areaM || 2;
     const aimAssist = cfg.aimAssist !== false;
@@ -255,7 +257,7 @@ Lynx.games = Lynx.games || {};
       };
       for (let tries = 0; tries < 30 && !p; tries++) {
         const c = inView();
-        if (walls.every((w) => nearestOnWall(w, c.x, c.y).d > 0.2)) p = c; // not inside a wall
+        if (walls.every((w) => nearestOnWall(w, c.x, c.y).d > 0.2) && !(cover && cover.wallAt(c.x, c.y, 0, 0.08))) p = c; // not inside a wall (or a cube)
       }
       if (!p) p = inView();
       const hp = Math.max(1, Math.round(k.hp * diff.hp * (type === "boss" ? 1 : 1 + 0.1 * (level - 1))));
@@ -299,6 +301,7 @@ Lynx.games = Lynx.games || {};
     // -- the kit's weapons: arrows, the brush, bombs, the lid ----------------------------------
     // Does the segment (x0, y0)-(x1, y1) cross a wall (or pass within its thickness)?
     function wallBetween(x0, y0, x1, y1) {
+      if (cover && cover.blocked(x0, y0, x1, y1)) return true;
       return walls.some((w) => {
         const cr = (ax, ay, bx, by, cx, cy) => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
         const d1 = cr(w.x0, w.y0, w.x1, w.y1, x0, y0);
@@ -323,7 +326,7 @@ Lynx.games = Lynx.games || {};
         }
         hitPoopBy(m, Math.max(1, Math.round(dmg)));
       },
-      wallAt: (x, y, h) => h < WALL_H && walls.some((w) => nearestOnWall(w, x, y).d < WALL_R + 0.02),
+      wallAt: (x, y, h) => (h < WALL_H && walls.some((w) => nearestOnWall(w, x, y).d < WALL_R + 0.02)) || (!!cover && cover.wallAt(x, y, h)),
       blocked: wallBetween,
       hurtPlayer: (f) => f > 0.3 && loseHeart(),
     });
@@ -361,7 +364,10 @@ Lynx.games = Lynx.games || {};
         endY = t.rect.y + t.rect.h / 2;
         // A pillar in front of the poop (covering where the shot would land) takes the hit.
         const blocker = pillarCovering(endX, endY, t.rect.depth) || pillarCovering(px, py, t.rect.depth);
-        if (blocker) {
+        // (a cube in front, nearly as tall as the poop: the cube takes it)
+        if (!blocker && cover && cover.blocked(ar.pose.x, ar.pose.y, t.obj.x, t.obj.y, 0, KIND[t.obj.type].heightM * 0.6)) {
+          Lynx.sfx.play("knock");
+        } else if (blocker) {
           endX = blocker.rect.x + blocker.rect.w / 2;
           endY = py;
           Lynx.sfx.play("knock");
@@ -438,6 +444,11 @@ Lynx.games = Lynx.games || {};
     }
 
     function filterDrive(j1, j2) {
+      if (cover) {
+        // the cubes first, then the walls
+        const c = cover.filterDrive(j1, j2, vel);
+        if (c) ({ j1, j2 } = c);
+      }
       if (!walls.length) return { j1, j2 };
       const t = ar.camTheta;
       let vx = j2 * Math.cos(t) + j1 * Math.sin(t);
@@ -520,11 +531,13 @@ Lynx.games = Lynx.games || {};
         ux += m.side * -ny * 2.5 * k2;
         uy += m.side * nx * 2.5 * k2;
       });
+      if (cover) [ux, uy] = cover.steer(m.x, m.y, ux, uy, 0.04, m.side);
       const un = Math.hypot(ux, uy) || 1;
       const side = Math.sin(m.wobble) * 0.25;
       const speed = k.speed * diff.speed * def().speed * (m.hit > 0 ? 0.3 : 1);
       m.x += ((ux - uy * side) / un) * speed * dt;
       m.y += ((uy + ux * side) / un) * speed * dt;
+      if (cover) [m.x, m.y] = cover.slide(m, m.x, m.y, 0.04);
       walls.forEach((w) => {
         const n = nearestOnWall(w, m.x, m.y);
         const min = WALL_R + 0.04;
@@ -539,6 +552,7 @@ Lynx.games = Lynx.games || {};
 
     function update(dt) {
       trackVelocity(dt);
+      if (cover) cover.update();
       stateTime += dt;
       cooldown = Math.max(0, cooldown - dt);
       hurtFlash = Math.max(0, hurtFlash - dt);
@@ -636,6 +650,7 @@ Lynx.games = Lynx.games || {};
     }
     function drawWalls() {
       w3.beginFrame();
+      if (cover) cover.draw(w3);
       walls.forEach((wl) => w3.wall(wl.x0, wl.y0, wl.x1, wl.y1, WALL_R, WALL_H, WALL_PIECE_M, STONE_WALL));
     }
 
