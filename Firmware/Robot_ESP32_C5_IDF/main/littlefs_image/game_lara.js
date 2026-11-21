@@ -340,6 +340,12 @@ Lynx.games = Lynx.games || {};
 
     return {
       name: "LARA ON BLOCKS",
+      fireStartsOnly: true,
+      heroTexts: {
+        "Auto drive: the robot follows the knight": "Auto drive: the robot follows Lara",
+        "Camera: re-centering on the knight": "Camera: re-centering on Lara",
+        "Camera {} cm from the knight": "Camera {} cm from Lara",
+      },
       actionLabel: "\u25B6 Start",
       unarmed: true,
       drawHero: drawLara,

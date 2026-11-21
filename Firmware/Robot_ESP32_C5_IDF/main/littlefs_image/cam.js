@@ -601,6 +601,15 @@ window.addEventListener("DOMContentLoaded", () => {
         if (game.actionLabel) {
           actionBtn.textContent = game.actionLabel;
           actionBtn.style.display = "block";
+          // (game.actionShown(): only while it does something -- e.g. a Start button gone once playing)
+          if (game.actionShown) {
+            const tick = () => {
+              if (Lynx.activeGame !== game || gameMode !== id) return;
+              actionBtn.style.display = game.actionShown() ? "block" : "none";
+              setTimeout(tick, 200);
+            };
+            tick();
+          }
         }
         // The introduction: played with the game itself; when it's over the
         // game starts again from scratch (the demo's moves, kills, damage gone)
