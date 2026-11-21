@@ -473,6 +473,7 @@ window.addEventListener("DOMContentLoaded", () => {
       "game_temple_sky.js", "game_temple_cistern.js", "game_temple_mirrors.js", "game_temple_vault.js"],
     knight: KNIGHT,
     knightblocks: KNIGHT_BLOCKS,
+    laraonblocks: [...KNIGHT_BLOCKS, "game_lara.js"],
     blockquest: [...KNIGHT_BLOCKS, "blockquest_fx.js", "blockquest_gl.js", "blockquest_figures.js",
       "blockquest_actors.js", "game_blockquest.js", "blockquest_levels.js"],
     runes: [...KNIGHT_BLOCKS, "game_runes.js"],

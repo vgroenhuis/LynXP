@@ -331,7 +331,7 @@ window.Lynx = window.Lynx || {};
       name: "Knight on Blocks",
       icon: "\u{1F9F1}",
       blurb:
-        "The Pocket Knight on real blocks: cubes of any size with AprilTags (tag16h5) on their faces, each tag ID on cubes of one size (measured to the cm). " +
+        "The Pocket Knight on real blocks (without armour or sword: there are no enemies here, just climbing): cubes of any size with AprilTags (tag16h5) on their faces, each tag ID on cubes of one size (measured to the cm). " +
         "The robot finds them with its camera; the knight walks around them, jumps and climbs onto them, catches the edge " +
         "of a stack -- and the robot follows it without bumping into any block it has seen. It looks around first " +
         "if that's set (turning in place); moved blocks are noticed when the camera is still, and Rescan (in the Menu) starts over. Needs internet once (the tag detector). " +
@@ -352,6 +352,34 @@ window.Lynx = window.Lynx || {};
         { key: "showTags", label: "Show tag detections (violet outlines; also a switch in Overlays)", type: "checkbox", def: true },
       ],
       boards: [],
+    },
+    {
+      id: "laraonblocks",
+      released: "2026-11-21",
+      kind: "game",
+      name: "Lara on Blocks",
+      icon: "\u{1FA99}",
+      blurb:
+        "Knight on Blocks with Lara, the explorer with the long braid, and coins: a gold coin turns up near her (at most some 20 cm away). " +
+        "The first lies on the floor, the second hangs in the air within a jump's reach -- and from the third on they're out of reach: " +
+        "stack the tagged cubes (or put them on a box, a book, a chair...) so she can climb up to the coin. Each coin is a bit higher than the last. " +
+        "The score: the coins taken. Fire puts the coin somewhere else if it's hard to get at. Needs internet once (the tag detector). Printable tags: open /tags.html on the robot.",
+      settings: [
+        { key: "knightCm", label: "Lara's height", type: "number", unit: "cm", def: 3, min: 2, max: 7, step: 0.5 },
+        { key: "camDistCm", label: "Camera distance (zoom in the game: + / -)", type: "number", unit: "cm", def: 15, min: 10, max: 40, step: 1 },
+        { key: "robotRadiusCm", label: "Robot half-width (keep-out)", type: "number", unit: "cm", def: 9.5, min: 4, max: 20, step: 0.5 },
+        { key: "robotFrontCm", label: "Robot length in front of the drive wheels' axle", type: "number", unit: "cm", def: 5, min: 2, max: 20, step: 0.5 },
+        { key: "robotRearCm", label: "Robot length behind the drive wheels", type: "number", unit: "cm", def: 18, min: 4, max: 40, step: 0.5 },
+        { key: "driveSpeedCmS", label: "Manual drive: top speed", type: "number", unit: "cm/s", def: 16, min: 3, max: 35, step: 1 },
+        { key: "turnSpeedDeg", label: "Manual drive: top turning speed", type: "number", unit: "deg/s", def: 60, min: 10, max: 150, step: 5 },
+        { key: "camSpeedDeg", label: "Camera turning speed", type: "number", unit: "deg/s", def: 40, min: 2, max: 40, step: 1 },
+        { key: "camDeadzoneDeg", label: "Camera dead zone, left / right", type: "number", unit: "deg", def: 12, min: 0, max: 30, step: 1 },
+        { key: "camDeadzoneTiltDeg", label: "Camera dead zone, up / down", type: "number", unit: "deg", def: 8, min: 0, max: 25, step: 1 },
+        { key: "scan", label: "Look around at the start (turning on the spot)", type: "checkbox", def: false },
+        { key: "showBlocks", label: "Show detected blocks (cyan outlines; also a switch in Overlays)", type: "checkbox", def: true },
+        { key: "showTags", label: "Show tag detections (violet outlines; also a switch in Overlays)", type: "checkbox", def: false },
+      ],
+      boards: [{ key: "laraonblocks", title: "Lara on Blocks", better: "higher", format: "points" }],
     },
     {
       id: "blockquest",

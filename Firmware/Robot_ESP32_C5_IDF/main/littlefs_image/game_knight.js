@@ -454,17 +454,27 @@ Lynx.games = Lynx.games || {};
     }
     seg(J.pelvis, J.chest, 0.0058, look.tunic);
     seg(add(J.pelvis, mul(J.up, 0.002)), add(J.pelvis, mul(J.up, 0.0045)), 0.0061, look.belt);
-    seg(J.sh[-1], J.sh[1], 0.0032, look.mail);
+    // opts.light: no armour -- a cloth tunic with sleeves, bare forearms, a bare head (no helmet)
+    const light = !!opts.light;
+    seg(J.sh[-1], J.sh[1], light ? 0.0028 : 0.0032, light ? look.tunic : look.mail);
     seg(J.chest, J.neck, 0.0021, look.neck);
     for (const s of [-1, 1]) {
-      seg(J.sh[s], J.elbow[s], 0.0019, look.mail);
-      seg(J.elbow[s], J.hand[s], 0.0016, look.mail);
-      ball(J.hand[s], 0.0018, look.glove);
+      seg(J.sh[s], J.elbow[s], light ? 0.0017 : 0.0019, light ? look.tunic : look.mail);
+      seg(J.elbow[s], J.hand[s], light ? 0.0014 : 0.0016, light ? look.neck : look.mail);
+      ball(J.hand[s], light ? 0.0016 : 0.0018, look.glove);
     }
-    ball(J.head, 0.0052, look.helmet);
     const face = add(J.head, mul(fwd, 0.0046));
-    seg(add(face, mul(right, -0.0026)), add(face, mul(right, 0.0026)), 0.0009, look.visor);
-    seg(add(J.head, [0, 0, 0.0048]), add(add(J.head, [0, 0, 0.0062]), mul(fwd, -0.0062)), 0.0014, look.plume);
+    if (light) {
+      // hair (swept back, a little long at the nape), the face, eyes
+      ball(add(J.head, add(mul(fwd, -0.0012), [0, 0, 0.0008])), 0.0053, look.hair || "#5a3a22");
+      ball(J.head, 0.0049, look.neck);
+      ball(add(add(J.head, mul(fwd, -0.0046)), [0, 0, -0.0026]), 0.0026, look.hair || "#5a3a22");
+      for (const s of [-1, 1]) ball(add(add(J.head, mul(fwd, 0.0045)), add(mul(right, s * 0.0017), [0, 0, 0.0005])), 0.0006, "#1a1410");
+    } else {
+      ball(J.head, 0.0052, look.helmet);
+      seg(add(face, mul(right, -0.0026)), add(face, mul(right, 0.0026)), 0.0009, look.visor);
+      seg(add(J.head, [0, 0, 0.0048]), add(add(J.head, [0, 0, 0.0062]), mul(fwd, -0.0062)), 0.0014, look.plume);
+    }
     if (J.swordDir) swordPrims(out, J.hand[1], J.swordDir, 0.017, P, look);
     return out;
   }

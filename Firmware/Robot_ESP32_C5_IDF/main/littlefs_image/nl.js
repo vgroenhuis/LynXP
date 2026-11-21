@@ -73,7 +73,6 @@ Lynx.NL = {
 "Hard (more, quicker enemies)": "Moeilijk (meer en snellere vijanden)",
 "Camera distance": "Afstand van de camera",
 "Knight on Blocks": "Ridder op Blokken",
-"The Pocket Knight on real blocks: cubes of any size with AprilTags (tag16h5) on their faces, each tag ID on cubes of one size (measured to the cm). The robot finds them with its camera; the knight walks around them, jumps and climbs onto them, catches the edge of a stack -- and the robot follows it without bumping into any block it has seen. It looks around first if that's set (turning in place); moved blocks are noticed when the camera is still, and Rescan (in the Menu) starts over. Needs internet once (the tag detector). Printable tags: open /tags.html on the robot.": "De Zakridder op echte blokken: kubussen van elke maat met AprilTags (tag16h5) op hun zijkanten, elk tagnummer op kubussen van één maat (op de cm gemeten). De robot vindt ze met zijn camera; de ridder loopt eromheen, springt en klimt erop, grijpt de rand van een stapel -- en de robot volgt hem zonder tegen een blok te botsen dat hij gezien heeft. Als dat aan staat, kijkt hij eerst rond (draaiend op de plek); verschoven blokken merkt hij op als de camera stilstaat, en Opnieuw zoeken (in het Menu) begint opnieuw. Heeft één keer internet nodig (voor de tagdetector). Tags om te printen: open /tags.html op de robot.",
 "Robot half-width (keep-out)": "Halve breedte van de robot (afstand houden)",
 "Robot length in front of the drive wheels' axle": "Lengte van de robot vóór de as van de wielen",
 "Robot length behind the drive wheels": "Lengte van de robot achter de wielen",
@@ -1637,5 +1636,19 @@ Lynx.NL = {
 "Download CSV": "CSV downloaden",
 "Yes": "Ja",
 "No": "Nee",
-"No game matches.": "Geen spel gevonden."
+"No game matches.": "Geen spel gevonden.",
+"The Pocket Knight on real blocks (without armour or sword: there are no enemies here, just climbing): cubes of any size with AprilTags (tag16h5) on their faces, each tag ID on cubes of one size (measured to the cm). The robot finds them with its camera; the knight walks around them, jumps and climbs onto them, catches the edge of a stack -- and the robot follows it without bumping into any block it has seen. It looks around first if that's set (turning in place); moved blocks are noticed when the camera is still, and Rescan (in the Menu) starts over. Needs internet once (the tag detector). Printable tags: open /tags.html on the robot.": "De Zakridder op echte blokken (zonder harnas of zwaard: hier zijn geen vijanden, alleen klimmen): kubussen van elke maat met AprilTags (tag16h5) op hun zijkanten, elk tagnummer op kubussen van één maat (op de cm gemeten). De robot vindt ze met zijn camera; de ridder loopt eromheen, springt en klimt erop, grijpt de rand van een stapel -- en de robot volgt hem zonder tegen een blok te botsen dat hij gezien heeft. Als dat aan staat, kijkt hij eerst rond (draaiend op de plek); verschoven blokken merkt hij op als de camera stilstaat, en Opnieuw zoeken (in het Menu) begint opnieuw. Heeft één keer internet nodig (voor de tagdetector). Tags om te printen: open /tags.html op de robot.",
+"Lara on Blocks": "Lara op Blokken",
+"Knight on Blocks with Lara, the explorer with the long braid, and coins: a gold coin turns up near her (at most some 20 cm away). The first lies on the floor, the second hangs in the air within a jump's reach -- and from the third on they're out of reach: stack the tagged cubes (or put them on a box, a book, a chair...) so she can climb up to the coin. Each coin is a bit higher than the last. The score: the coins taken. Fire puts the coin somewhere else if it's hard to get at. Needs internet once (the tag detector). Printable tags: open /tags.html on the robot.": "Ridder op Blokken met Lara, de avonturierster met de lange vlecht, en munten: er verschijnt een gouden munt bij haar in de buurt (hooguit zo'n 20 cm verderop). De eerste ligt op de vloer, de tweede hangt in de lucht, met een sprong te halen -- en vanaf de derde zijn ze buiten bereik: stapel de kubussen met tags (of zet ze op een doos, een boek, een stoel...) zodat ze naar de munt kan klimmen. Elke munt hangt iets hoger dan de vorige. De score: het aantal gepakte munten. Vuur legt de munt ergens anders als hij lastig te halen is. Heeft één keer internet nodig (voor de tagdetector). Tags om te printen: open /tags.html op de robot.",
+"Lara's height": "Lengte van Lara",
+"Coin 2 is in the air: jump for it!": "Munt 2 hangt in de lucht: spring ernaar!",
+"Too high to jump: stack the cubes and climb up!": "Te hoog om te springen: stapel de kubussen en klim omhoog!",
+"Coin {}! The next one is higher.": "Munt {}! De volgende hangt hoger.",
+"A coin! Run to it and take it": "Een munt! Ren ernaartoe en pak hem",
+"best": "beste",
+"next coin": "volgende munt",
+"🪙 Move coin": "🪙 Munt verplaatsen",
+"▶ Start": "▶ Start",
+"Run: stick / WASD · Jump: A / Space · Coin elsewhere: Fire · Behind: Y / C · Center: V · Rescan: R · Manual drive: M": "Rennen: stick / WASD · Springen: A / spatie · Munt ergens anders: Vuur · Erachter: Y / C · Midden: V · Opnieuw zoeken: R · Zelf rijden: M",
+"Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Coin elsewhere: Fire · Center: V / Y / C · Rescan: R · Auto drive: M": "Lara: linker stick / WASD · Robot: rechter stick / pijltjes · Springen: A / spatie · Munt ergens anders: Vuur · Midden: V / Y / C · Opnieuw zoeken: R · Vanzelf rijden: M"
 };

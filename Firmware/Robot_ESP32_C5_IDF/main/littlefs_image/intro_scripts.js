@@ -872,6 +872,38 @@ window.Lynx = window.Lynx || {};
     ],
   };
 
+  I.laraonblocks = {
+    thirdPerson: true,
+    grid: [-0.5, 1.5, -0.8, 0.8],
+    start: (ctx) => {
+      ctx.fakeCubes(KB_CUBES);
+      const d = ctx.game.debug;
+      if (d && d.startPlay) d.startPlay();
+    },
+    steps: [
+      {
+        say: ["Lara on Blocks: Lara the explorer, on real blocks, after gold coins.", "Lara op Blokken: Lara de avonturierster, op echte blokken, op zoek naar gouden munten."],
+        cam: { orbit: [0.4, 0, 0.02], radius: 0.6, height: 0.4, from: -40, to: 10 },
+      },
+      {
+        say: ["A coin turns up near her. The first lies on the floor, the second hangs in the air: jump for it.", "Er verschijnt een munt bij haar in de buurt. De eerste ligt op de vloer, de tweede hangt in de lucht: spring ernaar."],
+        cam: { chase: hero, dist: 0.18, height: 0.1, side: 30 },
+        stick: steer(0.42, 0.0, 1),
+        at: [[1.2, "jump"], [2.4, "jump"]],
+      },
+      {
+        say: ["From the third on they're too high: stack the tagged cubes, or put them on a box or a book, and climb.", "Vanaf de derde hangen ze te hoog: stapel de kubussen met tags, of zet ze op een doos of een boek, en klim."],
+        cam: { chase: hero, dist: 0.18, height: 0.12, side: -30 },
+        stick: steer(0.42, 0.06, 1),
+        at: [[0.4, "jump"], [1.4, "jump"], [2.4, "jump"]],
+      },
+      {
+        say: ["Every coin counts, and each one is higher. Fire moves a coin that's hard to get at. Press Fire to start!", "Elke munt telt, en elke volgende hangt hoger. Vuur verplaatst een munt die lastig te halen is. Druk op Vuur om te beginnen!"],
+        cam: { orbit: [0.45, 0, 0.02], radius: 0.7, height: 0.5, from: 60, to: 110 },
+      },
+    ],
+  };
+
   // Rune Stones, level 3 ("Six Stones", every stone once): the stones where
   // they solve it, beside the explorer's way (column 3).
   // Its cells: row i (0 = far end, 17 rows), column j (9): f = 0.12 + (16.5 - i) * 0.05, r = (j - 4) * 0.05
