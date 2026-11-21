@@ -8,10 +8,11 @@
 //     commands (joystick, control_joystick), turns its camera from the aim
 //     commands (aim, control_frame_rotate, tilt_rate, camera_relative) and
 //     broadcasts its pose ten times a second, answers pings
-//   - the camera stream (http://<cam>:81/stream): a rendered picture of a
-//     floor of large tiles under a grey sky, from where the simulated
-//     camera is -- so driving and turning look right
-// There are no real cubes: the tag detector finds nothing in the picture.
+//   - the camera stream (http://<cam>:81/stream): a plain grey frame -- the
+//     first-person view draws a tiled floor instead (cam.js, in demo mode),
+//     through the same projection as its overlays, so driving and turning
+//     look right
+// There are no real cubes: the tag detector finds nothing.
 
 (function () {
   "use strict";
@@ -276,70 +277,23 @@
     return text("Not available in the demo (no robot)", 503);
   };
 
-  // -- the camera stream: a rendered floor from where the simulated camera is ------------------------
-  const W = 320;
-  const H = 240;
-  let canvas = null;
-  let ctx = null;
-  let img = null;
-  function render() {
-    if (!canvas) {
-      canvas = document.createElement("canvas");
-      canvas.width = W;
-      canvas.height = H;
-      ctx = canvas.getContext("2d");
-      img = ctx.createImageData(W, H);
+  // -- the camera stream: there's no camera -- a plain 640 x 480 frame (the
+  // page sizes its overlays by the picture), and the first-person view draws a
+  // tiled floor in its place (cam.js, initFloorGrid's "tiles": window.LYNX_DEMO)
+  let blank = null;
+  function frame() {
+    if (!blank) {
+      const c = document.createElement("canvas");
+      c.width = 640;
+      c.height = 480;
+      const g = c.getContext("2d");
+      g.fillStyle = "rgb(150,152,158)";
+      g.fillRect(0, 0, 640, 480);
+      blank = c.toDataURL("image/png");
     }
-    const hgt = PARAMS.cameraHeightMm / 1000;
-    const f = H / 2 / Math.tan((PARAMS.cameraVerticalFovDeg * Math.PI) / 360);
-    const yaw = R.theta + (R.pan * Math.PI) / 180;
-    const pitch = ((R.tilt - PARAMS.cameraTiltDeg) * Math.PI) / 180; // (cameraTiltDeg: down; the tilt servo: up -- Lynx.cameraFrame)
-    const cy = Math.cos(yaw);
-    const sy = Math.sin(yaw);
-    const cp = Math.cos(pitch);
-    const sp = Math.sin(pitch);
-    const d = img.data;
-    for (let py = 0; py < H; py++) {
-      const yc = (H / 2 - py - 0.5) / f; // up
-      for (let px = 0; px < W; px++) {
-        const xc = (px + 0.5 - W / 2) / f; // right
-        // the ray: forward 1, right xc, up yc -- tilted up by pitch, then turned by yaw (x forward, y left)
-        const fw = cp - yc * sp;
-        const up = sp + yc * cp;
-        const dx = fw * cy + xc * sy;
-        const dy = fw * sy - xc * cy;
-        let r;
-        let g;
-        let b;
-        const o = (py * W + px) * 4;
-        if (up < -1e-4) {
-          const t = hgt / -up;
-          const wx = R.x + dx * t;
-          const wy = R.y + dy * t;
-          const tile = (Math.floor(wx / 0.3) + Math.floor(wy / 0.3)) & 1;
-          const line = Math.abs(wx / 0.3 - Math.round(wx / 0.3)) < 0.012 || Math.abs(wy / 0.3 - Math.round(wy / 0.3)) < 0.012;
-          const fog = Math.min(1, t / 6);
-          [r, g, b] = line ? [96, 84, 70] : tile ? [176, 150, 116] : [158, 132, 100];
-          r += (150 - r) * fog;
-          g += (152 - g) * fog;
-          b += (158 - b) * fog;
-        } else {
-          const s = Math.min(1, up * 2);
-          r = 150 + 40 * s;
-          g = 152 + 46 * s;
-          b = 158 + 60 * s;
-        }
-        d[o] = r;
-        d[o + 1] = g;
-        d[o + 2] = b;
-        d[o + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    return canvas.toDataURL("image/jpeg", 0.8);
+    return blank;
   }
   const srcDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
-  const streams = new Set();
   Object.defineProperty(HTMLImageElement.prototype, "src", {
     configurable: true,
     enumerable: srcDesc.enumerable,
@@ -347,20 +301,9 @@
       return srcDesc.get.call(this);
     },
     set(v) {
-      if (/:81\/stream/.test(String(v))) {
-        streams.add(this);
-        srcDesc.set.call(this, render());
-        return;
-      }
-      streams.delete(this);
-      srcDesc.set.call(this, v);
+      srcDesc.set.call(this, /:81\/stream/.test(String(v)) ? frame() : v);
     },
   });
-  setInterval(() => {
-    if (!streams.size) return;
-    const url = render();
-    streams.forEach((el) => (el.isConnected ? srcDesc.set.call(el, url) : streams.delete(el)));
-  }, 100);
 
   // -- a note on every page: this is the demo ---------------------------------------------------
   document.addEventListener("DOMContentLoaded", () => {
