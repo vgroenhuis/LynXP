@@ -1358,7 +1358,7 @@ Lynx.games = Lynx.games || {};
       if (!s.ready && !s.error) ar.text("Loading the tag detector...", v.x + 12, v.y + 24, { size: 13, color: "#c0f0ff" });
       if (state === "title") {
         if (X && X.title && X.title()) return;
-        ar.banner("KNIGHT ON BLOCKS", doScan ? "Fire to start -- the robot looks around for the tagged blocks first" : "Fire to start -- with the tagged blocks in view");
+        ar.banner(X && X.name ? X.name : "KNIGHT ON BLOCKS", doScan ? "Fire to start -- the robot looks around for the tagged blocks first" : "Fire to start -- with the tagged blocks in view");
         ar.text(`Blocks: cubes of any size with ${family} AprilTags filling ${Math.round(tagRatio * 100)}% of a face`, v.cx, v.cy + 70, { size: 14, align: "center" });
         ar.text(`Tags to print: ${location.host}/tags.html`, v.cx, v.cy + 92, { size: 13, align: "center", color: "#c0f0ff" });
         return;

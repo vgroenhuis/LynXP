@@ -1651,5 +1651,6 @@ Lynx.NL = {
 "Bridge across the river, Rain beside the fire, the Key on the keyhole next to the portal": "Brug over de rivier, Regen naast het vuur, de Sleutel op het sleutelgat naast het portaal",
 "Down onto the Bridge across the river between the two ledges, up the other side, then Rain at the fire up on the high ground": "Omlaag op de Brug over de rivier tussen de twee richels, aan de andere kant weer omhoog, dan Regen bij het vuur op de hoge grond",
 "Bridge across the river, Earth at the spikes, Weight on plate a, Rain at the fire up there, Lantern at the high bridge, then the Key on its keyhole": "Brug over de rivier, Aarde bij de spijkers, Gewicht op plaat a, Regen bij het vuur daarboven, Lantaarn bij de hoge brug, dan de Sleutel op zijn sleutelgat",
-"a bridge along the cube's X axis (only in water)": "een brug langs de X-as van het blokje (alleen in water)"
+"a bridge along the cube's X axis (only in water)": "een brug langs de X-as van het blokje (alleen in water)",
+"LARA ON BLOCKS": "LARA OP BLOKKEN"
 };

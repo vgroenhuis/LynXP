@@ -306,6 +306,7 @@ Lynx.games = Lynx.games || {};
     }
 
     return {
+      name: "LARA ON BLOCKS",
       actionLabel: "\u{1FA99} Move coin",
       unarmed: true,
       drawHero: drawLara,

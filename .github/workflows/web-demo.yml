@@ -1,0 +1,40 @@
+# The robot's web pages as a demo without a robot (a simulated robot and
+# camera: Firmware/Robot_ESP32_C5_IDF/tools/web_demo), on GitHub Pages:
+# https://vgroenhuis.github.io/LynXP/ -- rebuilt on every change to the pages.
+# (Once, in the repository's Settings > Pages: Source "GitHub Actions".)
+name: Web demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Firmware/Robot_ESP32_C5_IDF/main/littlefs_image/**"
+      - "Firmware/Robot_ESP32_C5_IDF/tools/web_demo/**"
+      - ".github/workflows/web-demo.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the demo site
+        run: python3 Firmware/Robot_ESP32_C5_IDF/tools/web_demo/build.py _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
