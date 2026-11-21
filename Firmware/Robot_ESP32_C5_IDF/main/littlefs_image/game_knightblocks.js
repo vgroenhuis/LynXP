@@ -836,7 +836,7 @@ Lynx.games = Lynx.games || {};
     // the chassis's heading in the world (rad)
     function chassisTheta() {
       if (performance.now() - chassis.at < 1000) return chassis.th;
-      return typeof ar.pose.chassisTheta === "number" ? ar.pose.chassisTheta : ar.pose.theta - ((ar.pose.servoAngleDeg || 0) * Math.PI) / 180;
+      return typeof ar.pose.chassisTheta === "number" ? ar.pose.chassisTheta : ar.pose.theta; // (pose.theta: the chassis's, see Lynx.cameraFrame)
     }
     // Manual drive: the right stick (arrows) drives the robot in its own frame,
     // eased and slow, never into a block it knows; the camera looks at the

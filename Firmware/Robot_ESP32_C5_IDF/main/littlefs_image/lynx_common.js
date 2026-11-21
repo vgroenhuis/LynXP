@@ -119,7 +119,7 @@ window.Lynx = window.Lynx || {};
       released: "2026-09-27",
       kind: "game",
       name: "Pacman",
-      icon: "\u{1FA99}",
+      icon: "\u{1F47B}",
       blurb:
         "Pac-Man on the floor. Drive over every coin while ghosts hunt you down. " +
         "Grab a power coin and the ghosts turn blue -- then you hunt them.",
@@ -369,7 +369,7 @@ window.Lynx = window.Lynx || {};
       released: "2026-11-21",
       kind: "game",
       name: "Lara on Blocks",
-      icon: "\u{1FA99}",
+      icon: "\u{1F9D7}",
       blurb:
         "Knight on Blocks with Lara, the explorer with the long braid, and coins: a gold coin turns up near her (at most some 20 cm away). " +
         "The first lies on the floor, the second hangs in the air within a jump's reach -- and from the third on they're out of reach: " +
