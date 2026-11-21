@@ -1644,5 +1644,6 @@ Lynx.NL = {
 "Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Center: V / Y / C · Rescan: R · Auto drive: M": "Lara: linker stick / WASD · Robot: rechter stick / pijltjes · Springen: A / spatie · Midden: V / Y / C · Opnieuw zoeken: R · Vanzelf rijden: M",
 "★ Editor's picks": "★ Tips van de redactie",
 "★ Editor's pick": "★ Tip van de redactie",
-"All games": "Alle spellen"
+"All games": "Alle spellen",
+"Apps": "Apps"
 };

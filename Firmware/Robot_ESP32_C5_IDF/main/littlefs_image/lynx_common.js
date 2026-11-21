@@ -22,14 +22,17 @@ window.Lynx = window.Lynx || {};
     "bowl", "toothbrush", "wine glass", "fork", "knife", "spoon",
   ];
 
-  // The editor's picks: on top of the Games & apps page and the first-person
-  // view's game list, before every game and app by name.
+  // The groups of the Games & apps page and the first-person view's list:
+  // the editor's picks on top, then every game by name, then the apps (what
+  // isn't a game: Free drive, the camera's tools, object detection) by name.
   Lynx.EDITOR_PICKS = ["laraonblocks", "runes"];
   Lynx.editorPicks = () => Lynx.EDITOR_PICKS.map((id) => Lynx.CATALOG.find((e) => e.id === id)).filter(Boolean);
-  Lynx.catalogByName = () => {
+  Lynx.catalogByName = (keep = () => true) => {
     const name = (e) => (Lynx.tr ? Lynx.tr(e.name) : e.name);
-    return Lynx.CATALOG.slice().sort((a, b) => name(a).localeCompare(name(b), Lynx.lang || undefined, { sensitivity: "base" }));
+    return Lynx.CATALOG.filter(keep).sort((a, b) => name(a).localeCompare(name(b), Lynx.lang || undefined, { sensitivity: "base" }));
   };
+  Lynx.gamesByName = () => Lynx.catalogByName((e) => e.kind === "game");
+  Lynx.appsByName = () => Lynx.catalogByName((e) => e.kind !== "game");
   Lynx.CATALOG = [
     {
       id: "none", // kept as-is: stored settings refer to it

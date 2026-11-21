@@ -845,7 +845,8 @@ window.addEventListener("DOMContentLoaded", () => {
       select.appendChild(g);
     };
     group("★ Editor's picks", Lynx.editorPicks());
-    group("All games", Lynx.catalogByName());
+    group("All games", Lynx.gamesByName());
+    group("Apps", Lynx.appsByName());
     select.value = app.active;
     select.addEventListener("change", () => {
       app.active = select.value;

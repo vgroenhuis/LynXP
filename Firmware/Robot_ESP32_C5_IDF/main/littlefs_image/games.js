@@ -30,7 +30,8 @@
   // page's language) -- the picks again among them.
   // (Lynx.EDITOR_PICKS, lynx_common.js)
   const picks = () => Lynx.editorPicks();
-  const allByName = () => Lynx.catalogByName();
+  const gamesByName = () => Lynx.gamesByName();
+  const appsByName = () => Lynx.appsByName();
   // "2026-11-07" -> "7 Nov 2026" / "7 nov 2026" (the page's language)
   function releaseText(iso) {
     const d = new Date(`${iso}T12:00:00`);
@@ -44,7 +45,8 @@
       list.forEach((entry) => grid.appendChild(makeCard(entry, pick)));
     };
     fill($("catalogPicks"), picks(), true);
-    fill($("catalog"), allByName(), false);
+    fill($("catalog"), gamesByName(), false);
+    fill($("catalogApps"), appsByName(), false);
     $("playBtn").textContent = app.active === "none" ? "▶ Open first-person view" : `▶ Play ${Lynx.findEntry(app.active).name}`;
   }
   function makeCard(entry, pick) {
