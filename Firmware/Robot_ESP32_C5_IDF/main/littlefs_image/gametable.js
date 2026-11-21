@@ -205,7 +205,7 @@
     laraonblocks: {
       genre: ["Climbing challenge on real blocks", "Klimuitdaging op echte blokken"], players: "1", view: THIRD,
       role: ["Camera operator, and builder: stacks the cubes higher", "Cameraman, en bouwer: stapelt de kubussen hoger"],
-      drive: ROBOT_FRAME, camera: CAM_TRACK, jump: JUMP_CHAR, fire: ["Put the coin somewhere else", "De munt ergens anders leggen"],
+      drive: ROBOT_FRAME, camera: CAM_TRACK, jump: JUMP_CHAR, fire: ["Start", "Start"],
       tagRole: ["The cubes are blocks to climb: stack them (or put them on a box or a book) to reach the ever higher coins", "De kubussen zijn blokken om op te klimmen: stapel ze (of zet ze op een doos of een boek) om de steeds hogere munten te halen"],
       tagIds: ["Any tag ID (one cube size per ID); frame cube 24-29", "Elke tag-ID (één kubusmaat per ID); framekubus 24-29"], levelsN: 0, levels: ["No levels: coin after coin, each higher", "Geen levels: munt na munt, elk hoger"],
       winlose: ["No way to lose: as high as you can stack", "Niet te verliezen: zo hoog als je kunt stapelen"], scoring: ["Coins taken", "Gepakte munten"],

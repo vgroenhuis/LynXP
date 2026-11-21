@@ -79,7 +79,7 @@ Lynx.GAME_TABLE_DATES = {
   },
   "laraonblocks": {
    "files": 1,
-   "loc": 343,
+   "loc": 328,
    "updated": "2026-11-21"
   },
   "lightwall": {

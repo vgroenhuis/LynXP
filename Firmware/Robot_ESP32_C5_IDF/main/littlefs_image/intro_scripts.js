@@ -898,7 +898,7 @@ window.Lynx = window.Lynx || {};
         at: [[0.4, "jump"], [1.4, "jump"], [2.4, "jump"]],
       },
       {
-        say: ["Every coin counts, and each one is higher. Fire moves a coin that's hard to get at. Press Fire to start!", "Elke munt telt, en elke volgende hangt hoger. Vuur verplaatst een munt die lastig te halen is. Druk op Vuur om te beginnen!"],
+        say: ["Every coin counts, and each one is higher. Press Fire to start!", "Elke munt telt, en elke volgende hangt hoger. Druk op Vuur om te beginnen!"],
         cam: { orbit: [0.45, 0, 0.02], radius: 0.7, height: 0.5, from: 60, to: 110 },
       },
     ],

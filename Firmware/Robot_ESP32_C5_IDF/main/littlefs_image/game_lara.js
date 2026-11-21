@@ -7,9 +7,8 @@
 //   coin 2 hangs in the air, within a jump's reach from the floor,
 //   coin 3 on: higher and higher -- out of reach from the floor: stack cubes
 //   (or put them on a box, a book, a chair...) to climb up to it.
-// The score: the coins taken. Fire puts the coin somewhere else (as high).
-// A shadow and a thin line below the coin show where it is above the floor,
-// its height is written beside it; an arrow at the edge points to it when
+// The score: the coins taken. No hints, no heights shown: a shadow on what's
+// below the coin shows where it is; an arrow at the edge points to it when
 // it's out of the picture.
 
 window.Lynx = window.Lynx || {};
@@ -153,11 +152,7 @@ Lynx.games = Lynx.games || {};
       G.score += 1;
       G.pop = { f: G.coin.f, r: G.coin.r, h: G.coin.h, t: 0 };
       api.sfx("coin");
-      const next = G.score + 1;
-      if (next === 2) api.say(T("Coin 2 is in the air: jump for it!"), "#ffd84a");
-      else if (next === 3) api.say(T("Too high to jump: stack the cubes and climb up!"), "#ffd84a");
-      else api.say(T("Coin {}! The next one is higher.").replace("{}", G.score), "#ffd84a");
-      spawn(next);
+      spawn(G.score + 1);
     }
     function touching() {
       const c = G.coin;
@@ -193,7 +188,6 @@ Lynx.games = Lynx.games || {};
           x.fill();
           x.restore();
         });
-        if (h - g0 > COIN_R * 2) w.line3([[c.f, c.r, g0], [c.f, c.r, h - COIN_R]], "rgba(255,216,74,0.45)", 1, 0.005);
       }
       if (!p) return;
       ar.queue(p.depth, () => {
@@ -227,7 +221,6 @@ Lynx.games = Lynx.games || {};
         }
         x.restore();
         // its height above the floor (real cm)
-        if (c.k > 1) ar.text(`${Math.round((c.h / 0.01) * 10) / 10} cm`, p.x + r + 6, p.y + 4, { size: 12, align: "left", color: "#ffe9a8" });
       });
     }
     function drawPop() {
@@ -289,7 +282,6 @@ Lynx.games = Lynx.games || {};
       ar.text(`\u{1FA99} ${G.score}`, v.x + v.w - 14, v.y + (small ? 52 : 60), { size: small ? 18 : 22, align: "right", color: "#ffd84a" });
       const sub = [];
       if (G.best != null) sub.push(`${T("best")}: ${Math.max(G.best, G.score)}`);
-      if (G.coin && G.coin.k > 1) sub.push(`${T("next coin")}: ${Math.round(G.coin.h / 0.001) / 10} cm`);
       if (sub.length) ar.text(sub.join(" · "), v.x + v.w - 14, v.y + (small ? 70 : 82), { size: small ? 11 : 13, align: "right", color: "#ffe9a8" });
       if (G.rankMsg) ar.text(G.rankMsg, v.x + v.w - 14, v.y + (small ? 86 : 100), { size: small ? 11 : 13, align: "right", color: "#9ad8ff" });
       drawPointer();
@@ -307,7 +299,7 @@ Lynx.games = Lynx.games || {};
 
     return {
       name: "LARA ON BLOCKS",
-      actionLabel: "\u{1FA99} Move coin",
+      actionLabel: "\u25B6 Start",
       unarmed: true,
       drawHero: drawLara,
       draw() {
@@ -317,24 +309,16 @@ Lynx.games = Lynx.games || {};
       hud: drawHud,
       helpLine: (auto) =>
         auto
-          ? "Run: stick / WASD · Jump: A / Space · Coin elsewhere: Fire · Behind: Y / C · Center: V · Rescan: R · Manual drive: M"
-          : "Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Coin elsewhere: Fire · Center: V / Y / C · Rescan: R · Auto drive: M",
+          ? "Run: stick / WASD · Jump: A / Space · Behind: Y / C · Center: V · Rescan: R · Manual drive: M"
+          : "Lara: left stick / WASD · Robot: right stick / arrows · Jump: A / Space · Center: V / Y / C · Rescan: R · Auto drive: M",
       onFire(state) {
-        if (state !== "playing") return false; // (the base game starts)
-        if (G.coin) {
-          spawn(G.coin.k);
-          api.sfx("click");
-        }
-        return true;
+        return state === "playing"; // (before: the base game starts; in play: nothing -- no sword, the coin stays put)
       },
       update(dt) {
         G.time += dt;
         if (G.pop && (G.pop.t += dt) > 0.9) G.pop = null;
         if (api.state !== "playing") return;
-        if (!G.coin) {
-          spawn(1);
-          api.say(T("A coin! Run to it and take it"), "#ffd84a");
-        }
+        if (!G.coin) spawn(1);
         if (touching()) take();
       },
       snapshot: () => ({ score: G.score, coin: G.coin && { k: G.coin.k, f: +G.coin.f.toFixed(3), r: +G.coin.r.toFixed(3), h: +G.coin.h.toFixed(3) } }),
