@@ -2075,6 +2075,7 @@ Lynx.games = Lynx.games || {};
       const rr = Math.sqrt((k + 0.5) / 22);
       return { u: Math.cos(a) * rr, v: Math.sin(a) * rr, ph: (k * 0.618) % 1 };
     });
+    let rainCloudCanvas = null;
     function queueRain(b) {
       const base = groundNear(b);
       const CH = base + CLOUD_H;
@@ -2102,21 +2103,35 @@ Lynx.games = Lynx.games || {};
         }
         g.stroke();
         if (!c) return;
-        // the cloud: cartoon puffs, a grey underside
+        // the cloud: cartoon puffs, a grey underside -- half see-through (what's behind it shows),
+        // drawn whole on a canvas of its own first so its layers don't show through each other
         const s = Math.max(10, c.ppm * REACH * CELL * 0.5);
         const puffs = [[-0.55, 0.05, 0.42], [-0.2, -0.22, 0.5], [0.25, -0.18, 0.48], [0.6, 0.06, 0.38], [0.02, 0.1, 0.45]];
+        const half = Math.ceil(s * 1.3);
+        if (!rainCloudCanvas) rainCloudCanvas = document.createElement("canvas");
+        const oc = rainCloudCanvas;
+        if (oc.width < 2 * half || oc.height < 2 * half) {
+          oc.width = Math.max(oc.width, 2 * half);
+          oc.height = Math.max(oc.height, 2 * half);
+        }
+        const og = oc.getContext("2d");
+        og.clearRect(0, 0, 2 * half, 2 * half);
         const draw = (color, dy, grow) => {
-          g.fillStyle = color;
-          g.beginPath();
+          og.fillStyle = color;
+          og.beginPath();
           for (const [x, y, r] of puffs) {
-            g.moveTo(c.x + x * s + r * s * grow, c.y + y * s + dy);
-            g.arc(c.x + x * s, c.y + y * s + dy, r * s * grow, 0, Math.PI * 2);
+            og.moveTo(half + x * s + r * s * grow, half + y * s + dy);
+            og.arc(half + x * s, half + y * s + dy, r * s * grow, 0, Math.PI * 2);
           }
-          g.fill();
+          og.fill();
         };
         draw("rgba(40,48,64,0.9)", 0, 1.08); // outline
         draw("rgba(150,162,185,1)", s * 0.08, 1);
         draw("rgba(236,241,250,1)", -s * 0.04, 0.9);
+        const ga = g.globalAlpha;
+        g.globalAlpha = ga * 0.5;
+        g.drawImage(oc, 0, 0, 2 * half, 2 * half, c.x - half, c.y - half, 2 * half, 2 * half);
+        g.globalAlpha = ga;
       });
     }
     // The Key: a golden key standing upright on its tip on the ground at the
