@@ -559,7 +559,7 @@ Lynx.games = Lynx.games || {};
     // invisible column stands on each, too high to step or reach up to.
     function stoneColumns() {
       return api.realSolids
-        .filter((b) => !b.inferred && !waterAt(b.cf, b.cr) && !(bareTag(b.tag) && liveStone(b)))
+        .filter((b) => !b.inferred && !waterAt(b.cf, b.cr) && !(bareTag(b.tag) && liveStone(b)) && !(b.tag === 0 && liveStone(b) && bridgeWorks(G.stones[0])))
         .map((b) => ({ id: `col${b.id}`, cf: b.cf, cr: b.cr, yaw: b.yaw, half: b.half, h0: b.h1, h1: b.h1 + 0.3 }));
     }
     const lit = (i, j) => near(3, i, j, REACH);
@@ -1960,7 +1960,9 @@ Lynx.games = Lynx.games || {};
     // of sand), not as the cube; the explorer walks through the cube (the Lantern's pole aside). The
     // Helm in the River, the Bridge (out of the water) and the Weight stay stones.
     const bareTag = (tag) => (tag === 2 || tag === 3 || tag === 4 || tag === 5) && !(G.lv && G.lv.helm === tag);
-    const liveStone = (b) => !!G.stones && !!G.stones[b.tag] && G.stones[b.tag].b === b;
+    // (by its id: the engine makes the cubes anew each time it reads them -- before the stones are
+    // found again from them -- so the very object is often the last time's)
+    const liveStone = (b) => !!G.stones && !!G.stones[b.tag] && G.stones[b.tag].b.id === b.id;
     // the highest raised ground within a cell of a stone: what it hangs over (a cloud inside a block is no cloud)
     function groundNear(b) {
       const [ci, cj] = cellAt(b.cf, b.cr);

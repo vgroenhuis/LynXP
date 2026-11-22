@@ -1693,5 +1693,6 @@ Lynx.NL = {
 "{} strokes · {}": "{} slagen · {}",
 "You": "Jij",
 "HOLE {}/{}  ·  PAR {}  ·  STROKES {}": "HOLE {}/{}  ·  PAR {}  ·  SLAGEN {}",
-"TOTAL {}": "TOTAAL {}"
+"TOTAL {}": "TOTAAL {}",
+"FPV drive (strafe)": "FPV-rijden (zijwaarts)"
 };

@@ -123,6 +123,10 @@ Lynx.games = Lynx.games || {};
     let showTracks = Boolean(remembered("knightblocksWheelTracks", true));
     // manual drive: the robot won't drive into a block it knows (off: it goes where it's driven)
     let autoStop = Boolean(remembered("knightblocksAutoStop", true));
+    // FPV drive (manual drive): the arrows / right stick move the robot as in a first-person game --
+    // up / down forward and back along the camera's view, left / right sideways to it (the chassis
+    // turns to the way to go by itself) -- and never stop for a cube. Off: like a car, in its own frame.
+    let fpvDrive = Boolean(remembered("knightblocksFpvDrive", true));
     // where a jump would land (predictJump), shown while running or in the air
     let showJumpHint = Boolean(remembered("knightblocksJumpHint", true));
     const doScan = cfg.scan === true;
@@ -858,7 +862,7 @@ Lynx.games = Lynx.games || {};
       // not into a block it knows: forward / back, or its tail swinging round
       const ch = chassisLocal();
       const m0 = autoStop ? bodyMargin(ch.f, ch.r, ch.th) : 0;
-      if (autoStop && man.fwd) {
+      if (autoStop && !fpvDrive && man.fwd) {
         // (looking further ahead the faster it goes: it stops within ~a third of a second)
         const s = Math.sign(man.fwd) * Math.max(0.03, Math.abs(man.fwd) * manualFwd * WHEEL_TOP_MPS * 0.35);
         const m1 = bodyMargin(ch.f + s * Math.cos(ch.th), ch.r + s * Math.sin(ch.th), ch.th);
@@ -867,7 +871,7 @@ Lynx.games = Lynx.games || {};
           cam.why = "a block in the way";
         }
       }
-      if (autoStop && man.turn) {
+      if (autoStop && !fpvDrive && man.turn) {
         // (turning left: the heading in the floor frame goes down)
         const m1 = bodyMargin(ch.f, ch.r, ch.th - Math.sign(man.turn) * 0.15);
         if (m1 < 0.003 && m1 < m0) {
@@ -876,7 +880,8 @@ Lynx.games = Lynx.games || {};
         }
       }
       const r2 = (v) => Math.round(v * 100) / 100;
-      const cmd = { j1: r2(-man.turn * manualTurn), j2: r2(man.fwd * manualFwd) }; // (j1: right)
+      let cmd = { j1: r2(-man.turn * manualTurn), j2: r2(man.fwd * manualFwd) }; // (j1: right)
+      if (fpvDrive) cmd = fpvCommand(r2);
       const moving = cmd.j1 !== 0 || cmd.j2 !== 0;
       const changed = !man.sent || cmd.j1 !== man.sent.j1 || cmd.j2 !== man.sent.j2;
       if ((changed || moving) && now - man.sentAt > (changed ? 40 : MANUAL_SEND_MS)) {
@@ -897,6 +902,32 @@ Lynx.games = Lynx.games || {};
         man.camSent = c;
         man.camAt = now;
       }
+    }
+    // FPV drive: the way to go in the world -- forward / back along the camera's view, sideways to it --
+    // into the wheels as the robot's own camera-frame drive does it (driveTowardWorldDirection, the
+    // closer face: never more than a quarter turn), as a "joystick" command (j2 the mean, j1 half the
+    // difference of the two wheels)
+    function fpvCommand(r2) {
+      const v = man.viewYaw !== null ? man.viewYaw : chassisTheta(); // (the camera's heading, world)
+      const th = chassisTheta();
+      const right = -man.turn; // (the look input's rot: positive to the left)
+      const dx = man.fwd * Math.cos(v) + right * Math.sin(v);
+      const dy = man.fwd * Math.sin(v) - right * Math.cos(v);
+      const fwd = dx * Math.cos(th) + dy * Math.sin(th);
+      const left = -dx * Math.sin(th) + dy * Math.cos(th);
+      let L;
+      let R;
+      if (fwd >= 0) {
+        L = fwd - left;
+        R = fwd + left;
+      } else {
+        L = fwd + left;
+        R = fwd - left;
+      }
+      const n = Math.max(1, Math.abs(L), Math.abs(R));
+      L /= n;
+      R /= n;
+      return { j1: r2(((L - R) / 2) * manualFwd * 1.5), j2: r2(((L + R) / 2) * manualFwd) };
     }
     function stopRobot() {
       Lynx.control.send({ type: "joystick", j1: 0, j2: 0 }); // (out of goto too)
@@ -1199,6 +1230,7 @@ Lynx.games = Lynx.games || {};
       panelItems.push(Lynx.cam.addOverlayToggle("Blocks", showBlocks, (on) => remember("knightblocksShowBlocks", (showBlocks = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Tags", showTags, (on) => remember("knightblocksShowTags", (showTags = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Wheel tracks", showTracks, (on) => remember("knightblocksWheelTracks", (showTracks = on))));
+      panelItems.push(Lynx.cam.addOverlayToggle("FPV drive (strafe)", fpvDrive, (on) => remember("knightblocksFpvDrive", (fpvDrive = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Auto stop", autoStop, (on) => remember("knightblocksAutoStop", (autoStop = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("Jump hint", showJumpHint, (on) => remember("knightblocksJumpHint", (showJumpHint = on))));
       panelItems.push(Lynx.cam.addOverlayToggle("World frame from cube", frameFromCube, (on) => remember("knightblocksAutoFrame", (frameFromCube = on))));
